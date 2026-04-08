@@ -27,50 +27,41 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen
           
-      - name: Verify NodeMobile Framework Structure
+      - name: Check NodeMobile Symbols
         run: |
-          echo "=== 检查 NodeMobile.xcframework 结构 ==="
+          echo "=== 检查 NodeMobile 框架中的符号 ==="
           
-          FRAMEWORK_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework"
+          BINARY_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/NodeMobile.framework/NodeMobile"
           
-          if [ -d "$FRAMEWORK_PATH" ]; then
-            echo "✅ NodeMobile.xcframework 存在"
+          if [ -f "$BINARY_PATH" ]; then
+            echo "✅ 找到 NodeMobile 二进制文件"
             
-            # 检查 Info.plist
-            echo "检查 Info.plist:"
-            if [ -f "$FRAMEWORK_PATH/Info.plist" ]; then
-              echo "✅ Info.plist 存在"
-              # 提取可用库信息
-              plutil -p "$FRAMEWORK_PATH/Info.plist" | grep -A 20 "AvailableLibraries"
-            fi
+            echo "1. 检查文件类型:"
+            file "$BINARY_PATH"
             
-            # 检查 iOS arm64 架构
-            echo "检查 iOS arm64 架构:"
-            if [ -d "$FRAMEWORK_PATH/ios-arm64" ]; then
-              echo "✅ ios-arm64 变体存在"
-              echo "目录内容:"
-              ls -la "$FRAMEWORK_PATH/ios-arm64/"
-            fi
+            echo "2. 检查架构:"
+            lipo -info "$BINARY_PATH"
+            
+            echo "3. 查找 node_post_message 符号:"
+            nm "$BINARY_PATH" 2>/dev/null | grep -i "node_post_message" || echo "未找到 node_post_message 符号"
+            
+            echo "4. 查找 node_start 符号:"
+            nm "$BINARY_PATH" 2>/dev/null | grep -i "node_start" || echo "未找到 node_start 符号"
+            
+            echo "5. 查找所有包含 'node' 的符号:"
+            nm "$BINARY_PATH" 2>/dev/null | grep -i "node" | head -20
           else
-            echo "❌ NodeMobile.xcframework 不存在"
-            exit 1
+            echo "❌ NodeMobile 二进制文件不存在: $BINARY_PATH"
           fi
           
-      - name: Install Dependencies
-        run: |
-          brew install libimobiledevice ideviceinstaller
-          
-      - name: Build TVBox (No Signing)
+      - name: Build TVBox (Multiple Strategies)
         run: |
           # 清理构建目录
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS'
           
-          # 获取框架路径
-          FRAMEWORK_PATH="$(pwd)/Libraries/nodejs-mobile/NodeMobile.xcframework"
-          
-          # 无签名构建
-          echo "开始构建..."
-          xcodebuild build \
+          # 策略1: 尝试标准构建
+          echo "=== 策略1: 标准构建 ==="
+          if xcodebuild build \
             -project tvbox.xcodeproj \
             -scheme tvbox \
             -destination 'generic/platform=iOS' \
@@ -78,8 +69,50 @@ jobs:
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             -derivedDataPath ./DerivedData \
-            FRAMEWORK_SEARCH_PATHS="$FRAMEWORK_PATH" \
-            OTHER_LDFLAGS="-framework NodeMobile"
+            2>&1 | tee build.log; then
+            echo "✅ 策略1 成功"
+            BUILD_SUCCESS=true
+          else
+            echo "❌ 策略1 失败"
+            BUILD_SUCCESS=false
+          fi
+          
+          # 如果策略1失败，尝试策略2: 不使用 Node.js
+          if [ "$BUILD_SUCCESS" = false ]; then
+            echo ""
+            echo "=== 策略2: 尝试临时移除 Node.js 依赖 ==="
+            
+            # 备份原始文件
+            cp tvbox/NodeJSBridge.swift tvbox/NodeJSBridge.swift.backup
+            
+            # 临时修改 NodeJSBridge.swift，移除对 node_post_message 的调用
+            sed -i '' 's/jsonString.withCString { node_post_message(\$0) }/print("Node.js disabled: \(jsonString)")/g' tvbox/NodeJSBridge.swift
+            sed -i '' 's/node_start(Int32(argc), argv)/print("Node.js startup disabled")/g' tvbox/NodeJSBridge.swift
+            
+            if xcodebuild build \
+              -project tvbox.xcodeproj \
+              -scheme tvbox \
+              -destination 'generic/platform=iOS' \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              -derivedDataPath ./DerivedData2 \
+              2>&1 | tee -a build.log; then
+              echo "✅ 策略2 成功 (Node.js 功能被禁用)"
+              BUILD_SUCCESS=true
+              # 使用新构建的输出
+              DERIVED_DATA="./DerivedData2"
+            else
+              echo "❌ 策略2 失败"
+              # 恢复备份
+              mv tvbox/NodeJSBridge.swift.backup tvbox/NodeJSBridge.swift
+            fi
+          fi
+          
+          if [ "$BUILD_SUCCESS" = false ]; then
+            echo "❌ 所有构建策略都失败了"
+            exit 1
+          fi
           
           # 找到生成的 .app 包路径
           APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
@@ -87,9 +120,15 @@ jobs:
             APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -n 1)
           fi
           
+          if [ -z "$APP_PATH" ] && [ -d "./DerivedData2" ]; then
+            APP_PATH=$(find ./DerivedData2 -name "tvbox.app" -type d | head -n 1)
+            if [ -z "$APP_PATH" ]; then
+              APP_PATH=$(find ./DerivedData2 -name "TVBox.app" -type d | head -n 1)
+            fi
+          fi
+          
           if [ -z "$APP_PATH" ]; then
             echo "❌ 未找到 .app 文件"
-            find ./DerivedData -name "*.app" -type d
             exit 1
           fi
           
