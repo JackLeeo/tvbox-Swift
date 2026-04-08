@@ -13,7 +13,9 @@ jobs:
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
-        
+        with:
+          lfs: true # 启用 Git LFS
+          
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
@@ -25,6 +27,20 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen
           
+      - name: Verify NodeMobile Framework
+        run: |
+          # 检查 NodeMobile.xcframework 是否存在
+          echo "检查 NodeMobile 框架..."
+          if [ -d "Libraries/nodejs-mobile/NodeMobile.xcframework" ]; then
+            echo "✅ NodeMobile.xcframework 存在"
+            ls -la Libraries/nodejs-mobile/NodeMobile.xcframework/
+          else
+            echo "❌ NodeMobile.xcframework 不存在"
+            echo "当前目录结构:"
+            find . -name "*.xcframework" -type d
+            exit 1
+          fi
+          
       - name: Install Dependencies
         run: |
           # 安装巨魔打包依赖工具
@@ -35,13 +51,46 @@ jobs:
           # 清理构建目录
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS'
           
-          # 无签名构建（生成 .app 包）
+          # 修复链接器设置
+          echo "修复链接器设置..."
+          
+          # 方案1: 尝试通过 Other Linker Flags 添加 -framework NodeMobile
           xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            -derivedDataPath ./DerivedData
+            -derivedDataPath ./DerivedData \
+            OTHER_LDFLAGS="-framework NodeMobile"
+          
+          # 如果方案1失败，尝试方案2: 添加库搜索路径
+          if [ $? -ne 0 ]; then
+            echo "方案1失败，尝试方案2..."
+            xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
+              CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+              -derivedDataPath ./DerivedData \
+              LIBRARY_SEARCH_PATHS="\$(inherited) \$(PROJECT_DIR)/Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64"
+          fi
+          
+          # 如果方案2失败，尝试方案3: 使用通用构建参数
+          if [ $? -ne 0 ]; then
+            echo "方案2失败，尝试方案3..."
+            xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
+              CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+              -derivedDataPath ./DerivedData \
+              FRAMEWORK_SEARCH_PATHS="\$(inherited) \$(PROJECT_DIR)/Libraries/nodejs-mobile" \
+              OTHER_LDFLAGS="-framework NodeMobile"
+          fi
           
           # 找到生成的 .app 包路径
           APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -n 1)
+          fi
+          
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ 未找到 .app 文件"
+            find ./DerivedData -name "*.app" -type d
+            exit 1
+          fi
+          
           echo "APP_PATH: $APP_PATH"
           
           # 打包为巨魔可安装的 IPA（无签名）
@@ -55,3 +104,13 @@ jobs:
           name: tvbox-Swift-TrollStore
           path: ./Build/tvbox-Swift-TrollStore.ipa
           retention-days: 30 # artifacts 保留 30 天
+          
+      - name: Upload Build Logs
+        if: failure()  # 只在失败时上传日志
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ${{ runner.temp }}/xcodebuild_*.log
+            ${{ runner.temp }}/xcodebuild_*.xcresult
+          retention-days: 7
