@@ -8,18 +8,18 @@ on:
 
 jobs:
   build:
-    runs-on: macos-14 # 需使用 macOS 14（支持 Xcode 15）
+    runs-on: macos-14 # 需使用 macOS 14（支持 Xcode 15+）
     
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          lfs: true # 启用 Git LFS
+          lfs: true # 启用 Git LFS 支持，确保大文件正确拉取
           
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2' # 匹配开发版本
+          xcode-version: '16.2' # 使用 Xcode 16.2
           
       - name: Install xcodegen
         run: brew install xcodegen
@@ -29,11 +29,32 @@ jobs:
           
       - name: Verify NodeMobile Framework
         run: |
-          # 检查 NodeMobile.xcframework 是否存在
-          echo "检查 NodeMobile 框架..."
+          echo "=== 检查 NodeMobile.xcframework 结构 ==="
+          
           if [ -d "Libraries/nodejs-mobile/NodeMobile.xcframework" ]; then
             echo "✅ NodeMobile.xcframework 存在"
-            ls -la Libraries/nodejs-mobile/NodeMobile.xcframework/
+            
+            # 列出框架内容
+            echo "框架内容:"
+            find Libraries/nodejs-mobile/NodeMobile.xcframework -name "*.framework" -type d
+            
+            # 检查 Info.plist
+            if [ -f "Libraries/nodejs-mobile/NodeMobile.xcframework/Info.plist" ]; then
+              echo "✅ Info.plist 存在"
+              # 解析 Info.plist 查看支持的平台
+              plutil -p Libraries/nodejs-mobile/NodeMobile.xcframework/Info.plist | grep -A5 "AvailableLibraries" || true
+            else
+              echo "❌ Info.plist 不存在"
+            fi
+            
+            # 检查 iOS arm64 架构
+            if [ -d "Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64" ]; then
+              echo "✅ iOS arm64 架构存在"
+              ls -la Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/
+            else
+              echo "⚠️ iOS arm64 架构不存在，检查其他架构:"
+              ls -la Libraries/nodejs-mobile/NodeMobile.xcframework/
+            fi
           else
             echo "❌ NodeMobile.xcframework 不存在"
             echo "当前目录结构:"
@@ -51,33 +72,22 @@ jobs:
           # 清理构建目录
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS'
           
-          # 修复链接器设置
-          echo "修复链接器设置..."
+          # 设置框架搜索路径
+          NODE_FRAMEWORK_PATH="$(pwd)/Libraries/nodejs-mobile/NodeMobile.xcframework"
+          echo "NodeMobile 框架路径: $NODE_FRAMEWORK_PATH"
           
-          # 方案1: 尝试通过 Other Linker Flags 添加 -framework NodeMobile
+          # 检查框架是否存在
+          if [ ! -d "$NODE_FRAMEWORK_PATH" ]; then
+            echo "❌ NodeMobile 框架不存在于: $NODE_FRAMEWORK_PATH"
+            exit 1
+          fi
+          
+          # 无签名构建，显式指定框架搜索路径
           xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
             CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
             -derivedDataPath ./DerivedData \
+            FRAMEWORK_SEARCH_PATHS="\$(inherited) $NODE_FRAMEWORK_PATH" \
             OTHER_LDFLAGS="-framework NodeMobile"
-          
-          # 如果方案1失败，尝试方案2: 添加库搜索路径
-          if [ $? -ne 0 ]; then
-            echo "方案1失败，尝试方案2..."
-            xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
-              CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-              -derivedDataPath ./DerivedData \
-              LIBRARY_SEARCH_PATHS="\$(inherited) \$(PROJECT_DIR)/Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64"
-          fi
-          
-          # 如果方案2失败，尝试方案3: 使用通用构建参数
-          if [ $? -ne 0 ]; then
-            echo "方案2失败，尝试方案3..."
-            xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
-              CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-              -derivedDataPath ./DerivedData \
-              FRAMEWORK_SEARCH_PATHS="\$(inherited) \$(PROJECT_DIR)/Libraries/nodejs-mobile" \
-              OTHER_LDFLAGS="-framework NodeMobile"
-          fi
           
           # 找到生成的 .app 包路径
           APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
