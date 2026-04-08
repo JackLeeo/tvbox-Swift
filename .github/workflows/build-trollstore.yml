@@ -27,22 +27,58 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen
           
+      - name: Verify NodeMobile Framework Structure
+        run: |
+          echo "=== 检查 NodeMobile.xcframework 结构 ==="
+          
+          FRAMEWORK_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework"
+          
+          if [ -d "$FRAMEWORK_PATH" ]; then
+            echo "✅ NodeMobile.xcframework 存在"
+            
+            # 检查 Info.plist
+            echo "检查 Info.plist:"
+            if [ -f "$FRAMEWORK_PATH/Info.plist" ]; then
+              echo "✅ Info.plist 存在"
+              # 提取可用库信息
+              plutil -p "$FRAMEWORK_PATH/Info.plist" | grep -A 20 "AvailableLibraries"
+            fi
+            
+            # 检查 iOS arm64 架构
+            echo "检查 iOS arm64 架构:"
+            if [ -d "$FRAMEWORK_PATH/ios-arm64" ]; then
+              echo "✅ ios-arm64 变体存在"
+              echo "目录内容:"
+              ls -la "$FRAMEWORK_PATH/ios-arm64/"
+            fi
+          else
+            echo "❌ NodeMobile.xcframework 不存在"
+            exit 1
+          fi
+          
+      - name: Install Dependencies
+        run: |
+          brew install libimobiledevice ideviceinstaller
+          
       - name: Build TVBox (No Signing)
         run: |
           # 清理构建目录
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS'
           
-          # 设置框架搜索路径
-          NODE_FRAMEWORK_PATH="$(pwd)/Libraries/nodejs-mobile/NodeMobile.xcframework"
-          echo "NodeMobile 框架路径: $NODE_FRAMEWORK_PATH"
+          # 获取框架路径
+          FRAMEWORK_PATH="$(pwd)/Libraries/nodejs-mobile/NodeMobile.xcframework"
           
           # 无签名构建
-          xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
+          echo "开始构建..."
+          xcodebuild build \
+            -project tvbox.xcodeproj \
+            -scheme tvbox \
+            -destination 'generic/platform=iOS' \
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
             -derivedDataPath ./DerivedData \
-            FRAMEWORK_SEARCH_PATHS="\$(inherited) $NODE_FRAMEWORK_PATH" \
+            FRAMEWORK_SEARCH_PATHS="$FRAMEWORK_PATH" \
             OTHER_LDFLAGS="-framework NodeMobile"
           
           # 找到生成的 .app 包路径
@@ -59,25 +95,20 @@ jobs:
           
           echo "APP_PATH: $APP_PATH"
           
-          # 修正的 IPA 打包步骤
+          # 正确打包 IPA
           mkdir -p ./Build
-          
-          # 创建临时目录结构
           TEMP_DIR=$(mktemp -d)
           mkdir -p "$TEMP_DIR/Payload"
           
-          # 复制 .app 文件到 Payload 目录
           cp -r "$APP_PATH" "$TEMP_DIR/Payload/"
           
-          # 进入临时目录并压缩
           cd "$TEMP_DIR"
           zip -r "$GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa" Payload
           
-          # 清理临时目录
           cd "$GITHUB_WORKSPACE"
           rm -rf "$TEMP_DIR"
           
-          echo "✅ IPA 打包完成: ./Build/tvbox-Swift-TrollStore.ipa"
+          echo "✅ IPA 打包完成"
           ls -lh ./Build/tvbox-Swift-TrollStore.ipa
           
       - name: Upload IPA Artifact
