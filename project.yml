@@ -4,18 +4,15 @@ options:
   xcodeVersion: "15.0"
   groupSortPosition: top
   minimumXcodeGenVersion: "2.35"
-
 settings:
   base:
     SWIFT_VERSION: "5.9"
     DEVELOPMENT_TEAM: ""
     CODE_SIGN_STYLE: Automatic
-
 packages:
   VLCKitSPM:
     url: https://github.com/tylerjonesio/vlckit-spm
     from: 3.6.0
-
 targets:
   tvbox:
     type: application
@@ -28,6 +25,8 @@ targets:
       - path: tvbox
         excludes:
           - Info.plist
+    resources:
+      - path: tvbox/Resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
@@ -46,12 +45,16 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         SUPPORTS_MACCATALYST: YES
         DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        # nodejs-mobile 集成配置
+        ENABLE_BITCODE: NO
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile/include $(inherited)
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile/lib $(inherited)
+        OTHER_LDFLAGS: -lnode -lc++ $(inherited)
       configs:
         Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
         Release:
           SWIFT_OPTIMIZATION_LEVEL: "-O"
-
   tvbox-macOS:
     type: application
     platform: macOS

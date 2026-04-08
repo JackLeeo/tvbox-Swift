@@ -1,0 +1,57 @@
+name: Build TrollStore TVBox
+
+on:
+  push:
+    branches: [ main ] # 推送 main 分支时触发
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-14 # 需使用 macOS 14（支持 Xcode 15）
+    
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '15.0' # 匹配开发版本
+          
+      - name: Install xcodegen
+        run: brew install xcodegen
+          
+      - name: Generate Xcode Project
+        run: xcodegen
+          
+      - name: Install Dependencies
+        run: |
+          # 安装巨魔打包依赖工具
+          brew install libimobiledevice ideviceinstaller
+          
+      - name: Build TVBox (No Signing)
+        run: |
+          # 清理构建目录
+          xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS'
+          
+          # 无签名构建（生成 .app 包）
+          xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath ./DerivedData
+          
+          # 找到生成的 .app 包路径
+          APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
+          echo "APP_PATH: $APP_PATH"
+          
+          # 打包为巨魔可安装的 IPA（无签名）
+          mkdir -p ./Build
+          cd $(dirname $APP_PATH)
+          zip -r $GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa Payload
+          
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvbox-Swift-TrollStore
+          path: ./Build/tvbox-Swift-TrollStore.ipa
+          retention-days: 30 # artifacts 保留 30 天

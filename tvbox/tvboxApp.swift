@@ -10,7 +10,7 @@ struct tvboxApp: App {
     @StateObject private var appState = AppState()
     /// 网络状态监控。
     @StateObject private var networkMonitor = NetworkMonitor.shared
-    
+
     /// 全局共享的 SwiftData 容器。
     /// 这里显式声明 Schema，确保收藏/历史/缓存三类数据使用同一持久化存储。
     var sharedModelContainer: ModelContainer = {
@@ -27,6 +27,9 @@ struct tvboxApp: App {
         }
     }()
     
+    /// type=3 源解析器，初始化时自动启动 Node.js 环境
+    private let type3Parser = Type3SourceParser.shared
+
     /// 应用窗口与根视图。
     var body: some Scene {
         WindowGroup {
@@ -55,28 +58,28 @@ class AppState: ObservableObject {
     @Published var configLoadError: String?
     /// 是否正在重试加载配置。
     @Published var isRetryingConfig = false
-    
+
     #if os(macOS)
     /// macOS 三栏布局可见性（侧栏/内容/详情）。
     @Published var splitViewVisibility: NavigationSplitViewVisibility = .all
     /// 进入播放器全屏前的分栏状态快照，用于退出全屏后恢复。
     private var splitViewVisibilityBeforePlayerFullScreen: NavigationSplitViewVisibility?
     #endif
-    
+
     /// 上次尝试加载的配置地址（用于自动重试）。
     private var lastVodUrl: String = ""
     private var lastLiveUrl: String = ""
     private var networkRestoredCancellable: AnyCancellable?
-    
+
     init() {
         setupNetworkRestoredAutoRetry()
     }
-    
+
     /// 仅提供点播地址时的快捷加载入口（直播地址默认与点播一致）。
     func loadConfig(url: String) async {
         await loadConfig(vodUrl: url, liveUrl: nil)
     }
-    
+
     /// 加载点播与直播配置。
     /// - Parameters:
     ///   - vodUrl: 点播配置地址
@@ -86,11 +89,11 @@ class AppState: ObservableObject {
         let trimmedLive = (liveUrl ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedVod.isEmpty else { return }
         let resolvedLive = trimmedLive.isEmpty ? trimmedVod : trimmedLive
-        
+
         lastVodUrl = trimmedVod
         lastLiveUrl = resolvedLive
         configLoadError = nil
-        
+
         do {
             try await ApiConfig.shared.loadConfigs(vodApiUrl: trimmedVod, liveApiUrl: resolvedLive)
             applyLoadedConfigState()
@@ -100,7 +103,7 @@ class AppState: ObservableObject {
             }
         }
     }
-    
+
     /// 将"配置已加载"的统一状态写回全局。
     /// 该方法会在设置页和启动自动加载两个入口中复用。
     func applyLoadedConfigState() {
@@ -108,7 +111,7 @@ class AppState: ObservableObject {
         configLoadError = nil
         currentSourceKey = ApiConfig.shared.homeSourceBean?.key ?? ""
     }
-    
+
     /// 网络恢复时，若配置未成功加载过，自动重试一次。
     private func setupNetworkRestoredAutoRetry() {
         networkRestoredCancellable = NetworkMonitor.shared.networkRestoredPublisher
@@ -122,7 +125,7 @@ class AppState: ObservableObject {
                 }
             }
     }
-    
+
     #if os(macOS)
     /// 进入播放器全屏时隐藏侧栏，减少播放器可视区域干扰。
     func enterPlayerFullScreen() {
@@ -131,7 +134,7 @@ class AppState: ObservableObject {
         }
         splitViewVisibility = .detailOnly
     }
-    
+
     /// 退出播放器全屏时恢复之前的分栏状态。
     func exitPlayerFullScreen() {
         guard let previous = splitViewVisibilityBeforePlayerFullScreen else { return }
