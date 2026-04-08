@@ -636,7 +636,4 @@ struct SelectionModal<Item: Identifiable & Equatable>: View {
     }
 }
 
-// 模拟扩展
-extension Int: @retroactive Identifiable {
-    public var id: Int { self }
-}
+
