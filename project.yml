@@ -21,6 +21,8 @@ targets:
     dependencies:
       - package: VLCKitSPM
         product: VLCKitSPM
+      # 新增：添加NodeMobile框架依赖，解决链接找不到的问题
+      - framework: Libraries/nodejs-mobile/NodeMobile.xcframework
     sources:
       - path: tvbox
         excludes:
@@ -45,8 +47,9 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         SUPPORTS_MACCATALYST: YES
         DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
-        # nodejs-mobile 集成配置（关键修正：适配 .xcframework 格式）
+        # nodejs-mobile 集成配置
         ENABLE_BITCODE: NO
+        HEADER_SEARCH_PATHS: $(inherited)
         FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/Libraries/nodejs-mobile/NodeMobile.xcframework
         OTHER_LDFLAGS: -framework NodeMobile -lc++ $(inherited)
       configs:
