@@ -24,7 +24,7 @@ class NodeJSBridge: NSObject {
             }
             
             // 2. 初始化 Node.js 并执行脚本
-            node_start(argc, argv)
+            node_start(Int32(argc), argv)
             
             // 3. 释放内存
             for i in 0..<argc {
@@ -44,7 +44,7 @@ class NodeJSBridge: NSObject {
         
         // 通过 Node.js 全局变量传递数据（需在脚本中监听）
         DispatchQueue.global().async {
-            node_post_message(jsonString)
+            jsonString.withCString { node_post_message($0) }
         }
     }
     
@@ -69,5 +69,8 @@ func node_message_handler(message: UnsafePointer<CChar>) {
 }
 
 // MARK: - Node.js 核心函数声明（来自 nodejs-mobile 静态库）
+@_silgen_name("node_start")
 func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>>)
-func node_post_message(_ message: String)
+
+@_silgen_name("node_post_message")
+func node_post_message(_ message: UnsafePointer<CChar>)
