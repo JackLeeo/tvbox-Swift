@@ -2,24 +2,24 @@ name: Build TrollStore TVBox
 
 on:
   push:
-    branches: [ main ] # 推送 main 分支时触发
+    branches: [ main ]
   pull_request:
     branches: [ main ]
 
 jobs:
   build:
-    runs-on: macos-14 # 需使用 macOS 14（支持 Xcode 15+）
+    runs-on: macos-14
     
     steps:
       - name: Checkout Code
         uses: actions/checkout@v4
         with:
-          lfs: true # 启用 Git LFS 支持，确保大文件正确拉取
+          lfs: true
           
       - name: Setup Xcode
         uses: maxim-lobanov/setup-xcode@v1
         with:
-          xcode-version: '16.2' # 使用 Xcode 16.2
+          xcode-version: '16.2'
           
       - name: Install xcodegen
         run: brew install xcodegen
@@ -27,77 +27,201 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen
           
-      - name: Verify NodeMobile Framework
+      - name: Deep Inspect NodeMobile Framework
         run: |
-          echo "=== 检查 NodeMobile.xcframework 结构 ==="
+          echo "=== 深度检查 NodeMobile.xcframework 结构 ==="
           
-          if [ -d "Libraries/nodejs-mobile/NodeMobile.xcframework" ]; then
-            echo "✅ NodeMobile.xcframework 存在"
-            
-            # 列出框架内容
-            echo "框架内容:"
-            find Libraries/nodejs-mobile/NodeMobile.xcframework -name "*.framework" -type d
-            
-            # 检查 Info.plist
-            if [ -f "Libraries/nodejs-mobile/NodeMobile.xcframework/Info.plist" ]; then
-              echo "✅ Info.plist 存在"
-              # 解析 Info.plist 查看支持的平台
-              plutil -p Libraries/nodejs-mobile/NodeMobile.xcframework/Info.plist | grep -A5 "AvailableLibraries" || true
-            else
-              echo "❌ Info.plist 不存在"
-            fi
-            
-            # 检查 iOS arm64 架构
-            if [ -d "Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64" ]; then
-              echo "✅ iOS arm64 架构存在"
-              ls -la Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/
-            else
-              echo "⚠️ iOS arm64 架构不存在，检查其他架构:"
-              ls -la Libraries/nodejs-mobile/NodeMobile.xcframework/
-            fi
-          else
-            echo "❌ NodeMobile.xcframework 不存在"
+          FRAMEWORK_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework"
+          
+          if [ ! -d "$FRAMEWORK_PATH" ]; then
+            echo "❌ NodeMobile.xcframework 不存在于: $FRAMEWORK_PATH"
             echo "当前目录结构:"
             find . -name "*.xcframework" -type d
             exit 1
           fi
           
-      - name: Install Dependencies
-        run: |
-          # 安装巨魔打包依赖工具
-          brew install libimobiledevice ideviceinstaller
+          echo "✅ NodeMobile.xcframework 存在"
+          echo ""
           
-      - name: Build TVBox (No Signing)
+          # 1. 检查框架的整体结构
+          echo "1. 框架整体结构:"
+          find "$FRAMEWORK_PATH" -type f | grep -E "\.(plist|framework|a|dylib)$" || true
+          echo ""
+          
+          # 2. 解析 Info.plist
+          echo "2. Info.plist 内容:"
+          if [ -f "$FRAMEWORK_PATH/Info.plist" ]; then
+            echo "CFBundlePackageType: $(plutil -extract CFBundlePackageType raw "$FRAMEWORK_PATH/Info.plist")"
+            echo "XCFrameworkFormatVersion: $(plutil -extract XCFrameworkFormatVersion raw "$FRAMEWORK_PATH/Info.plist")"
+            
+            # 提取支持的架构
+            echo "支持的架构:"
+            plutil -extract AvailableLibraries json "$FRAMEWORK_PATH/Info.plist" | python3 -m json.tool || true
+          else
+            echo "❌ Info.plist 不存在"
+          fi
+          echo ""
+          
+          # 3. 检查 iOS arm64 架构
+          echo "3. 检查 iOS arm64 架构目录:"
+          if [ -d "$FRAMEWORK_PATH/ios-arm64" ]; then
+            echo "✅ ios-arm64 目录存在"
+            ls -la "$FRAMEWORK_PATH/ios-arm64/"
+            echo ""
+            
+            # 检查是否有 .framework 目录
+            FRAMEWORK_DIR=$(find "$FRAMEWORK_PATH/ios-arm64" -name "*.framework" -type d | head -1)
+            if [ -n "$FRAMEWORK_DIR" ]; then
+              echo "✅ 找到框架目录: $FRAMEWORK_DIR"
+              FRAMEWORK_NAME=$(basename "$FRAMEWORK_DIR" .framework)
+              echo "框架名称: $FRAMEWORK_NAME"
+              
+              # 检查二进制文件
+              BINARY_FILE="$FRAMEWORK_DIR/$FRAMEWORK_NAME"
+              if [ -f "$BINARY_FILE" ]; then
+                echo "✅ 二进制文件存在: $BINARY_FILE"
+                echo "文件类型:"
+                file "$BINARY_FILE"
+                echo ""
+                echo "支持的架构:"
+                lipo -info "$BINARY_FILE" || true
+              else
+                echo "❌ 二进制文件不存在"
+                echo "目录内容:"
+                ls -la "$FRAMEWORK_DIR/"
+              fi
+            else
+              echo "❌ 在 ios-arm64 目录中未找到 .framework 目录"
+            fi
+          else
+            echo "⚠️ ios-arm64 目录不存在，检查其他架构:"
+            find "$FRAMEWORK_PATH" -type d -name "*ios*" -o -name "*arm64*" | head -10
+          fi
+          echo ""
+          
+          # 4. 检查是否包含静态库
+          echo "4. 检查静态库 (.a 文件):"
+          find "$FRAMEWORK_PATH" -name "*.a" -type f | while read lib; do
+            echo "找到静态库: $lib"
+            echo "支持的架构:"
+            lipo -info "$lib" 2>/dev/null || echo "无法识别架构"
+          done
+          
+      - name: Build TVBox (Multiple Strategies)
         run: |
+          # 设置路径
+          PROJECT_DIR=$(pwd)
+          DERIVED_DATA="./DerivedData"
+          NODE_FRAMEWORK_PATH="$PROJECT_DIR/Libraries/nodejs-mobile/NodeMobile.xcframework"
+          
+          echo "项目目录: $PROJECT_DIR"
+          echo "NodeMobile 框架路径: $NODE_FRAMEWORK_PATH"
+          
           # 清理构建目录
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS'
           
-          # 设置框架搜索路径
-          NODE_FRAMEWORK_PATH="$(pwd)/Libraries/nodejs-mobile/NodeMobile.xcframework"
-          echo "NodeMobile 框架路径: $NODE_FRAMEWORK_PATH"
+          # 策略 1: 尝试标准构建
+          echo ""
+          echo "=== 策略 1: 标准构建 ==="
+          if xcodebuild build \
+            -project tvbox.xcodeproj \
+            -scheme tvbox \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            -derivedDataPath "$DERIVED_DATA" \
+            FRAMEWORK_SEARCH_PATHS="\$(inherited) $NODE_FRAMEWORK_PATH" \
+            OTHER_LDFLAGS="-framework NodeMobile" \
+            2>&1 | tee build.log; then
+            echo "✅ 策略 1 成功"
+            BUILD_SUCCESS=true
+          else
+            echo "❌ 策略 1 失败"
+            BUILD_SUCCESS=false
+          fi
           
-          # 检查框架是否存在
-          if [ ! -d "$NODE_FRAMEWORK_PATH" ]; then
-            echo "❌ NodeMobile 框架不存在于: $NODE_FRAMEWORK_PATH"
+          # 如果策略1失败，尝试策略2
+          if [ "$BUILD_SUCCESS" = false ]; then
+            echo ""
+            echo "=== 策略 2: 尝试查找正确的框架名称 ==="
+            
+            # 尝试从框架目录中检测框架名称
+            FRAMEWORK_DIR=$(find "$NODE_FRAMEWORK_PATH" -name "*.framework" -type d | head -1)
+            if [ -n "$FRAMEWORK_DIR" ]; then
+              FRAMEWORK_NAME=$(basename "$FRAMEWORK_DIR" .framework)
+              echo "检测到框架名称: $FRAMEWORK_NAME"
+              
+              if xcodebuild build \
+                -project tvbox.xcodeproj \
+                -scheme tvbox \
+                -destination 'generic/platform=iOS' \
+                CODE_SIGN_IDENTITY="" \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO \
+                -derivedDataPath "$DERIVED_DATA" \
+                FRAMEWORK_SEARCH_PATHS="\$(inherited) $NODE_FRAMEWORK_PATH" \
+                OTHER_LDFLAGS="-framework $FRAMEWORK_NAME" \
+                2>&1 | tee -a build.log; then
+                echo "✅ 策略 2 成功 (使用框架名称: $FRAMEWORK_NAME)"
+                BUILD_SUCCESS=true
+              else
+                echo "❌ 策略 2 失败"
+              fi
+            fi
+          fi
+          
+          # 如果策略2失败，尝试策略3
+          if [ "$BUILD_SUCCESS" = false ]; then
+            echo ""
+            echo "=== 策略 3: 尝试使用静态库 ==="
+            
+            # 查找静态库
+            STATIC_LIB=$(find "$NODE_FRAMEWORK_PATH" -name "*.a" -type f | head -1)
+            if [ -n "$STATIC_LIB" ]; then
+              LIB_NAME=$(basename "$STATIC_LIB" .a | sed 's/^lib//')
+              echo "找到静态库: $STATIC_LIB"
+              echo "库名称: $LIB_NAME"
+              
+              if xcodebuild build \
+                -project tvbox.xcodeproj \
+                -scheme tvbox \
+                -destination 'generic/platform=iOS' \
+                CODE_SIGN_IDENTITY="" \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO \
+                -derivedDataPath "$DERIVED_DATA" \
+                LIBRARY_SEARCH_PATHS="\$(inherited) $(dirname "$STATIC_LIB")" \
+                OTHER_LDFLAGS="-l$LIB_NAME" \
+                2>&1 | tee -a build.log; then
+                echo "✅ 策略 3 成功 (使用静态库: $LIB_NAME)"
+                BUILD_SUCCESS=true
+              else
+                echo "❌ 策略 3 失败"
+              fi
+            else
+              echo "未找到静态库 (.a 文件)"
+            fi
+          fi
+          
+          # 如果所有策略都失败，输出错误信息
+          if [ "$BUILD_SUCCESS" = false ]; then
+            echo ""
+            echo "❌ 所有构建策略都失败了"
+            echo "最后的构建日志:"
+            tail -50 build.log
             exit 1
           fi
           
-          # 无签名构建，显式指定框架搜索路径
-          xcodebuild build -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' \
-            CODE_SIGN_IDENTITY="" CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=NO \
-            -derivedDataPath ./DerivedData \
-            FRAMEWORK_SEARCH_PATHS="\$(inherited) $NODE_FRAMEWORK_PATH" \
-            OTHER_LDFLAGS="-framework NodeMobile"
-          
           # 找到生成的 .app 包路径
-          APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
+          APP_PATH=$(find "$DERIVED_DATA" -name "tvbox.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -n 1)
+            APP_PATH=$(find "$DERIVED_DATA" -name "TVBox.app" -type d | head -n 1)
           fi
           
           if [ -z "$APP_PATH" ]; then
             echo "❌ 未找到 .app 文件"
-            find ./DerivedData -name "*.app" -type d
+            find "$DERIVED_DATA" -name "*.app" -type d
             exit 1
           fi
           
@@ -105,22 +229,22 @@ jobs:
           
           # 打包为巨魔可安装的 IPA（无签名）
           mkdir -p ./Build
-          cd $(dirname $APP_PATH)
-          zip -r $GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa Payload
+          cd $(dirname "$APP_PATH")
+          zip -r "$PROJECT_DIR/Build/tvbox-Swift-TrollStore.ipa" Payload
           
       - name: Upload IPA Artifact
         uses: actions/upload-artifact@v4
         with:
           name: tvbox-Swift-TrollStore
           path: ./Build/tvbox-Swift-TrollStore.ipa
-          retention-days: 30 # artifacts 保留 30 天
+          retention-days: 30
           
       - name: Upload Build Logs
-        if: failure()  # 只在失败时上传日志
+        if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
           path: |
+            ./build.log
             ${{ runner.temp }}/xcodebuild_*.log
-            ${{ runner.temp }}/xcodebuild_*.xcresult
           retention-days: 7
