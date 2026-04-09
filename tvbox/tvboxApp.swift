@@ -1,9 +1,8 @@
 import SwiftUI
-import SwiftData
 import Combine
 
 /// 应用入口。
-/// 负责初始化 SwiftData 容器，并将全局状态 `AppState` 注入到根视图。
+/// 负责初始化全局状态 `AppState` 并注入到根视图。
 @main
 struct tvboxApp: App {
     /// 全局运行时状态（配置加载状态、当前源、分栏布局状态等）。
@@ -11,22 +10,6 @@ struct tvboxApp: App {
     /// 网络状态监控。
     @StateObject private var networkMonitor = NetworkMonitor.shared
 
-    /// 全局共享的 SwiftData 容器。
-    /// 这里显式声明 Schema，确保收藏/历史/缓存三类数据使用同一持久化存储。
-    var sharedModelContainer: ModelContainer = {
-        let schema = Schema([
-            VodCollect.self,
-            VodRecord.self,
-            CacheItem.self
-        ])
-        let modelConfiguration = ModelConfiguration(schema: schema, isStoredInMemoryOnly: false)
-        do {
-            return try ModelContainer(for: schema, configurations: [modelConfiguration])
-        } catch {
-            fatalError("Could not create ModelContainer: \(error)")
-        }
-    }()
-    
     /// type=3 源解析器，初始化时自动启动 Node.js 环境
     private let type3Parser = Type3SourceParser.shared
 
@@ -37,7 +20,6 @@ struct tvboxApp: App {
                 .environmentObject(appState)
                 .environmentObject(networkMonitor)
         }
-        .modelContainer(sharedModelContainer)
         #if os(macOS)
         .defaultSize(width: 1200, height: 800)
         #endif
