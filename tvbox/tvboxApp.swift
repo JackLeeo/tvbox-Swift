@@ -9,6 +9,8 @@ struct tvboxApp: App {
     @StateObject private var appState = AppState()
     /// 网络状态监控。
     @StateObject private var networkMonitor = NetworkMonitor.shared
+    /// 日志管理器（供悬浮窗使用）。
+    @StateObject private var logger = Logger.shared
 
     /// type=3 源解析器，初始化时自动启动 Node.js 环境
     private let type3Parser = Type3SourceParser.shared
@@ -16,9 +18,19 @@ struct tvboxApp: App {
     /// 应用窗口与根视图。
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .environmentObject(appState)
-                .environmentObject(networkMonitor)
+            ZStack {
+                ContentView()
+                    .environmentObject(appState)
+                    .environmentObject(networkMonitor)
+                
+                // 调试悬浮窗（仅当有日志时显示，或一直显示）
+                DebugOverlay()
+                    .allowsHitTesting(true)
+            }
+            .overlay(alignment: .bottomTrailing) {
+                // 当悬浮窗被关闭时，提供一个小按钮重新打开
+                DebugToggleButton()
+            }
         }
         #if os(macOS)
         .defaultSize(width: 1200, height: 800)
