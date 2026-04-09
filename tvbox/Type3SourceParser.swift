@@ -6,19 +6,18 @@ class Type3SourceParser {
     
     // MARK: - 通用解析方法
     
-    /// 通用方法：向 Node.js 发送解析请求，返回原始字典
     func parseType3Source(sourceUrl: String, headers: [String: String]? = nil, completion: @escaping ([String: Any]?, Error?) -> Void) {
+        Logger.shared.log("Type3SourceParser 通用解析请求", level: .debug)
         nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers, completion: completion)
     }
     
-    /// 通用方法：异步版本
     func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
-        try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
+        Logger.shared.log("Type3SourceParser 异步通用解析", level: .debug)
+        return try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
     }
     
     // MARK: - 首页解析
     
-    /// 解析 jar 源的首页，返回分类列表和推荐视频
     func parseHome(from source: SourceBean) async throws -> (sorts: [MovieSort.SortData], homeVideos: [Movie.Video]) {
         Logger.shared.log("开始解析首页 (源: \(source.name), type=\(source.type))", level: .info)
         
@@ -28,12 +27,13 @@ class Type3SourceParser {
             throw SourceError.emptyApi
         }
         
-        // 构建请求 JSON，与 Node.js 端期望的格式一致
+        // 对于 jar 源，需要传递完整信息，包括 ext 和 jar 字段
         let requestData: [String: Any] = [
             "action": "home",
             "api": api,
             "key": source.key,
-            "ext": source.ext ?? ""
+            "ext": source.ext ?? "",
+            "jar": source.jar ?? ""
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -43,9 +43,8 @@ class Type3SourceParser {
         }
         
         Logger.shared.log("发送首页解析请求到 Node.js", level: .debug)
-        let result = try await sendRequest(jsonString: jsonString)
+        let result = try await parseType3Source(sourceUrl: jsonString)
         
-        // 解析返回数据
         guard let success = result["success"] as? Bool, success,
               let data = result["data"] as? [String: Any] else {
             let errorMsg = result["error"] as? String ?? "解析失败"
@@ -56,7 +55,6 @@ class Type3SourceParser {
         var sorts: [MovieSort.SortData] = []
         var homeVideos: [Movie.Video] = []
         
-        // 解析分类
         if let classList = data["class"] as? [[String: Any]] {
             for cls in classList {
                 let id: String
@@ -73,7 +71,6 @@ class Type3SourceParser {
             Logger.shared.log("解析到 \(sorts.count) 个分类", level: .info)
         }
         
-        // 解析首页视频
         if let list = data["list"] as? [[String: Any]] {
             for item in list {
                 if let itemData = try? JSONSerialization.data(withJSONObject: item),
@@ -85,7 +82,6 @@ class Type3SourceParser {
             Logger.shared.log("解析到 \(homeVideos.count) 个首页视频", level: .info)
         }
         
-        // 如果没有分类，添加一个默认的“首页”分类
         if sorts.isEmpty && !homeVideos.isEmpty {
             sorts = [MovieSort.SortData(id: "home", name: "首页")]
             Logger.shared.log("未返回分类，使用默认'首页'分类", level: .info)
@@ -96,7 +92,6 @@ class Type3SourceParser {
     
     // MARK: - 分类列表解析
     
-    /// 解析分类下的视频列表
     func parseList(from source: SourceBean, sortId: String, page: Int = 1, filters: [String: String]? = nil) async throws -> [Movie.Video] {
         Logger.shared.log("开始解析分类列表 (源: \(source.name), 分类ID: \(sortId), 页码: \(page))", level: .info)
         
@@ -111,6 +106,7 @@ class Type3SourceParser {
             "api": api,
             "key": source.key,
             "ext": source.ext ?? "",
+            "jar": source.jar ?? "",
             "tid": sortId,
             "page": page,
             "filters": filters ?? [:]
@@ -122,7 +118,7 @@ class Type3SourceParser {
             throw SourceError.parseError("无法构建请求数据")
         }
         
-        let result = try await sendRequest(jsonString: jsonString)
+        let result = try await parseType3Source(sourceUrl: jsonString)
         
         guard let success = result["success"] as? Bool, success,
               let data = result["data"] as? [String: Any],
@@ -147,7 +143,6 @@ class Type3SourceParser {
     
     // MARK: - 详情解析
     
-    /// 解析视频详情
     func parseDetail(from source: SourceBean, vodId: String) async throws -> VodInfo? {
         Logger.shared.log("开始解析详情 (源: \(source.name), vodId: \(vodId))", level: .info)
         
@@ -162,6 +157,7 @@ class Type3SourceParser {
             "api": api,
             "key": source.key,
             "ext": source.ext ?? "",
+            "jar": source.jar ?? "",
             "vod_id": vodId
         ]
         
@@ -171,7 +167,7 @@ class Type3SourceParser {
             throw SourceError.parseError("无法构建请求数据")
         }
         
-        let result = try await sendRequest(jsonString: jsonString)
+        let result = try await parseType3Source(sourceUrl: jsonString)
         
         guard let success = result["success"] as? Bool, success,
               let data = result["data"] as? [String: Any],
@@ -199,7 +195,6 @@ class Type3SourceParser {
     
     // MARK: - 搜索解析
     
-    /// 在 jar 源中搜索
     func parseSearch(from source: SourceBean, keyword: String) async throws -> [Movie.Video] {
         Logger.shared.log("开始搜索 (源: \(source.name), 关键词: \(keyword))", level: .info)
         
@@ -214,6 +209,7 @@ class Type3SourceParser {
             "api": api,
             "key": source.key,
             "ext": source.ext ?? "",
+            "jar": source.jar ?? "",
             "wd": keyword
         ]
         
@@ -223,7 +219,7 @@ class Type3SourceParser {
             throw SourceError.parseError("无法构建请求数据")
         }
         
-        let result = try await sendRequest(jsonString: jsonString)
+        let result = try await parseType3Source(sourceUrl: jsonString)
         
         guard let success = result["success"] as? Bool, success,
               let data = result["data"] as? [String: Any],
@@ -244,20 +240,5 @@ class Type3SourceParser {
         
         Logger.shared.log("搜索到 \(videos.count) 个结果", level: .info)
         return videos
-    }
-    
-    // 内部方法：向 NodeJSBridge 发送 JSON 字符串并返回解析结果
-    private func sendRequest(jsonString: String) async throws -> [String: Any] {
-        try await withCheckedThrowingContinuation { continuation in
-            nodeBridge.sendRequest(jsonString: jsonString) { result, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let result = result {
-                    continuation.resume(returning: result)
-                } else {
-                    continuation.resume(throwing: NSError(domain: "Type3SourceParser", code: -1))
-                }
-            }
-        }
     }
 }
