@@ -46,10 +46,9 @@ targets:
         SWIFT_EMIT_LOC_STRINGS: YES
         SUPPORTS_MACCATALYST: YES
         DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
-        # nodejs-mobile 集成配置，删掉了多余的 -framework NodeMobile
         ENABLE_BITCODE: NO
         HEADER_SEARCH_PATHS: $(inherited)
-        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/Libraries/nodejs-mobile/NodeMobile.xcframework
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/Libraries/nodejs-mobile
         OTHER_LDFLAGS: -lc++ $(inherited)
       configs:
         Debug:
