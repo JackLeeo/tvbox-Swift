@@ -1,12 +1,11 @@
-const rn_bridge = require('rn-bridge');
 const http = require('http');
 const https = require('https');
 const vm = require('vm');
 const URL = require('url');
 
-rn_bridge.channel.on('message', (msg) => {
+process.on('message', (message) => {
     try {
-        const type3Data = JSON.parse(msg);
+        const type3Data = JSON.parse(message);
         const requestId = type3Data.id;
 
         if (!type3Data.url) {
@@ -29,21 +28,21 @@ rn_bridge.channel.on('message', (msg) => {
                     timeout: 10000
                 });
 
-                rn_bridge.channel.send(JSON.stringify({
+                process.send(JSON.stringify({
                     id: requestId,
                     success: true,
                     data: sandbox.result
                 }));
             })
             .catch(error => {
-                rn_bridge.channel.send(JSON.stringify({
+                process.send(JSON.stringify({
                     id: type3Data.id,
                     success: false,
                     error: error.message
                 }));
             });
     } catch (error) {
-        rn_bridge.channel.send(JSON.stringify({
+        process.send(JSON.stringify({
             id: type3Data?.id,
             success: false,
             error: error.message
