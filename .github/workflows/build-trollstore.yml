@@ -72,6 +72,7 @@ jobs:
             2>&1 | tee build.log; then
             echo "✅ 策略1 成功"
             BUILD_SUCCESS=true
+            DERIVED_DATA="./DerivedData"
           else
             echo "❌ 策略1 失败"
             BUILD_SUCCESS=false
@@ -100,7 +101,6 @@ jobs:
               2>&1 | tee -a build.log; then
               echo "✅ 策略2 成功 (Node.js 功能被禁用)"
               BUILD_SUCCESS=true
-              # 使用新构建的输出
               DERIVED_DATA="./DerivedData2"
             else
               echo "❌ 策略2 失败"
@@ -115,16 +115,9 @@ jobs:
           fi
           
           # 找到生成的 .app 包路径
-          APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
+          APP_PATH=$(find "$DERIVED_DATA" -name "tvbox.app" -type d | head -n 1)
           if [ -z "$APP_PATH" ]; then
-            APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -n 1)
-          fi
-          
-          if [ -z "$APP_PATH" ] && [ -d "./DerivedData2" ]; then
-            APP_PATH=$(find ./DerivedData2 -name "tvbox.app" -type d | head -n 1)
-            if [ -z "$APP_PATH" ]; then
-              APP_PATH=$(find ./DerivedData2 -name "TVBox.app" -type d | head -n 1)
-            fi
+            APP_PATH=$(find "$DERIVED_DATA" -name "TVBox.app" -type d | head -n 1)
           fi
           
           if [ -z "$APP_PATH" ]; then
@@ -134,7 +127,49 @@ jobs:
           
           echo "APP_PATH: $APP_PATH"
           
+          # 验证 .app 包结构
+          echo "=== 验证 .app 包结构 ==="
+          
+          # 检查 Info.plist
+          if [ -f "$APP_PATH/Info.plist" ]; then
+            echo "✅ Info.plist 存在"
+            echo "Info.plist 内容摘要:"
+            plutil -p "$APP_PATH/Info.plist" | head -20 || echo "无法解析 Info.plist"
+          else
+            echo "❌ 错误: Info.plist 不存在于 .app 包中!"
+            echo ".app 包内容:"
+            ls -la "$APP_PATH/"
+            
+            # 尝试从源位置复制 Info.plist
+            if [ -f "tvbox/Info.plist" ]; then
+              echo "尝试从源位置复制 Info.plist..."
+              cp "tvbox/Info.plist" "$APP_PATH/"
+              echo "✅ 已复制 Info.plist 到 .app 包"
+            else
+              echo "❌ 源 Info.plist 也不存在"
+              exit 1
+            fi
+          fi
+          
+          # 检查可执行文件
+          if [ -f "$APP_PATH/TVBox" ] || [ -f "$APP_PATH/tvbox" ]; then
+            echo "✅ 可执行文件存在"
+          else
+            echo "⚠️ 可执行文件不存在，检查其他名称:"
+            find "$APP_PATH" -type f -perm +111 | head -5 || echo "未找到可执行文件"
+          fi
+          
+          # 检查 Frameworks 目录
+          if [ -d "$APP_PATH/Frameworks" ]; then
+            echo "✅ Frameworks 目录存在"
+            echo "框架列表:"
+            ls -la "$APP_PATH/Frameworks/"
+          else
+            echo "⚠️ Frameworks 目录不存在"
+          fi
+          
           # 正确打包 IPA
+          echo "=== 打包 IPA ==="
           mkdir -p ./Build
           TEMP_DIR=$(mktemp -d)
           mkdir -p "$TEMP_DIR/Payload"
@@ -147,7 +182,7 @@ jobs:
           cd "$GITHUB_WORKSPACE"
           rm -rf "$TEMP_DIR"
           
-          echo "✅ IPA 打包完成"
+          echo "✅ IPA 打包完成: ./Build/tvbox-Swift-TrollStore.ipa"
           ls -lh ./Build/tvbox-Swift-TrollStore.ipa
           
       - name: Upload IPA Artifact
@@ -156,3 +191,13 @@ jobs:
           name: tvbox-Swift-TrollStore
           path: ./Build/tvbox-Swift-TrollStore.ipa
           retention-days: 30
+          
+      - name: Upload Build Logs
+        if: always()  # 无论成功失败都上传日志
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: |
+            ./build.log
+            ${{ runner.temp }}/xcodebuild_*.log
+          retention-days: 7
