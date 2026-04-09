@@ -1,8 +1,7 @@
 {
-  "name": "tvbox-type3-parser",
+  "name": "type3-parser",
   "version": "1.0.0",
-  "description": "Type=3 source parser for tvbox-Swift, powered by nodejs-mobile",
+  "description": "Type3 source parser for TVBox",
   "main": "type3-parser.js",
-  "author": "",
-  "license": "MIT"
+  "dependencies": {}
 }
