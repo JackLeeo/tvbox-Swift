@@ -131,7 +131,7 @@ struct PlayerView: View {
                 vlcController?.stop()
             }
         }
-        .onChange(of: selectedEngine) { _, newValue in
+        .onChange(of: selectedEngine) { newValue in
             if newValue != .system {
                 systemController?.stop()
             }
@@ -244,7 +244,7 @@ struct AVPlayerContentView: View {
             setupPlayer()
             wakeUpControls()
         }
-        .onChange(of: urlString) { _, _ in
+        .onChange(of: urlString) { _ in
             syncRateFromSettings()
             setupPlayer()
             wakeUpControls()
