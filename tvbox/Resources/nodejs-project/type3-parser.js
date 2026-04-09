@@ -1,47 +1,51 @@
+const rn_bridge = require('rn-bridge');
 const http = require('http');
 const https = require('https');
 const vm = require('vm');
 const URL = require('url');
 
-// 监听 Swift 传递的消息
-process.on('message', async (message) => {
+// 监听来自 Swift 的消息
+rn_bridge.channel.on('message', (msg) => {
     try {
-        const type3Data = JSON.parse(message);
+        const type3Data = JSON.parse(msg);
         const requestId = type3Data.id;
         
         if (!type3Data.url) {
             throw new Error('缺少源地址');
         }
         
-        // 1. 加载远程脚本，带10秒超时
-        const remoteScript = await fetchRemoteScript(type3Data.url, type3Data.headers, 10000);
-        
-        // 2. 沙箱执行，10秒超时，避免污染主环境
-        const sandbox = {
-            result: {},
-            setResult: (data) => { sandbox.result = data; },
-            log: (msg) => console.log(`[Type3] ${msg}`),
-            console: console,
-            require: require,
-            module: module,
-            exports: exports
-        };
-        vm.createContext(sandbox);
-        vm.runInContext(remoteScript, sandbox, {
-            filename: 'type3-remote.js',
-            timeout: 10000
-        });
-        
-        // 3. 返回结果，带上请求ID
-        process.send(JSON.stringify({
-            id: requestId,
-            success: true,
-            data: sandbox.result
-        }));
-        
+        fetchRemoteScript(type3Data.url, type3Data.headers, 10000)
+            .then(remoteScript => {
+                const sandbox = {
+                    result: {},
+                    setResult: (data) => { sandbox.result = data; },
+                    log: (msg) => console.log(`[Type3] ${msg}`),
+                    console: console,
+                    require: require,
+                    module: module,
+                    exports: exports
+                };
+                vm.createContext(sandbox);
+                vm.runInContext(remoteScript, sandbox, {
+                    filename: 'type3-remote.js',
+                    timeout: 10000
+                });
+                
+                rn_bridge.channel.send(JSON.stringify({
+                    id: requestId,
+                    success: true,
+                    data: sandbox.result
+                }));
+            })
+            .catch(error => {
+                rn_bridge.channel.send(JSON.stringify({
+                    id: type3Data.id,
+                    success: false,
+                    error: error.message
+                }));
+            });
     } catch (error) {
-        // 错误返回
-        process.send(JSON.stringify({
+        rn_bridge.channel.send(JSON.stringify({
             id: type3Data?.id,
             success: false,
             error: error.message
@@ -49,7 +53,6 @@ process.on('message', async (message) => {
     }
 });
 
-// 带超时的远程请求
 function fetchRemoteScript(url, headers, timeout) {
     return new Promise((resolve, reject) => {
         const parsedUrl = URL.parse(url);
