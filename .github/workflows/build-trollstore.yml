@@ -1,222 +1,92 @@
-name: Build TrollStore TVBox
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: macos-14
-    
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-          
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '16.2'
-          
-      - name: Install xcodegen
-        run: brew install xcodegen
-          
-      - name: Generate Xcode Project
-        run: xcodegen
-          
-      - name: Build TVBox
-        run: |
-          # 清理构建目录
-          echo "=== 清理构建目录 ==="
-          xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' || echo "清理完成"
-          
-          echo "=== 开始构建应用 ==="
-          
-          # 构建并捕获退出状态
-          set +o pipefail
-          xcodebuild build \
-            -project tvbox.xcodeproj \
-            -scheme tvbox \
-            -destination 'generic/platform=iOS' \
-            CODE_SIGN_IDENTITY="" \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGNING_ALLOWED=NO \
-            -derivedDataPath ./DerivedData \
-            2>&1 | tee build.log
-          
-          BUILD_EXIT_CODE=${PIPESTATUS[0]}
-          
-          if [ $BUILD_EXIT_CODE -eq 0 ]; then
-            echo "✅ 构建成功"
-            
-            # 找到.app包
-            APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
-            if [ -z "$APP_PATH" ]; then
-              APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -n 1)
-            fi
-            
-            if [ -z "$APP_PATH" ]; then
-              echo "❌ 未找到.app文件"
-              find ./DerivedData -name "*.app" -type d
-              exit 1
-            fi
-            
-            echo "APP_PATH: $APP_PATH"
-            
-            # 验证.app包结构
-            echo "=== 验证.app包结构 ==="
-            
-            # 1. 检查可执行文件
-            if [ -f "$APP_PATH/TVBox" ] || [ -f "$APP_PATH/tvbox" ]; then
-              echo "✅ 可执行文件存在"
-            else
-              echo "⚠️ 可执行文件不存在，检查其他文件:"
-              find "$APP_PATH" -type f -name "*" | grep -v ".DS_Store"
-              
-              # 如果找到 __preview.dylib，重命名为 TVBox
-              if [ -f "$APP_PATH/__preview.dylib" ]; then
-                mv "$APP_PATH/__preview.dylib" "$APP_PATH/TVBox"
-                echo "✅ 已重命名 __preview.dylib 为 TVBox"
-              fi
-            fi
-            
-            # 2. 检查Info.plist
-            if [ -f "$APP_PATH/Info.plist" ]; then
-              echo "✅ Info.plist存在"
-            else
-              echo "⚠️ Info.plist不存在，从源位置复制"
-              if [ -f "tvbox/Info.plist" ]; then
-                cp "tvbox/Info.plist" "$APP_PATH/"
-                echo "✅ 已复制Info.plist"
-              else
-                # 创建基本的Info.plist（使用 printf 逐行写入，避免 YAML 误解析）
-                printf '%s\n' \
-                  '<?xml version="1.0" encoding="UTF-8"?>' \
-                  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-                  '<plist version="1.0">' \
-                  '<dict>' \
-                  '    <key>CFBundleDevelopmentRegion</key>' \
-                  '    <string>en</string>' \
-                  '    <key>CFBundleDisplayName</key>' \
-                  '    <string>TVBox</string>' \
-                  '    <key>CFBundleExecutable</key>' \
-                  '    <string>TVBox</string>' \
-                  '    <key>CFBundleIdentifier</key>' \
-                  '    <string>com.tvbox.app</string>' \
-                  '    <key>CFBundleInfoDictionaryVersion</key>' \
-                  '    <string>6.0</string>' \
-                  '    <key>CFBundleName</key>' \
-                  '    <string>TVBox</string>' \
-                  '    <key>CFBundlePackageType</key>' \
-                  '    <string>APPL</string>' \
-                  '    <key>CFBundleShortVersionString</key>' \
-                  '    <string>1.0.3</string>' \
-                  '    <key>CFBundleVersion</key>' \
-                  '    <string>1</string>' \
-                  '    <key>LSRequiresIPhoneOS</key>' \
-                  '    <true/>' \
-                  '    <key>UIApplicationSupportsIndirectInputEvents</key>' \
-                  '    <true/>' \
-                  '    <key>UILaunchScreen</key>' \
-                  '    <dict/>' \
-                  '    <key>UIRequiredDeviceCapabilities</key>' \
-                  '    <array>' \
-                  '        <string>armv7</string>' \
-                  '    </array>' \
-                  '    <key>UISupportedInterfaceOrientations</key>' \
-                  '    <array>' \
-                  '        <string>UIInterfaceOrientationPortrait</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeLeft</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeRight</string>' \
-                  '    </array>' \
-                  '    <key>UISupportedInterfaceOrientations~ipad</key>' \
-                  '    <array>' \
-                  '        <string>UIInterfaceOrientationPortrait</string>' \
-                  '        <string>UIInterfaceOrientationPortraitUpsideDown</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeLeft</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeRight</string>' \
-                  '    </array>' \
-                  '    <key>NSAppTransportSecurity</key>' \
-                  '    <dict>' \
-                  '        <key>NSAllowsArbitraryLoads</key>' \
-                  '        <true/>' \
-                  '    </dict>' \
-                  '</dict>' \
-                  '</plist>' \
-                  > "$APP_PATH/Info.plist"
-                echo "✅ 已创建Info.plist"
-              fi
-            fi
-            
-            # 3. 确保PkgInfo存在
-            if [ ! -f "$APP_PATH/PkgInfo" ]; then
-              echo "APPL????" > "$APP_PATH/PkgInfo"
-              echo "✅ 已创建PkgInfo"
-            fi
-            
-            # 4. 更新Info.plist中的可执行文件名
-            if [ -f "$APP_PATH/Info.plist" ] && [ -f "$APP_PATH/TVBox" ]; then
-              /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable TVBox" "$APP_PATH/Info.plist" 2>/dev/null || true
-            fi
-            
-            # 5. 检查.app包内容
-            echo ".app包内容:"
-            ls -la "$APP_PATH/"
-            
-            # 打包IPA
-            echo "=== 打包IPA ==="
-            mkdir -p ./Build
-            TEMP_DIR=$(mktemp -d)
-            mkdir -p "$TEMP_DIR/Payload"
-            
-            cp -r "$APP_PATH" "$TEMP_DIR/Payload/"
-            
-            cd "$TEMP_DIR"
-            zip -r "$GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa" Payload
-            
-            cd "$GITHUB_WORKSPACE"
-            rm -rf "$TEMP_DIR"
-            
-            echo "✅ IPA打包完成: ./Build/tvbox-Swift-TrollStore.ipa"
-            ls -lh ./Build/tvbox-Swift-TrollStore.ipa
-            
-            # 检查IPA文件大小
-            IPA_SIZE=$(du -h ./Build/tvbox-Swift-TrollStore.ipa | cut -f1)
-            echo "IPA文件大小: $IPA_SIZE"
-            
-          else
-            echo "❌ 构建失败，退出码: $BUILD_EXIT_CODE"
-            echo "=== 构建错误摘要 ==="
-            
-            echo "### 提取错误信息 ###"
-            echo "1. 链接器错误:"
-            grep -A5 -B5 "ld:.*not found" build.log | head -20 || echo "无链接器错误"
-            
-            echo "2. 编译错误:"
-            grep -A5 -B5 "error:" build.log | head -20 || echo "无编译错误"
-            
-            echo "3. 最后50行构建日志:"
-            tail -50 build.log
-            
-            echo "❌ 构建失败，停止执行"
-            exit 1
-          fi
-          
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tvbox-Swift-TrollStore
-          path: ./Build/tvbox-Swift-TrollStore.ipa
-          retention-days: 30
-          
-      - name: Upload Build Logs
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: build-logs
-          path: |
-            ./build.log
-          retention-days: 7
+name: tvbox
+options:
+  bundleIdPrefix: com.tvbox
+  xcodeVersion: "16.2"
+  groupSortPosition: top
+  minimumXcodeGenVersion: "2.35"
+settings:
+  base:
+    SWIFT_VERSION: "5.10"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+packages:
+  VLCKitSPM:
+    url: https://github.com/tylerjonesio/vlckit-spm
+    from: 3.6.0
+targets:
+  tvbox:
+    type: application
+    platform: iOS
+    deploymentTarget: "17.0"
+    dependencies:
+      - package: VLCKitSPM
+        product: VLCKitSPM
+      - framework: Libraries/nodejs-mobile/NodeMobile.xcframework
+    sources:
+      - path: tvbox
+        excludes:
+          - Info.plist
+    resources:
+      - path: tvbox/Resources
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
+        INFOPLIST_FILE: tvbox/Info.plist
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.3"
+        PRODUCT_NAME: TVBox
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_EMIT_LOC_STRINGS: YES
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        ENABLE_BITCODE: NO
+        HEADER_SEARCH_PATHS: $(inherited)
+        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/Libraries/nodejs-mobile/NodeMobile.xcframework
+        # ✅ 显式链接 NodeMobile 框架（修复 _node_post_message 符号未定义）
+        OTHER_LDFLAGS:
+          - -lc++
+          - -framework NodeMobile
+          - $(inherited)
+        # ✅ 强制生成可执行文件而非动态库
+        MACH_O_TYPE: mh_execute
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+  tvbox-macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    dependencies:
+      - package: VLCKitSPM
+        product: VLCKitSPM
+    sources:
+      - path: tvbox
+        excludes:
+          - Info.plist
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app.macos
+        INFOPLIST_FILE: tvbox/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.3"
+        PRODUCT_NAME: TVBox
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_EMIT_LOC_STRINGS: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_ENTITLEMENTS: ""
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
