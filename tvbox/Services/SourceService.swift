@@ -18,12 +18,12 @@ class SourceService {
             throw SourceError.emptyApi
         }
         
-        // type=3 (JAR/Spider) 暂不支持
-        guard sourceBean.isSupportedInSwift else {
-            throw SourceError.unsupportedType(sourceBean.typeDescription)
+        // type=3 使用 Type3SourceParser 处理
+        if sourceBean.type == 3 {
+            return try await Type3SourceParser.shared.parseHome(from: sourceBean)
         }
         
-        // 确保 api 是有效的 HTTP URL
+        // 其他类型需要是 HTTP API
         guard sourceBean.isHttpApi else {
             throw SourceError.invalidApiUrl(api)
         }
@@ -166,7 +166,17 @@ class SourceService {
     func getList(sourceBean: SourceBean, sortData: MovieSort.SortData, page: Int = 1, filters: [String: String]? = nil) async throws -> [Movie.Video] {
         let api = sourceBean.api
         guard !api.isEmpty else { throw SourceError.emptyApi }
-        guard sourceBean.isSupportedInSwift else { throw SourceError.unsupportedType(sourceBean.typeDescription) }
+        
+        // type=3 使用 Type3SourceParser 处理
+        if sourceBean.type == 3 {
+            return try await Type3SourceParser.shared.parseList(
+                from: sourceBean,
+                sortId: sortData.id,
+                page: page,
+                filters: filters
+            )
+        }
+        
         guard sourceBean.isHttpApi else { throw SourceError.invalidApiUrl(api) }
         
         let url: String
@@ -282,7 +292,15 @@ class SourceService {
     func getDetail(sourceBean: SourceBean, vodId: String) async throws -> VodInfo? {
         let api = sourceBean.api
         guard !api.isEmpty else { throw SourceError.emptyApi }
-        guard sourceBean.isSupportedInSwift else { throw SourceError.unsupportedType(sourceBean.typeDescription) }
+        
+        // type=3 使用 Type3SourceParser 处理
+        if sourceBean.type == 3 {
+            return try await Type3SourceParser.shared.parseDetail(
+                from: sourceBean,
+                vodId: vodId
+            )
+        }
+        
         guard sourceBean.isHttpApi else { throw SourceError.invalidApiUrl(api) }
         
         let url: String
@@ -358,7 +376,15 @@ class SourceService {
     func search(sourceBean: SourceBean, keyword: String) async throws -> [Movie.Video] {
         let api = sourceBean.api
         guard !api.isEmpty else { throw SourceError.emptyApi }
-        guard sourceBean.isSupportedInSwift else { throw SourceError.unsupportedType(sourceBean.typeDescription) }
+        
+        // type=3 使用 Type3SourceParser 处理
+        if sourceBean.type == 3 {
+            return try await Type3SourceParser.shared.parseSearch(
+                from: sourceBean,
+                keyword: keyword
+            )
+        }
+        
         guard sourceBean.isHttpApi else { throw SourceError.invalidApiUrl(api) }
         
         let url: String
@@ -403,8 +429,9 @@ class SourceService {
         
         return await withTaskGroup(of: [Movie.Video].self) { group in
             for source in sources {
-                // 跳过不支持的源类型
-                guard source.isSupportedInSwift && source.isHttpApi else { continue }
+                // 跳过没有有效 API 的源（但 type=3 也可以搜索）
+                guard !source.api.isEmpty else { continue }
+                guard source.isHttpApi || source.type == 3 else { continue }
                 
                 group.addTask { [self] in
                     do {
