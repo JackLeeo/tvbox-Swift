@@ -1,14 +1,14 @@
 import Foundation
 
-// RN 插件版框架导出的 C API
+// 官方原生框架 C API 声明
 @_silgen_name("node_start")
-func node_start(_ scriptPath: UnsafePointer<CChar>)
+func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?)
 
 @_silgen_name("node_register_message_callback")
-func node_register_message_callback(_ callback: @convention(c) (UnsafePointer<CChar>?) -> Void)
+func node_register_message_callback(_ callback: @convention(c) (UnsafePointer<Int8>?) -> Void)
 
 @_silgen_name("node_post_message")
-func node_post_message(_ message: UnsafePointer<CChar>?)
+func node_post_message(_ message: UnsafePointer<Int8>?)
 
 class NodeJSBridge {
     static let shared = NodeJSBridge()
@@ -39,9 +39,11 @@ class NodeJSBridge {
                 print("❌ Node 脚本路径不存在")
                 return
             }
-            scriptPath.withCString { cStr in
-                node_start(cStr)
-            }
+
+            let args = ["node", scriptPath]
+            var cArgs = args.map { strdup($0) }
+            node_start(Int32(args.count), &cArgs)
+            cArgs.forEach { free($0) }
         }
     }
 
@@ -55,9 +57,8 @@ class NodeJSBridge {
             if let success = result["success"] as? Bool, success {
                 completion(result["data"] as? [String: Any], nil)
             } else {
-                let error = NSError(domain: "NodeJSBridge", code: -1, userInfo: [
-                    NSLocalizedDescriptionKey: result["error"] as? String ?? "解析失败"
-                ])
+                let error = NSError(domain: "NodeJSBridge", code: -1,
+                                    userInfo: [NSLocalizedDescriptionKey: result["error"] as? String ?? "解析失败"])
                 completion(nil, error)
             }
         } catch {
@@ -65,7 +66,8 @@ class NodeJSBridge {
         }
     }
 
-    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil, completion: @escaping ([String: Any]?, Error?) -> Void) {
+    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil,
+                         completion: @escaping ([String: Any]?, Error?) -> Void) {
         let requestId = UUID().uuidString
         pendingCompletions[requestId] = completion
 
