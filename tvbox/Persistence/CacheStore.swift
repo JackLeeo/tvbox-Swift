@@ -1,40 +1,28 @@
 import Foundation
-import SwiftData
 
-/// SwiftData 持久化模型 - 对应 Android 版 Room 数据库
-
-/// 收藏/历史的业务唯一键（source + vodId）。
+// MARK: - 业务键生成工具
 private func makeVodBusinessKey(vodId: String, sourceKey: String) -> String {
     let normalizedVodId = vodId.trimmingCharacters(in: .whitespacesAndNewlines)
     let normalizedSourceKey = sourceKey.trimmingCharacters(in: .whitespacesAndNewlines)
     return "\(normalizedSourceKey)::\(normalizedVodId)"
 }
 
-/// 单部剧的续播状态
+// MARK: - 播放续播状态模型
 struct VodPlaybackState: Codable {
-    /// 当前播放线路标识。
     var flag: String
-    /// 剧集索引。
     var episodeIndex: Int
-    /// 播放进度（秒）。
     var progressSeconds: Double
 }
 
-/// 视频收藏
-@Model
-final class VodCollect {
-    /// 业务唯一键（sourceKey + vodId）。
-    var bizKey: String = ""
-    /// 视频 ID（与 sourceKey 组成唯一语义键）。
-    var vodId: String = ""
-    /// 片名。
-    var vodName: String = ""
-    /// 海报地址。
-    var vodPic: String = ""
-    /// 来源站点 key。
-    var sourceKey: String = ""
-    /// 最近更新时间（收藏创建/刷新时间）。
-    var updateTime: Date = Date()
+// MARK: - 收藏数据模型（普通结构体，Codable）
+struct VodCollect: Codable, Identifiable, Equatable {
+    var id: String { bizKey }
+    var bizKey: String
+    var vodId: String
+    var vodName: String
+    var vodPic: String
+    var sourceKey: String
+    var updateTime: Date
     
     init(vodId: String, vodName: String, vodPic: String, sourceKey: String) {
         self.bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
@@ -46,25 +34,17 @@ final class VodCollect {
     }
 }
 
-/// 播放历史记录
-@Model
-final class VodRecord {
-    /// 业务唯一键（sourceKey + vodId）。
-    var bizKey: String = ""
-    /// 视频 ID。
-    var vodId: String = ""
-    /// 片名。
-    var vodName: String = ""
-    /// 海报地址。
-    var vodPic: String = ""
-    /// 来源站点 key。
-    var sourceKey: String = ""
-    /// 播放标记，如“第5集 03:45”。
-    var playNote: String = ""
-    /// 续播状态 JSON（`VodPlaybackState` 编码结果）。
-    var dataJson: String = ""
-    /// 最近播放时间。
-    var updateTime: Date = Date()
+// MARK: - 历史记录模型（普通结构体，Codable）
+struct VodRecord: Codable, Identifiable, Equatable {
+    var id: String { bizKey }
+    var bizKey: String
+    var vodId: String
+    var vodName: String
+    var vodPic: String
+    var sourceKey: String
+    var playNote: String
+    var dataJson: String
+    var updateTime: Date
     
     init(vodId: String, vodName: String, vodPic: String, sourceKey: String, playNote: String = "") {
         self.bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
@@ -73,19 +53,17 @@ final class VodRecord {
         self.vodPic = vodPic
         self.sourceKey = sourceKey
         self.playNote = playNote
+        self.dataJson = ""
         self.updateTime = Date()
     }
 }
 
-/// 通用缓存
-@Model
-final class CacheItem {
-    /// 唯一缓存键。
-    @Attribute(.unique) var key: String = ""
-    /// 缓存值（字符串形式）。
-    var value: String = ""
-    /// 更新时间。
-    var updateTime: Date = Date()
+// MARK: - 缓存条目模型（普通结构体，Codable）
+struct CacheItem: Codable, Identifiable, Equatable {
+    var id: String { key }
+    var key: String
+    var value: String
+    var updateTime: Date
     
     init(key: String, value: String) {
         self.key = key
@@ -94,197 +72,250 @@ final class CacheItem {
     }
 }
 
-/// 缓存管理器
+// MARK: - 缓存管理器（使用 UserDefaults 存储）
 actor CacheStore {
     static let shared = CacheStore()
     
+    private let defaults = UserDefaults.standard
+    private let collectsKey = "com.tvbox.cache.collects"
+    private let recordsKey = "com.tvbox.cache.records"
+    private let cacheItemsKey = "com.tvbox.cache.items"
+    
     private init() {}
     
-    @MainActor
-    func addCollect(_ video: Movie.Video, context: ModelContext) {
-        let vodId = video.id
-        let sourceKey = video.sourceKey
-        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
-        
-        do {
-            let matched = try fetchCollects(vodId: vodId, sourceKey: sourceKey, context: context)
-            if let first = matched.first {
-                first.bizKey = bizKey
-                first.vodName = video.name
-                first.vodPic = video.pic
-                first.updateTime = Date()
-                for duplicate in matched.dropFirst() {
-                    context.delete(duplicate)
-                }
-            } else {
-                let collect = VodCollect(
-                    vodId: vodId,
-                    vodName: video.name,
-                    vodPic: video.pic,
-                    sourceKey: sourceKey
-                )
-                context.insert(collect)
-            }
-            try context.save()
-        } catch {
-            print("写入收藏失败: \(error)")
+    // MARK: - 私有辅助方法
+    
+    /// 加载所有收藏
+    private func loadCollects() -> [VodCollect] {
+        guard let data = defaults.data(forKey: collectsKey),
+              let collects = try? JSONDecoder().decode([VodCollect].self, from: data) else {
+            return []
+        }
+        return collects
+    }
+    
+    /// 保存收藏列表
+    private func saveCollects(_ collects: [VodCollect]) {
+        if let data = try? JSONEncoder().encode(collects) {
+            defaults.set(data, forKey: collectsKey)
         }
     }
     
-    @MainActor
-    func removeCollect(vodId: String, sourceKey: String, context: ModelContext) {
-        do {
-            let items = try fetchCollects(vodId: vodId, sourceKey: sourceKey, context: context)
-            guard !items.isEmpty else { return }
-            for item in items {
-                context.delete(item)
-            }
-            try context.save()
-        } catch {
-            print("删除收藏失败: \(error)")
+    /// 加载所有历史记录
+    private func loadRecords() -> [VodRecord] {
+        guard let data = defaults.data(forKey: recordsKey),
+              let records = try? JSONDecoder().decode([VodRecord].self, from: data) else {
+            return []
+        }
+        return records
+    }
+    
+    /// 保存历史记录列表
+    private func saveRecords(_ records: [VodRecord]) {
+        if let data = try? JSONEncoder().encode(records) {
+            defaults.set(data, forKey: recordsKey)
         }
     }
     
-    @MainActor
-    func isCollected(vodId: String, sourceKey: String, context: ModelContext) -> Bool {
-        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
-        let predicate = #Predicate<VodCollect> { item in
-            item.bizKey == bizKey || (item.bizKey == "" && item.vodId == vodId && item.sourceKey == sourceKey)
+    /// 加载所有缓存条目
+    private func loadCacheItems() -> [CacheItem] {
+        guard let data = defaults.data(forKey: cacheItemsKey),
+              let items = try? JSONDecoder().decode([CacheItem].self, from: data) else {
+            return []
         }
-        let descriptor = FetchDescriptor<VodCollect>(predicate: predicate)
-        
-        do {
-            let count = try context.fetchCount(descriptor)
-            return count > 0
-        } catch {
-            print("查询收藏状态失败: \(error)")
-            return false
+        return items
+    }
+    
+    /// 保存缓存条目列表
+    private func saveCacheItems(_ items: [CacheItem]) {
+        if let data = try? JSONEncoder().encode(items) {
+            defaults.set(data, forKey: cacheItemsKey)
         }
     }
     
-    @MainActor
-    func addRecord(
-        _ video: Movie.Video,
-        playNote: String,
-        playbackState: VodPlaybackState? = nil,
-        context: ModelContext
-    ) {
-        let vodId = video.id
-        let sourceKey = video.sourceKey
-        let encodedState = Self.encodePlaybackState(playbackState)
-        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
-        
-        do {
-            let matched = try fetchRecords(vodId: vodId, sourceKey: sourceKey, context: context)
-            
-            // 更新或插入
-            if let record = matched.first {
-                record.bizKey = bizKey
-                record.playNote = playNote
-                if let encodedState {
-                    record.dataJson = encodedState
-                }
-                record.updateTime = Date()
-                for duplicate in matched.dropFirst() {
-                    context.delete(duplicate)
-                }
-            } else {
-                let record = VodRecord(
-                    vodId: vodId,
-                    vodName: video.name,
-                    vodPic: video.pic,
-                    sourceKey: sourceKey,
-                    playNote: playNote
-                )
-                if let encodedState {
-                    record.dataJson = encodedState
-                }
-                context.insert(record)
-            }
-            
-            try context.save()
-        } catch {
-            print("写入播放记录失败: \(error)")
-        }
-    }
-    
-    /// 读取续播状态（若无记录或 JSON 无法解码则返回 `nil`）。
-    @MainActor
-    func getPlaybackState(vodId: String, sourceKey: String, context: ModelContext) -> VodPlaybackState? {
-        do {
-            guard let record = try fetchRecords(vodId: vodId, sourceKey: sourceKey, context: context).first else {
-                return nil
-            }
-            return Self.decodePlaybackState(record.dataJson)
-        } catch {
-            print("读取续播状态失败: \(error)")
-            return nil
-        }
-    }
-    
-    @MainActor
-    func clearHistory(context: ModelContext) {
-        do {
-            try context.delete(model: VodRecord.self)
-            try context.save()
-        } catch {
-            print("清空历史记录失败: \(error)")
-        }
-    }
-    
-    @MainActor
-    private func fetchRecords(vodId: String, sourceKey: String, context: ModelContext) throws -> [VodRecord] {
-        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
-        let predicate = #Predicate<VodRecord> { item in
-            item.bizKey == bizKey || (item.bizKey == "" && item.vodId == vodId && item.sourceKey == sourceKey)
-        }
-        let descriptor = FetchDescriptor<VodRecord>(predicate: predicate)
-        let records = try context.fetch(descriptor)
-        
-        // 兼容旧数据：命中 legacy 记录时补写业务键。
-        var needsSave = false
-        for record in records where record.bizKey.isEmpty {
-            record.bizKey = bizKey
-            needsSave = true
-        }
-        if needsSave {
-            try context.save()
-        }
-        
-        return records.sorted(by: { $0.updateTime > $1.updateTime })
-    }
-    
-    @MainActor
-    private func fetchCollects(vodId: String, sourceKey: String, context: ModelContext) throws -> [VodCollect] {
-        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
-        let predicate = #Predicate<VodCollect> { item in
-            item.bizKey == bizKey || (item.bizKey == "" && item.vodId == vodId && item.sourceKey == sourceKey)
-        }
-        let descriptor = FetchDescriptor<VodCollect>(predicate: predicate)
-        let collects = try context.fetch(descriptor)
-        
-        // 兼容旧数据：命中 legacy 记录时补写业务键。
-        var needsSave = false
-        for collect in collects where collect.bizKey.isEmpty {
-            collect.bizKey = bizKey
-            needsSave = true
-        }
-        if needsSave {
-            try context.save()
-        }
-        
-        return collects.sorted(by: { $0.updateTime > $1.updateTime })
-    }
-    
-    private nonisolated static func encodePlaybackState(_ state: VodPlaybackState?) -> String? {
+    /// 编码续播状态为 JSON 字符串
+    private static func encodePlaybackState(_ state: VodPlaybackState?) -> String? {
         guard let state else { return nil }
         guard let data = try? JSONEncoder().encode(state) else { return nil }
         return String(data: data, encoding: .utf8)
     }
     
-    /// 从 JSON 字符串反序列化续播状态。
-    private nonisolated static func decodePlaybackState(_ json: String) -> VodPlaybackState? {
+    /// 从 JSON 字符串解码续播状态
+    private static func decodePlaybackState(_ json: String) -> VodPlaybackState? {
         guard let data = json.data(using: .utf8) else { return nil }
         return try? JSONDecoder().decode(VodPlaybackState.self, from: data)
+    }
+    
+    // MARK: - 收藏相关公共方法
+    
+    /// 添加或更新收藏
+    func addCollect(_ video: Movie.Video) {
+        let vodId = video.id
+        let sourceKey = video.sourceKey
+        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
+        
+        var collects = loadCollects()
+        
+        // 找到所有匹配项（包括旧版无 bizKey 的数据）
+        let matchedIndices = collects.indices.filter { idx in
+            let item = collects[idx]
+            return item.bizKey == bizKey || (item.bizKey.isEmpty && item.vodId == vodId && item.sourceKey == sourceKey)
+        }
+        
+        if let firstIndex = matchedIndices.first {
+            // 更新第一个匹配项
+            collects[firstIndex].bizKey = bizKey
+            collects[firstIndex].vodName = video.name
+            collects[firstIndex].vodPic = video.pic
+            collects[firstIndex].updateTime = Date()
+            
+            // 删除其他重复项
+            for index in matchedIndices.dropFirst().sorted(by: >) {
+                collects.remove(at: index)
+            }
+        } else {
+            // 新建收藏
+            let collect = VodCollect(vodId: vodId, vodName: video.name, vodPic: video.pic, sourceKey: sourceKey)
+            collects.append(collect)
+        }
+        
+        // 按更新时间降序排列
+        collects.sort { $0.updateTime > $1.updateTime }
+        saveCollects(collects)
+    }
+    
+    /// 删除收藏
+    func removeCollect(vodId: String, sourceKey: String) {
+        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
+        var collects = loadCollects()
+        collects.removeAll { item in
+            item.bizKey == bizKey || (item.bizKey.isEmpty && item.vodId == vodId && item.sourceKey == sourceKey)
+        }
+        saveCollects(collects)
+    }
+    
+    /// 判断是否已收藏
+    func isCollected(vodId: String, sourceKey: String) -> Bool {
+        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
+        let collects = loadCollects()
+        return collects.contains { item in
+            item.bizKey == bizKey || (item.bizKey.isEmpty && item.vodId == vodId && item.sourceKey == sourceKey)
+        }
+    }
+    
+    /// 获取所有收藏（按更新时间降序）
+    func getAllCollects() -> [VodCollect] {
+        loadCollects()
+    }
+    
+    // MARK: - 历史记录相关公共方法
+    
+    /// 添加或更新播放记录
+    func addRecord(
+        _ video: Movie.Video,
+        playNote: String,
+        playbackState: VodPlaybackState? = nil
+    ) {
+        let vodId = video.id
+        let sourceKey = video.sourceKey
+        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
+        let encodedState = Self.encodePlaybackState(playbackState)
+        
+        var records = loadRecords()
+        
+        let matchedIndices = records.indices.filter { idx in
+            let item = records[idx]
+            return item.bizKey == bizKey || (item.bizKey.isEmpty && item.vodId == vodId && item.sourceKey == sourceKey)
+        }
+        
+        if let firstIndex = matchedIndices.first {
+            // 更新已有记录
+            records[firstIndex].bizKey = bizKey
+            records[firstIndex].playNote = playNote
+            if let encodedState {
+                records[firstIndex].dataJson = encodedState
+            }
+            records[firstIndex].updateTime = Date()
+            
+            // 删除重复记录
+            for index in matchedIndices.dropFirst().sorted(by: >) {
+                records.remove(at: index)
+            }
+        } else {
+            // 新建记录
+            var record = VodRecord(vodId: vodId, vodName: video.name, vodPic: video.pic, sourceKey: sourceKey, playNote: playNote)
+            if let encodedState {
+                record.dataJson = encodedState
+            }
+            records.append(record)
+        }
+        
+        // 按播放时间降序排列
+        records.sort { $0.updateTime > $1.updateTime }
+        saveRecords(records)
+    }
+    
+    /// 获取续播状态
+    func getPlaybackState(vodId: String, sourceKey: String) -> VodPlaybackState? {
+        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
+        let records = loadRecords()
+        guard let record = records.first(where: { item in
+            item.bizKey == bizKey || (item.bizKey.isEmpty && item.vodId == vodId && item.sourceKey == sourceKey)
+        }) else {
+            return nil
+        }
+        return Self.decodePlaybackState(record.dataJson)
+    }
+    
+    /// 获取所有历史记录（按播放时间降序）
+    func getAllRecords() -> [VodRecord] {
+        loadRecords()
+    }
+    
+    /// 清空所有历史记录
+    func clearHistory() {
+        defaults.removeObject(forKey: recordsKey)
+    }
+    
+    /// 删除单条历史记录
+    func removeRecord(vodId: String, sourceKey: String) {
+        let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
+        var records = loadRecords()
+        records.removeAll { item in
+            item.bizKey == bizKey || (item.bizKey.isEmpty && item.vodId == vodId && item.sourceKey == sourceKey)
+        }
+        saveRecords(records)
+    }
+    
+    // MARK: - 通用缓存方法
+    
+    /// 设置缓存值
+    func setCache(key: String, value: String) {
+        var items = loadCacheItems()
+        if let index = items.firstIndex(where: { $0.key == key }) {
+            items[index].value = value
+            items[index].updateTime = Date()
+        } else {
+            items.append(CacheItem(key: key, value: value))
+        }
+        saveCacheItems(items)
+    }
+    
+    /// 获取缓存值
+    func getCache(key: String) -> String? {
+        let items = loadCacheItems()
+        return items.first(where: { $0.key == key })?.value
+    }
+    
+    /// 删除指定缓存
+    func removeCache(key: String) {
+        var items = loadCacheItems()
+        items.removeAll { $0.key == key }
+        saveCacheItems(items)
+    }
+    
+    /// 清空所有缓存
+    func clearAllCache() {
+        defaults.removeObject(forKey: cacheItemsKey)
     }
 }
