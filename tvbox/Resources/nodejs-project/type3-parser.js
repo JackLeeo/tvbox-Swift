@@ -9,8 +9,8 @@ process.on('message', async (message) => {
         const type3Data = JSON.parse(message);
         const requestId = type3Data.id;
         
-        if (type3Data.type !== 3) {
-            throw new Error('不是type=3源');
+        if (!type3Data.url) {
+            throw new Error('缺少源地址');
         }
         
         // 1. 加载远程脚本，带10秒超时
@@ -69,6 +69,3 @@ function fetchRemoteScript(url, headers, timeout) {
         req.end();
     });
 }
-
-// 通知 Swift 已就绪，处理缓存的消息
-process.send(JSON.stringify({ status: 'nodejs_ready' }));
