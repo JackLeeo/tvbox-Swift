@@ -4,28 +4,22 @@ class Type3SourceParser {
     static let shared = Type3SourceParser()
     private let nodeBridge = NodeJSBridge.shared
     
-    // 初始化（启动 Node.js 环境）
-    init() {
-        nodeBridge.setupNodeEnvironment()
+    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil, completion: @escaping ([String: Any]?, Error?) -> Void) {
+        nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers, completion: completion)
     }
     
-    /// 解析 type=3 源
-    /// - Parameters:
-    ///   - sourceUrl: type=3 源的 URL（通常是远程 JS 脚本地址）
-    ///   - completion: 解析结果回调（包含视频列表、分类等数据）
-    func parseType3Source(sourceUrl: String, completion: @escaping ([String: Any]?, Error?) -> Void) {
-        // 1. 构造 type=3 源数据（根据 tvbox 协议，type=3 通常包含 url 和 headers）
-        let type3Data: [String: Any] = [
-            "type": 3,
-            "url": sourceUrl,
-            "headers": [
-                "User-Agent": "tvbox-Swift/1.0.0 (tvOS; 15.0)",
-                "Referer": "https://tvbox.example.com"
-            ]
-        ]
-        
-        // 2. 设置回调并触发解析
-        nodeBridge.parseCompletion = completion
-        nodeBridge.parseType3Source(type3Data)
+    /// async/await 异步版本，方便SwiftUI调用
+    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
+            parseType3Source(sourceUrl: sourceUrl, headers: headers) { result, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let result = result {
+                    continuation.resume(returning: result)
+                } else {
+                    continuation.resume(throwing: NSError(domain: "Type3Parser", code: -1, userInfo: [NSLocalizedDescriptionKey: "解析失败"]))
+                }
+            }
+        }
     }
 }
