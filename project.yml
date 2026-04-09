@@ -49,7 +49,13 @@ targets:
         ENABLE_BITCODE: NO
         HEADER_SEARCH_PATHS: $(inherited)
         FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/Libraries/nodejs-mobile
-        OTHER_LDFLAGS: -lc++ $(inherited)
+        # 关键修正：明确链接 NodeMobile 框架
+        OTHER_LDFLAGS:
+          - -lc++
+          - -framework NodeMobile
+          - $(inherited)
+        # 关键修正：确保生成可执行文件，不是 dylib
+        MACH_O_TYPE: mh_execute
       configs:
         Debug:
           SWIFT_OPTIMIZATION_LEVEL: "-Onone"
