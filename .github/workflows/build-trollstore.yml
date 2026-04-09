@@ -25,7 +25,6 @@ jobs:
         run: brew install xcodegen
 
       - name: Download Official Native NodeMobile Framework
-        id: download_framework
         run: |
           echo "=== 下载官方原生 NodeMobile 框架 ==="
           VERSION="v18.20.4"
@@ -35,28 +34,23 @@ jobs:
           mkdir -p $TARGET_DIR
           rm -rf $TARGET_DIR/NodeMobile.xcframework
 
-          curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip || {
-            echo "❌ 框架下载失败"
-            exit 1
-          }
+          curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip
 
-          unzip -q nodejs-mobile.zip
-          echo "解压后的文件列表:"
-          ls -la
+          # 解压到临时目录，避免污染工作区
+          TEMP_DIR=$(mktemp -d)
+          unzip -q nodejs-mobile.zip -d $TEMP_DIR
 
           # 查找 NodeMobile.xcframework 的实际位置
-          FRAMEWORK_PATH=$(find . -maxdepth 3 -name "NodeMobile.xcframework" -type d | head -1)
+          FRAMEWORK_PATH=$(find $TEMP_DIR -name "NodeMobile.xcframework" -type d | head -1)
           if [ -z "$FRAMEWORK_PATH" ]; then
             echo "❌ 未找到 NodeMobile.xcframework"
             exit 1
           fi
 
-          echo "找到框架: $FRAMEWORK_PATH"
           cp -r "$FRAMEWORK_PATH" $TARGET_DIR/
-          rm -rf nodejs-mobile.zip $(dirname "$FRAMEWORK_PATH")
+          rm -rf $TEMP_DIR nodejs-mobile.zip
 
           echo "✅ 框架已放置到 $TARGET_DIR/NodeMobile.xcframework"
-
       # ========== 验证框架文件完整性 ==========
       - name: Verify Framework Structure
         run: |
