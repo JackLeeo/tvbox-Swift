@@ -103,25 +103,19 @@ class NodeJSBridge {
         }.resume()
     }
 
-    func parseType3Source(sourceUrl: String,
-                          headers: [String: String]? = nil,
-                          completion: @escaping ([String: Any]?, Error?) -> Void) {
+    // 内部方法：向 Node.js 发送任意 JSON 请求，并返回解析结果
+    func sendRequest(jsonString: String, completion: @escaping ([String: Any]?, Error?) -> Void) {
         let requestId = UUID().uuidString.prefix(8)
         Logger.shared.log("[\(requestId)] 发送 HTTP 请求到 \(baseURL)/parse", level: .debug)
 
-        let requestData: [String: Any] = [
-            "url": sourceUrl,
-            "headers": headers ?? [:]
-        ]
-
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData) else {
-            completion(nil, NSError(domain: "NodeJSBridge", code: -2))
+        guard let url = URL(string: "\(baseURL)/parse") else {
+            completion(nil, NSError(domain: "NodeJSBridge", code: -1))
             return
         }
 
-        var request = URLRequest(url: URL(string: "\(baseURL)/parse")!)
+        var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.httpBody = jsonData
+        request.httpBody = jsonString.data(using: .utf8)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 15
 
@@ -149,6 +143,22 @@ class NodeJSBridge {
                                         userInfo: [NSLocalizedDescriptionKey: errorMsg]))
             }
         }.resume()
+    }
+
+    // 兼容旧接口
+    func parseType3Source(sourceUrl: String,
+                          headers: [String: String]? = nil,
+                          completion: @escaping ([String: Any]?, Error?) -> Void) {
+        let requestData: [String: Any] = [
+            "url": sourceUrl,
+            "headers": headers ?? [:]
+        ]
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
+              let jsonString = String(data: jsonData, encoding: .utf8) else {
+            completion(nil, NSError(domain: "NodeJSBridge", code: -2))
+            return
+        }
+        sendRequest(jsonString: jsonString, completion: completion)
     }
 
     func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
