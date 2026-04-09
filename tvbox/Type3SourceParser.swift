@@ -16,23 +16,34 @@ class Type3SourceParser {
         return try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
     }
     
+    // MARK: - 辅助方法：获取 jar 源的实际请求 URL
+    private func resolveJarRequestUrl(for source: SourceBean) -> String {
+        // 如果 api 已经是 http(s) URL，直接使用
+        if source.api.hasPrefix("http://") || source.api.hasPrefix("https://") {
+            return source.api
+        }
+        // 否则，尝试从 ext 中获取 URL
+        if let ext = source.ext, ext.hasPrefix("http://") || ext.hasPrefix("https://") {
+            return ext
+        }
+        // 如果 ext 是 JSON 字符串或对象，可能需要提取其中的 URL，这里简化处理
+        // 如果都不行，返回 api 字段本身（后续会报错，但至少能看到错误信息）
+        return source.api
+    }
+    
     // MARK: - 首页解析
     
     func parseHome(from source: SourceBean) async throws -> (sorts: [MovieSort.SortData], homeVideos: [Movie.Video]) {
         Logger.shared.log("开始解析首页 (源: \(source.name), type=\(source.type))", level: .info)
         
-        let api = source.api
-        guard !api.isEmpty else {
-            Logger.shared.log("源 API 为空", level: .error)
-            throw SourceError.emptyApi
-        }
+        let actualUrl = resolveJarRequestUrl(for: source)
+        Logger.shared.log("实际请求 URL: \(actualUrl)", level: .debug)
         
-        // 构建请求数据，直接传递 api 和 ext，不再包含 action 等字段，由 Node.js 脚本自行处理
         let requestData: [String: Any] = [
-            "url": api,
-            "headers": [
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
-            ]
+            "action": "home",
+            "api": actualUrl,
+            "key": source.key,
+            "ext": source.ext ?? ""
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -94,18 +105,15 @@ class Type3SourceParser {
     func parseList(from source: SourceBean, sortId: String, page: Int = 1, filters: [String: String]? = nil) async throws -> [Movie.Video] {
         Logger.shared.log("开始解析分类列表 (源: \(source.name), 分类ID: \(sortId), 页码: \(page))", level: .info)
         
-        let api = source.api
-        guard !api.isEmpty else {
-            Logger.shared.log("源 API 为空", level: .error)
-            throw SourceError.emptyApi
-        }
-        
-        // 构建请求，同样简化为 url 字段
+        let actualUrl = resolveJarRequestUrl(for: source)
         let requestData: [String: Any] = [
-            "url": api,
-            "headers": [
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
-            ]
+            "action": "list",
+            "api": actualUrl,
+            "key": source.key,
+            "ext": source.ext ?? "",
+            "tid": sortId,
+            "page": page,
+            "filters": filters ?? [:]
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -142,17 +150,13 @@ class Type3SourceParser {
     func parseDetail(from source: SourceBean, vodId: String) async throws -> VodInfo? {
         Logger.shared.log("开始解析详情 (源: \(source.name), vodId: \(vodId))", level: .info)
         
-        let api = source.api
-        guard !api.isEmpty else {
-            Logger.shared.log("源 API 为空", level: .error)
-            throw SourceError.emptyApi
-        }
-        
+        let actualUrl = resolveJarRequestUrl(for: source)
         let requestData: [String: Any] = [
-            "url": api,
-            "headers": [
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
-            ]
+            "action": "detail",
+            "api": actualUrl,
+            "key": source.key,
+            "ext": source.ext ?? "",
+            "vod_id": vodId
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -192,17 +196,13 @@ class Type3SourceParser {
     func parseSearch(from source: SourceBean, keyword: String) async throws -> [Movie.Video] {
         Logger.shared.log("开始搜索 (源: \(source.name), 关键词: \(keyword))", level: .info)
         
-        let api = source.api
-        guard !api.isEmpty else {
-            Logger.shared.log("源 API 为空", level: .error)
-            throw SourceError.emptyApi
-        }
-        
+        let actualUrl = resolveJarRequestUrl(for: source)
         let requestData: [String: Any] = [
-            "url": api,
-            "headers": [
-                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
-            ]
+            "action": "search",
+            "api": actualUrl,
+            "key": source.key,
+            "ext": source.ext ?? "",
+            "wd": keyword
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
