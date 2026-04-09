@@ -1,14 +1,14 @@
 import Foundation
 
-// MARK: - C API 声明（官方原生框架真实存在）
+// RN 插件版框架的 C API 签名
 @_silgen_name("node_start")
-func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?)
+func node_start(_ scriptPath: UnsafePointer<CChar>)
 
 @_silgen_name("node_register_message_callback")
-func node_register_message_callback(_ callback: @convention(c) (UnsafePointer<Int8>?) -> Void)
+func node_register_message_callback(_ callback: @convention(c) (UnsafePointer<CChar>?) -> Void)
 
 @_silgen_name("node_post_message")
-func node_post_message(_ message: UnsafePointer<Int8>?)
+func node_post_message(_ message: UnsafePointer<CChar>?)
 
 class NodeJSBridge {
     static let shared = NodeJSBridge()
@@ -39,13 +39,9 @@ class NodeJSBridge {
                 print("❌ Node 脚本路径不存在")
                 return
             }
-            
-            let args = ["node", scriptPath]
-            var cArgs = args.map { strdup($0) }
-            
-            node_start(Int32(args.count), &cArgs)
-            
-            cArgs.forEach { free($0) }
+            scriptPath.withCString { cStr in
+                node_start(cStr)
+            }
         }
     }
     
