@@ -135,7 +135,72 @@ jobs:
           else
             echo "✅ 未发现 SwiftData 残留，可以继续构建。"
           fi
+      - name: Pre-build Static Analysis
+        run: |
+          echo "=== 静态代码检查（iOS 16 兼容性 & 业务逻辑） ==="
+          ISSUES_FOUND=0
 
+          # 1. 检查 SwiftData 残留
+          echo ">> 检查 SwiftData 残留..."
+          if grep -rq "import SwiftData" tvbox/; then
+            echo "❌ 发现 'import SwiftData' 残留："
+            grep -rn "import SwiftData" tvbox/
+            ISSUES_FOUND=1
+          else
+            echo "✅ 无 SwiftData import"
+          fi
+
+          if grep -rq "@Query" tvbox/; then
+            echo "❌ 发现 '@Query' 残留："
+            grep -rn "@Query" tvbox/
+            ISSUES_FOUND=1
+          else
+            echo "✅ 无 @Query"
+          fi
+
+          if grep -rq "modelContext" tvbox/; then
+            echo "❌ 发现 'modelContext' 残留："
+            grep -rn "modelContext" tvbox/
+            ISSUES_FOUND=1
+          else
+            echo "✅ 无 modelContext"
+          fi
+
+          # 2. 检查 iOS 17+ 特有 API
+          echo ">> 检查 iOS 17+ API..."
+          if grep -rq "\.onChange(of:.*initial:" tvbox/; then
+            echo "❌ 发现 iOS 17 专属 API '.onChange(of:initial:_:)'："
+            grep -rn "\.onChange(of:.*initial:" tvbox/
+            ISSUES_FOUND=1
+          else
+            echo "✅ 无 iOS 17 专有 onChange"
+          fi
+
+          # 3. 检查 SourceBean 是否仍然排斥 type=3
+          echo ">> 检查 SourceBean 对 type=3 的支持..."
+          if grep -q 'type == 0 || type == 1 || type == 4' tvbox/Models/SourceBean.swift; then
+            echo "❌ SourceBean.isSupportedInSwift 仍然排除了 type=3"
+            grep -n "isSupportedInSwift" tvbox/Models/SourceBean.swift -A5
+            ISSUES_FOUND=1
+          else
+            echo "✅ SourceBean 已包含 type=3 支持"
+          fi
+
+          # 4. 检查设置页/源选择页是否仍然过滤了 type=3
+          echo ">> 检查视图层是否过滤了 type=3..."
+          if grep -rq 'isSupportedInSwift' tvbox/Views/; then
+            echo "⚠️ 视图层仍在使用 isSupportedInSwift 进行过滤，可能导致 type=3 源被隐藏"
+            grep -rn 'isSupportedInSwift' tvbox/Views/
+            # 仅警告，不强制失败
+          fi
+
+          if [ $ISSUES_FOUND -eq 1 ]; then
+            echo ""
+            echo "❌ 静态检查发现必须修复的问题，构建中止。"
+            exit 1
+          else
+            echo "✅ 静态检查通过，继续构建。"
+          fi
       - name: Build TVBox
         run: |
           echo "=== 清理构建目录 ==="
