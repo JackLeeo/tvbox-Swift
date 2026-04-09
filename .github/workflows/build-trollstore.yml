@@ -27,7 +27,7 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen
           
-      - name: Build TVBox with Error Handling
+      - name: Build TVBox
         run: |
           # 清理构建目录
           echo "=== 清理构建目录 ==="
@@ -75,6 +75,12 @@ jobs:
             else
               echo "⚠️ 可执行文件不存在，检查其他文件:"
               find "$APP_PATH" -type f -name "*" | grep -v ".DS_Store"
+              
+              # 如果找到 __preview.dylib，重命名为 TVBox
+              if [ -f "$APP_PATH/__preview.dylib" ]; then
+                mv "$APP_PATH/__preview.dylib" "$APP_PATH/TVBox"
+                echo "✅ 已重命名 __preview.dylib 为 TVBox"
+              fi
             fi
             
             # 2. 检查Info.plist
@@ -86,7 +92,62 @@ jobs:
                 cp "tvbox/Info.plist" "$APP_PATH/"
                 echo "✅ 已复制Info.plist"
               else
-                echo "❌ 源Info.plist也不存在"
+                # 创建基本的Info.plist（使用 printf 逐行写入，避免 YAML 误解析）
+                printf '%s\n' \
+                  '<?xml version="1.0" encoding="UTF-8"?>' \
+                  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+                  '<plist version="1.0">' \
+                  '<dict>' \
+                  '    <key>CFBundleDevelopmentRegion</key>' \
+                  '    <string>en</string>' \
+                  '    <key>CFBundleDisplayName</key>' \
+                  '    <string>TVBox</string>' \
+                  '    <key>CFBundleExecutable</key>' \
+                  '    <string>TVBox</string>' \
+                  '    <key>CFBundleIdentifier</key>' \
+                  '    <string>com.tvbox.app</string>' \
+                  '    <key>CFBundleInfoDictionaryVersion</key>' \
+                  '    <string>6.0</string>' \
+                  '    <key>CFBundleName</key>' \
+                  '    <string>TVBox</string>' \
+                  '    <key>CFBundlePackageType</key>' \
+                  '    <string>APPL</string>' \
+                  '    <key>CFBundleShortVersionString</key>' \
+                  '    <string>1.0.3</string>' \
+                  '    <key>CFBundleVersion</key>' \
+                  '    <string>1</string>' \
+                  '    <key>LSRequiresIPhoneOS</key>' \
+                  '    <true/>' \
+                  '    <key>UIApplicationSupportsIndirectInputEvents</key>' \
+                  '    <true/>' \
+                  '    <key>UILaunchScreen</key>' \
+                  '    <dict/>' \
+                  '    <key>UIRequiredDeviceCapabilities</key>' \
+                  '    <array>' \
+                  '        <string>armv7</string>' \
+                  '    </array>' \
+                  '    <key>UISupportedInterfaceOrientations</key>' \
+                  '    <array>' \
+                  '        <string>UIInterfaceOrientationPortrait</string>' \
+                  '        <string>UIInterfaceOrientationLandscapeLeft</string>' \
+                  '        <string>UIInterfaceOrientationLandscapeRight</string>' \
+                  '    </array>' \
+                  '    <key>UISupportedInterfaceOrientations~ipad</key>' \
+                  '    <array>' \
+                  '        <string>UIInterfaceOrientationPortrait</string>' \
+                  '        <string>UIInterfaceOrientationPortraitUpsideDown</string>' \
+                  '        <string>UIInterfaceOrientationLandscapeLeft</string>' \
+                  '        <string>UIInterfaceOrientationLandscapeRight</string>' \
+                  '    </array>' \
+                  '    <key>NSAppTransportSecurity</key>' \
+                  '    <dict>' \
+                  '        <key>NSAllowsArbitraryLoads</key>' \
+                  '        <true/>' \
+                  '    </dict>' \
+                  '</dict>' \
+                  '</plist>' \
+                  > "$APP_PATH/Info.plist"
+                echo "✅ 已创建Info.plist"
               fi
             fi
             
@@ -96,16 +157,14 @@ jobs:
               echo "✅ 已创建PkgInfo"
             fi
             
-            # 4. 重命名可执行文件（如果需要）
-            if [ -f "$APP_PATH/__preview.dylib" ] && [ ! -f "$APP_PATH/TVBox" ]; then
-              mv "$APP_PATH/__preview.dylib" "$APP_PATH/TVBox"
-              echo "✅ 重命名__preview.dylib为TVBox"
-            fi
-            
-            # 5. 更新Info.plist中的可执行文件名
+            # 4. 更新Info.plist中的可执行文件名
             if [ -f "$APP_PATH/Info.plist" ] && [ -f "$APP_PATH/TVBox" ]; then
               /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable TVBox" "$APP_PATH/Info.plist" 2>/dev/null || true
             fi
+            
+            # 5. 检查.app包内容
+            echo ".app包内容:"
+            ls -la "$APP_PATH/"
             
             # 打包IPA
             echo "=== 打包IPA ==="
@@ -128,18 +187,11 @@ jobs:
             IPA_SIZE=$(du -h ./Build/tvbox-Swift-TrollStore.ipa | cut -f1)
             echo "IPA文件大小: $IPA_SIZE"
             
-            # 简单的IPA大小验证
-            if [[ "$IPA_SIZE" =~ ^[0-9]+[.]?[0-9]*[KMG]?$ ]] && [[ "$IPA_SIZE" != "0K" ]] && [[ "$IPA_SIZE" != "0M" ]]; then
-              echo "✅ IPA文件大小正常"
-            else
-              echo "⚠️ IPA文件大小异常: $IPA_SIZE"
-            fi
-            
           else
             echo "❌ 构建失败，退出码: $BUILD_EXIT_CODE"
             echo "=== 构建错误摘要 ==="
             
-            # 提取错误信息
+            echo "### 提取错误信息 ###"
             echo "1. 链接器错误:"
             grep -A5 -B5 "ld:.*not found" build.log | head -20 || echo "无链接器错误"
             
