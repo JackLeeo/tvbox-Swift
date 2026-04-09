@@ -109,6 +109,40 @@ jobs:
       - name: Generate Xcode Project
         run: xcodegen
 
+      - name: Verify Node.js resources
+        run: |
+          echo "=== 验证 Node.js 脚本资源 ==="
+          SCRIPT_PATH="tvbox/Resources/nodejs-project/type3-parser.js"
+          PACKAGE_PATH="tvbox/Resources/nodejs-project/package.json"
+          MISSING=0
+
+          if [ ! -f "$SCRIPT_PATH" ]; then
+            echo "❌ 缺少脚本文件: $SCRIPT_PATH"
+            MISSING=1
+          else
+            echo "✅ 脚本文件存在: $SCRIPT_PATH"
+            if grep -q "require('rn-bridge')" "$SCRIPT_PATH"; then
+              echo "⚠️ 警告：脚本中引用了 rn-bridge，但原生框架不支持！"
+              echo "   请确保使用纯 HTTP 服务器版本的 type3-parser.js"
+            else
+              echo "✅ 脚本未引用 rn-bridge，符合原生框架要求"
+            fi
+          fi
+
+          if [ ! -f "$PACKAGE_PATH" ]; then
+            echo "❌ 缺少 package.json: $PACKAGE_PATH"
+            MISSING=1
+          else
+            echo "✅ package.json 存在"
+          fi
+
+          if [ $MISSING -eq 1 ]; then
+            echo "❌ 缺少必要的 Node.js 资源文件，构建中止。"
+            exit 1
+          fi
+
+          echo "✅ Node.js 资源文件验证通过"
+
       - name: Check for SwiftData remnants
         run: |
           echo "=== 检查项目中是否残留 SwiftData 代码 ==="
@@ -135,6 +169,7 @@ jobs:
           else
             echo "✅ 未发现 SwiftData 残留，可以继续构建。"
           fi
+
       - name: Pre-build Static Analysis
         run: |
           echo "=== 静态代码检查（iOS 16 兼容性 & 业务逻辑） ==="
@@ -201,6 +236,7 @@ jobs:
           else
             echo "✅ 静态检查通过，继续构建。"
           fi
+
       - name: Build TVBox
         run: |
           echo "=== 清理构建目录 ==="
