@@ -5,25 +5,22 @@ const URL = require('url');
 
 const PORT = 3000;
 
-// 启动 HTTP 服务器
 const server = http.createServer((req, res) => {
-    // 健康检查端点（供 Swift 端测试服务器是否启动）
     if (req.method === 'GET' && req.url === '/health') {
         res.writeHead(200, { 'Content-Type': 'text/plain' });
         res.end('OK');
         return;
     }
 
-    // 主解析端点
     if (req.method === 'POST' && req.url === '/parse') {
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', () => {
             try {
                 const request = JSON.parse(body);
-                const { action, api, key, ext, tid, page, filters, vod_id, wd, url, headers } = request;
+                const { action, api, key, ext, jar, tid, page, filters, vod_id, wd, url, headers } = request;
 
-                // 如果有 url 字段，执行通用解析（兼容旧版）
+                // 通用解析
                 if (url) {
                     parseGeneric(url, headers)
                         .then(data => sendJson(res, { success: true, data }))
@@ -31,20 +28,19 @@ const server = http.createServer((req, res) => {
                     return;
                 }
 
-                // 根据 action 调用对应的解析函数
                 let promise;
                 switch (action) {
                     case 'home':
-                        promise = parseHome(api, key, ext);
+                        promise = parseHome(api, key, ext, jar);
                         break;
                     case 'list':
-                        promise = parseList(api, key, ext, tid, page, filters);
+                        promise = parseList(api, key, ext, jar, tid, page, filters);
                         break;
                     case 'detail':
-                        promise = parseDetail(api, key, ext, vod_id);
+                        promise = parseDetail(api, key, ext, jar, vod_id);
                         break;
                     case 'search':
-                        promise = parseSearch(api, key, ext, wd);
+                        promise = parseSearch(api, key, ext, jar, wd);
                         break;
                     default:
                         throw new Error(`未知的 action: ${action}`);
@@ -61,7 +57,6 @@ const server = http.createServer((req, res) => {
         return;
     }
 
-    // 其他请求返回 404
     res.writeHead(404);
     res.end();
 });
@@ -75,44 +70,11 @@ function sendJson(res, obj) {
     res.end(JSON.stringify(obj));
 }
 
-// ---------- 以下为解析函数，与之前保持一致 ----------
-
-function parseGeneric(url, headers = {}) {
-    return fetchRemoteScript(url, headers, 10000)
-        .then(remoteScript => executeScript(remoteScript));
-}
-
-function parseHome(api, key, ext) {
-    const url = buildJarRequestUrl(api, { action: 'home', key, ext });
-    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
-        .then(remoteScript => executeScript(remoteScript));
-}
-
-function parseList(api, key, ext, tid, page = 1, filters = {}) {
-    const url = buildJarRequestUrl(api, {
-        action: 'list',
-        key, ext, tid, page,
-        filters: JSON.stringify(filters)
-    });
-    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
-        .then(remoteScript => executeScript(remoteScript));
-}
-
-function parseDetail(api, key, ext, vodId) {
-    const url = buildJarRequestUrl(api, { action: 'detail', key, ext, ids: vodId });
-    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
-        .then(remoteScript => executeScript(remoteScript));
-}
-
-function parseSearch(api, key, ext, wd) {
-    const url = buildJarRequestUrl(api, { action: 'search', key, ext, wd });
-    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
-        .then(remoteScript => executeScript(remoteScript));
-}
-
-function buildJarRequestUrl(baseApi, params) {
-    if (baseApi.startsWith('http://') || baseApi.startsWith('https://')) {
-        const urlObj = new URL(baseApi);
+// ---------- 核心：构建 jar 源的真实请求 URL ----------
+function buildJarRequestUrl(api, ext, jar, params) {
+    // 1. 优先使用 ext 作为脚本地址（如果 ext 是 http 开头）
+    if (ext && (ext.startsWith('http://') || ext.startsWith('https://'))) {
+        const urlObj = new URL(ext);
         Object.entries(params).forEach(([k, v]) => {
             if (v !== undefined && v !== null && v !== '') {
                 urlObj.searchParams.set(k, String(v));
@@ -120,7 +82,73 @@ function buildJarRequestUrl(baseApi, params) {
         });
         return urlObj.toString();
     }
-    throw new Error('无效的 jar 源 API 地址');
+
+    // 2. 其次使用 api 作为脚本地址（如果 api 是 http 开头）
+    if (api && (api.startsWith('http://') || api.startsWith('https://'))) {
+        const urlObj = new URL(api);
+        Object.entries(params).forEach(([k, v]) => {
+            if (v !== undefined && v !== null && v !== '') {
+                urlObj.searchParams.set(k, String(v));
+            }
+        });
+        return urlObj.toString();
+    }
+
+    // 3. 如果 api 是特殊标识符（如 csp_XXX），则需要根据 jar 源规范拼接
+    // 常见的 jar 源格式：将标识符映射到固定域名
+    const knownJarHosts = {
+        'csp_': 'https://csp.xxx.com',   // 示例，请根据实际 jar 源文档替换
+        'NewZhiZhen': 'http://你的jar服务器地址:端口'
+    };
+
+    for (const [prefix, host] of Object.knownJarHosts) {
+        if (api.startsWith(prefix)) {
+            const urlObj = new URL(host + '/path/to/spider'); // 具体路径需参考 jar 文档
+            Object.entries(params).forEach(([k, v]) => {
+                if (v !== undefined && v !== null && v !== '') {
+                    urlObj.searchParams.set(k, String(v));
+                }
+            });
+            return urlObj.toString();
+        }
+    }
+
+    // 4. 如果都失败了，抛出明确错误
+    throw new Error(`无法构建 jar 请求 URL。api: ${api}, ext: ${ext}`);
+}
+
+// ---------- 解析函数 ----------
+function parseGeneric(url, headers = {}) {
+    return fetchRemoteScript(url, headers, 10000)
+        .then(remoteScript => executeScript(remoteScript));
+}
+
+function parseHome(api, key, ext, jar) {
+    const url = buildJarRequestUrl(api, ext, jar, { action: 'home', key });
+    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
+        .then(remoteScript => executeScript(remoteScript));
+}
+
+function parseList(api, key, ext, jar, tid, page = 1, filters = {}) {
+    const url = buildJarRequestUrl(api, ext, jar, {
+        action: 'list',
+        key, tid, page,
+        filters: JSON.stringify(filters)
+    });
+    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
+        .then(remoteScript => executeScript(remoteScript));
+}
+
+function parseDetail(api, key, ext, jar, vodId) {
+    const url = buildJarRequestUrl(api, ext, jar, { action: 'detail', key, ids: vodId });
+    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
+        .then(remoteScript => executeScript(remoteScript));
+}
+
+function parseSearch(api, key, ext, jar, wd) {
+    const url = buildJarRequestUrl(api, ext, jar, { action: 'search', key, wd });
+    return fetchRemoteScript(url, getDefaultHeaders(), 15000)
+        .then(remoteScript => executeScript(remoteScript));
 }
 
 function getDefaultHeaders() {
