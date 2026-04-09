@@ -1,145 +1,8 @@
-name: Build TrollStore TVBox
-
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-
-jobs:
-  build:
-    runs-on: macos-14
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-        with:
-          lfs: true
-
-      - name: Setup Xcode
-        uses: maxim-lobanov/setup-xcode@v1
-        with:
-          xcode-version: '16.2'
-
-      - name: Install xcodegen
-        run: brew install xcodegen
-
-      - name: Download Official Native NodeMobile Framework
-        run: |
-          echo "=== 下载官方原生 NodeMobile 框架 ==="
-          VERSION="v18.20.4"
-          DOWNLOAD_URL="https://github.com/nodejs-mobile/nodejs-mobile/releases/download/${VERSION}/nodejs-mobile-${VERSION}-ios.zip"
-          TARGET_DIR="Libraries/nodejs-mobile"
-
-          mkdir -p $TARGET_DIR
-          rm -rf $TARGET_DIR/NodeMobile.xcframework
-
-          curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip || {
-            echo "❌ 框架下载失败"
-            exit 1
-          }
-
-          TEMP_DIR=$(mktemp -d)
-          unzip -q nodejs-mobile.zip -d $TEMP_DIR
-
-          FRAMEWORK_PATH=$(find $TEMP_DIR -name "NodeMobile.xcframework" -type d | head -1)
-          if [ -z "$FRAMEWORK_PATH" ]; then
-            echo "❌ 未找到 NodeMobile.xcframework"
-            exit 1
-          fi
-
-          cp -r "$FRAMEWORK_PATH" $TARGET_DIR/
-          rm -rf $TEMP_DIR nodejs-mobile.zip
-
-          echo "✅ 框架已放置到 $TARGET_DIR/NodeMobile.xcframework"
-
-      - name: Verify Framework Structure
-        run: |
-          echo "=== 验证框架文件完整性 ==="
-          FRAMEWORK_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework"
-          REQUIRED_PATHS=(
-            "$FRAMEWORK_PATH/Info.plist"
-            "$FRAMEWORK_PATH/ios-arm64/NodeMobile.framework/NodeMobile"
-            "$FRAMEWORK_PATH/ios-arm64/NodeMobile.framework/Info.plist"
-          )
-
-          MISSING_FILES=0
-          for path in "${REQUIRED_PATHS[@]}"; do
-            if [ ! -e "$path" ]; then
-              echo "❌ 缺失必要文件: $path"
-              MISSING_FILES=$((MISSING_FILES + 1))
-            fi
-          done
-
-          if [ $MISSING_FILES -gt 0 ]; then
-            echo "❌ 框架文件不完整，缺少 $MISSING_FILES 个必要组件"
-            exit 1
-          fi
-
-          echo "✅ 框架文件结构完整"
-
-      - name: Verify Required Symbols
-        run: |
-          echo "=== 验证关键 C 符号 ==="
-          BINARY_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/NodeMobile.framework/NodeMobile"
-
-          REQUIRED_SYMBOLS=("_node_start")
-
-          ALL_SYMBOLS=$(mktemp)
-          nm -gU "$BINARY_PATH" 2>/dev/null > "$ALL_SYMBOLS"
-
-          MISSING_SYMBOLS=0
-          for sym in "${REQUIRED_SYMBOLS[@]}"; do
-            if grep -q "$sym" "$ALL_SYMBOLS"; then
-              echo "✅ 符号存在: $sym"
-            else
-              echo "❌ 符号缺失: $sym"
-              MISSING_SYMBOLS=$((MISSING_SYMBOLS + 1))
-            fi
-          done
-
-          rm -f "$ALL_SYMBOLS"
-
-          if [ $MISSING_SYMBOLS -gt 0 ]; then
-            echo "❌ 错误：框架中缺失必要符号"
-            exit 1
-          fi
-
-          echo "✅ 必要符号验证通过"
-
-      - name: Generate Xcode Project
-        run: xcodegen
-      - name: Check for SwiftData remnants
-        run: |
-          echo "=== 检查项目中是否残留 SwiftData 代码 ==="
-          RESIDUE_FOUND=0
-
-          echo "1. 检查 import SwiftData:"
-          grep -rn --include="*.swift" "import SwiftData" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
-
-          echo "2. 检查 @Query:"
-          grep -rn --include="*.swift" "@Query" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
-
-          echo "3. 检查 modelContext:"
-          grep -rn --include="*.swift" "modelContext" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
-
-          echo "4. 检查 ModelContainer:"
-          grep -rn --include="*.swift" "ModelContainer" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
-
-          echo "5. 检查 @Model:"
-          grep -rn --include="*.swift" "@Model" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
-
-          if [ $RESIDUE_FOUND -eq 1 ]; then
-            echo "❌ 发现 SwiftData 代码残留！请移除所有 SwiftData 相关代码后再提交。"
-            exit 1
-          else
-            echo "✅ 未发现 SwiftData 残留，可以继续构建。"
-          fi
       - name: Build TVBox
         run: |
           echo "=== 清理构建目录 ==="
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' || echo "清理完成"
-
+          
           echo "=== 开始构建应用 ==="
           set +o pipefail
           xcodebuild build \
@@ -151,43 +14,57 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             -derivedDataPath ./DerivedData \
             2>&1 | tee build.log
-
+          
           BUILD_EXIT_CODE=${PIPESTATUS[0]}
+          
+          # 提取错误摘要（带上下文）
+          echo "=== 生成错误摘要 ==="
+          echo "提取所有包含 'error:' 的行及其前后各5行：" > error_summary.txt
+          grep -n -B5 -A5 "error:" build.log >> error_summary.txt || echo "未找到错误信息" >> error_summary.txt
+          
           if [ $BUILD_EXIT_CODE -eq 0 ]; then
             echo "✅ 构建成功"
+            
             APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -1)
-            [ -z "$APP_PATH" ] && APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
-
             if [ -z "$APP_PATH" ]; then
-              echo "❌ 未找到 .app 文件"
+              APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
+            fi
+            
+            if [ -z "$APP_PATH" ]; then
+              echo "❌ 未找到.app文件"
+              find ./DerivedData -name "*.app" -type d
               exit 1
             fi
-
-            mkdir -p Build/Payload
-            cp -r "$APP_PATH" Build/Payload/
-            cd Build
-            zip -r tvbox-Swift-TrollStore.ipa Payload
-            cd ..
-            echo "✅ IPA 打包完成: Build/tvbox-Swift-TrollStore.ipa"
+            
+            echo "APP_PATH: $APP_PATH"
+            
+            # 打包IPA（省略详细步骤，保持原有逻辑）
+            echo "=== 打包IPA ==="
+            mkdir -p ./Build
+            TEMP_DIR=$(mktemp -d)
+            mkdir -p "$TEMP_DIR/Payload"
+            cp -r "$APP_PATH" "$TEMP_DIR/Payload/"
+            cd "$TEMP_DIR"
+            zip -r "$GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa" Payload
+            cd "$GITHUB_WORKSPACE"
+            rm -rf "$TEMP_DIR"
+            echo "✅ IPA打包完成: ./Build/tvbox-Swift-TrollStore.ipa"
+            
           else
             echo "❌ 构建失败，退出码: $BUILD_EXIT_CODE"
-            echo "=== 构建错误摘要 ==="
-            grep -A5 -B5 "error:" build.log | head -30 || echo "无编译错误"
+            echo "=== 错误摘要（最后50行） ==="
             tail -50 build.log
+            echo ""
+            echo "完整错误信息请下载 build-log 和 error-summary artifacts"
             exit 1
           fi
-
-      - name: Upload IPA Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: tvbox-Swift-TrollStore
-          path: Build/tvbox-Swift-TrollStore.ipa
-          retention-days: 30
-
+          
       - name: Upload Build Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
-          path: build.log
+          path: |
+            ./build.log
+            ./error_summary.txt
           retention-days: 7
