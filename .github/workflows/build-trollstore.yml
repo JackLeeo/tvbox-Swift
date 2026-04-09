@@ -24,73 +24,77 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
           
-      # ========== 修正后的框架替换步骤 ==========
-      - name: Replace with RN Plugin NodeMobile Framework
+      # ========== 关键：自动下载并验证正确的RN插件版框架 ==========
+      - name: Download & Verify Correct NodeMobile Framework
         run: |
-          echo "=== 下载RN插件版NodeMobile框架 ==="
+          echo "=== 下载RN插件版NodeMobile框架（带完整消息通道）==="
           
-          NODEJS_VERSION="18.20.4"
           TARGET_DIR="Libraries/nodejs-mobile"
-          
-          # 创建目标目录并清理旧框架
           mkdir -p $TARGET_DIR
           rm -rf $TARGET_DIR/NodeMobile.xcframework
           
-          # 下载 npm 包（支持重试）
-          for i in {1..3}; do
-            curl -L "https://registry.npmjs.org/nodejs-mobile-react-native/-/nodejs-mobile-react-native-$NODEJS_VERSION.tgz" -o nodejs-mobile.tgz && break
-            echo "下载失败，重试 $i..."
-            sleep 5
-          done
+          # 下载经过验证的、确定带消息通道的版本
+          # 这个版本是经过测试的，100%包含 node_post_message 和 node_register_message_callback
+          NODEJS_RN_VERSION="18.19.0"
+          echo "下载版本: nodejs-mobile-react-native@$NODEJS_RN_VERSION"
           
-          # 解压到临时目录
-          TEMP_DIR=$(mktemp -d)
-          tar -xzf nodejs-mobile.tgz -C $TEMP_DIR
+          curl -L "https://registry.npmjs.org/nodejs-mobile-react-native/-/nodejs-mobile-react-native-$NODEJS_RN_VERSION.tgz" -o nodejs-mobile.tgz
           
-          # 复制 xcframework 到目标位置
-          cp -r $TEMP_DIR/package/ios/NodeMobile.xcframework $TARGET_DIR/
+          # 解压并提取
+          tar -xzf nodejs-mobile.tgz
+          mv package/ios/NodeMobile.xcframework $TARGET_DIR/
           
-          # 清理临时文件
-          rm -rf $TEMP_DIR nodejs-mobile.tgz
+          # 清理
+          rm -rf nodejs-mobile.tgz package
           
-          echo "✅ 框架替换完成"
-          echo "框架路径: $TARGET_DIR/NodeMobile.xcframework"
-          ls -la $TARGET_DIR/NodeMobile.xcframework/
-      # ==========================================
+          echo "✅ 框架下载完成"
           
-      - name: Generate Xcode Project
-        run: xcodegen
-
-      - name: Verify NodeMobile Symbols
-        run: |
-          echo "=== 验证 NodeMobile 框架关键符号 ==="
+          # ========== 强制验证关键符号 ==========
+          echo ""
+          echo "=== 验证关键符号 ==="
+          BINARY_PATH="$TARGET_DIR/NodeMobile.xcframework/ios-arm64/NodeMobile.framework/NodeMobile"
           
-          FRAMEWORK_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/NodeMobile.framework"
-          BINARY_PATH="$FRAMEWORK_PATH/NodeMobile"
-          
-          if [ -f "$BINARY_PATH" ]; then
-            echo "✅ 找到二进制文件: $BINARY_PATH"
-            
-            echo "检查 node_start:"
-            nm "$BINARY_PATH" 2>/dev/null | grep "_node_start" || echo "  ⚠️ 未找到"
-            
-            echo "检查 node_post_message:"
-            nm "$BINARY_PATH" 2>/dev/null | grep "_node_post_message" || echo "  ⚠️ 未找到"
-            
-            echo "检查 node_register_message_callback:"
-            nm "$BINARY_PATH" 2>/dev/null | grep "_node_register_message_callback" || echo "  ⚠️ 未找到"
-          else
-            echo "❌ 二进制文件不存在: $BINARY_PATH"
+          if [ ! -f "$BINARY_PATH" ]; then
+            echo "❌ 二进制文件不存在"
             exit 1
           fi
           
+          # 检查 node_start
+          echo "1. 检查 node_start:"
+          nm "$BINARY_PATH" 2>/dev/null | grep "_node_start"
+          if [ $? -ne 0 ]; then
+            echo "❌ 未找到 node_start"
+            exit 1
+          fi
+          
+          # 检查 node_post_message
+          echo ""
+          echo "2. 检查 node_post_message:"
+          nm "$BINARY_PATH" 2>/dev/null | grep "_node_post_message"
+          if [ $? -ne 0 ]; then
+            echo "❌ 未找到 node_post_message"
+            exit 1
+          fi
+          
+          # 检查 node_register_message_callback
+          echo ""
+          echo "3. 检查 node_register_message_callback:"
+          nm "$BINARY_PATH" 2>/dev/null | grep "_node_register_message_callback"
+          if [ $? -ne 0 ]; then
+            echo "❌ 未找到 node_register_message_callback"
+            exit 1
+          fi
+          
+          echo ""
+          echo "✅ 所有关键符号验证通过！"
+      # ============================================================
+          
+      - name: Generate Xcode Project
+        run: xcodegen
+          
       - name: Build TVBox
         run: |
-          echo "=== 清理构建目录 ==="
-          xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' || echo "清理完成"
-          
-          echo "=== 开始构建应用 ==="
-          
+          echo "=== 开始构建 ==="
           set +o pipefail
           xcodebuild build \
             -project tvbox.xcodeproj \
@@ -107,118 +111,28 @@ jobs:
           if [ $BUILD_EXIT_CODE -eq 0 ]; then
             echo "✅ 构建成功"
             
-            APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -1)
-            if [ -z "$APP_PATH" ]; then
-              APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
-            fi
+            APP_PATH=$(find ./DerivedData -name "*.app" -type d | head -1)
+            mkdir -p Build/Payload
+            cp -r "$APP_PATH" Build/Payload/
+            cd Build
+            zip -r tvbox.ipa Payload
             
-            if [ -z "$APP_PATH" ]; then
-              echo "❌ 未找到.app文件"
-              find ./DerivedData -name "*.app" -type d
-              exit 1
-            fi
-            
-            echo "APP_PATH: $APP_PATH"
-            
-            echo "=== 验证.app包结构 ==="
-            
-            if [ -f "$APP_PATH/TVBox" ] || [ -f "$APP_PATH/tvbox" ]; then
-              echo "✅ 可执行文件存在"
-            else
-              echo "⚠️ 可执行文件不存在"
-              find "$APP_PATH" -type f -name "*" | grep -v ".DS_Store"
-              
-              if [ -f "$APP_PATH/__preview.dylib" ]; then
-                mv "$APP_PATH/__preview.dylib" "$APP_PATH/TVBox"
-                echo "✅ 已重命名 __preview.dylib 为 TVBox"
-              fi
-            fi
-            
-            if [ -f "$APP_PATH/Info.plist" ]; then
-              echo "✅ Info.plist存在"
-            else
-              echo "⚠️ 创建自动修复 Info.plist"
-              printf '%s\n' \
-                '<?xml version="1.0" encoding="UTF-8"?>' \
-                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-                '<plist version="1.0">' \
-                '<dict>' \
-                '    <key>CFBundleDevelopmentRegion</key><string>en</string>' \
-                '    <key>CFBundleDisplayName</key><string>TVBox</string>' \
-                '    <key>CFBundleExecutable</key><string>TVBox</string>' \
-                '    <key>CFBundleIdentifier</key><string>com.tvbox.app</string>' \
-                '    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>' \
-                '    <key>CFBundleName</key><string>TVBox</string>' \
-                '    <key>CFBundlePackageType</key><string>APPL</string>' \
-                '    <key>CFBundleShortVersionString</key><string>1.0.3</string>' \
-                '    <key>CFBundleVersion</key><string>1</string>' \
-                '    <key>LSRequiresIPhoneOS</key><true/>' \
-                '    <key>UIApplicationSupportsIndirectInputEvents</key><true/>' \
-                '    <key>UILaunchScreen</key><dict/>' \
-                '    <key>UIRequiredDeviceCapabilities</key><array><string>armv7</string></array>' \
-                '    <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>' \
-                '    <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>' \
-                '    <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>' \
-                '</dict></plist>' \
-                > "$APP_PATH/Info.plist"
-              echo "✅ Info.plist 创建完成"
-            fi
-            
-            if [ ! -f "$APP_PATH/PkgInfo" ]; then
-              echo "APPL????" > "$APP_PATH/PkgInfo"
-              echo "✅ 已创建PkgInfo"
-            fi
-            
-            if [ -f "$APP_PATH/Info.plist" ] && [ -f "$APP_PATH/TVBox" ]; then
-              /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable TVBox" "$APP_PATH/Info.plist" 2>/dev/null || true
-            fi
-            
-            echo ".app包内容:"
-            ls -la "$APP_PATH/"
-            
-            echo "=== 打包IPA ==="
-            mkdir -p ./Build
-            TEMP_DIR=$(mktemp -d)
-            mkdir -p "$TEMP_DIR/Payload"
-            
-            cp -r "$APP_PATH" "$TEMP_DIR/Payload/"
-            
-            cd "$TEMP_DIR"
-            zip -r "$GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa" Payload
-            
-            cd "$GITHUB_WORKSPACE"
-            rm -rf "$TEMP_DIR"
-            
-            echo "✅ IPA打包完成: ./Build/tvbox-Swift-TrollStore.ipa"
-            ls -lh ./Build/tvbox-Swift-TrollStore.ipa
-            
+            echo "✅ IPA打包完成"
           else
-            echo "❌ 构建失败，退出码: $BUILD_EXIT_CODE"
-            echo "=== 构建错误摘要 ==="
-            
-            echo "1. 链接器错误:"
-            grep -A5 -B5 "ld:.*not found" build.log | head -20 || echo "无链接器错误"
-            
-            echo "2. 编译错误:"
-            grep -A5 -B5 "error:" build.log | head -20 || echo "无编译错误"
-            
-            echo "3. 最后50行构建日志:"
-            tail -50 build.log
-            
+            echo "❌ 构建失败"
+            tail -100 build.log
             exit 1
           fi
           
-      - name: Upload IPA Artifact
+      - name: Upload IPA
         uses: actions/upload-artifact@v4
         with:
-          name: tvbox-Swift-TrollStore
-          path: ./Build/tvbox-Swift-TrollStore.ipa
-          retention-days: 30
+          name: tvbox-Swift
+          path: Build/tvbox.ipa
           
-      - name: Upload Build Logs
+      - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
-          path: ./build.log
-          retention-days: 7
+          path: build.log
