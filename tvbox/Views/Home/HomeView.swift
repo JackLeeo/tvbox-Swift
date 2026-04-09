@@ -46,9 +46,9 @@ struct HomeView: View {
     
     private var headerBar: some View {
         HStack(spacing: 15) {
-            // 应用名（可切换源）
+            // 应用名（可切换源）- 已移除过滤，显示所有源
             Menu {
-                ForEach(ApiConfig.shared.sourceBeanList.filter { $0.isSupportedInSwift }) { source in
+                ForEach(ApiConfig.shared.sourceBeanList) { source in
                     Button {
                         ApiConfig.shared.setHomeSource(source)
                         Task { await viewModel.refresh() }
@@ -283,13 +283,6 @@ struct HomeView: View {
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)
-                    
-                    // 如果是不支持的源类型，显示类型信息
-                    if let source = ApiConfig.shared.homeSourceBean, !source.isSupportedInSwift {
-                        Text("当前源类型: \(source.typeDescription)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                    }
                     
                     Button("重试") {
                         Task { await viewModel.refresh() }
