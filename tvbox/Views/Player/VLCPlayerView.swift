@@ -890,11 +890,11 @@ struct VLCVodPlayerView: View {
             startPlayback()
             wakeUpControls()
         }
-        .onChange(of: urlString) { _, _ in
+        .onChange(of: urlString) { _ in
             startPlayback()
             wakeUpControls()
         }
-        .onChange(of: controller.currentTimeSeconds) { _, newValue in
+        .onChange(of: controller.currentTimeSeconds) { newValue in
             if !isDraggingProgress {
                 draggingSeconds = newValue
             }
@@ -1249,7 +1249,7 @@ struct VLCLivePlayerView: View {
         .onAppear {
             startPlayback()
         }
-        .onChange(of: urlString) { _, _ in
+        .onChange(of: urlString) { _ in
             startPlayback()
         }
         .onDisappear {
