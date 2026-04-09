@@ -24,28 +24,31 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
           
-      # ========== 关键：自动下载并验证正确的RN插件版框架 ==========
-      - name: Download & Verify Correct NodeMobile Framework
+      # ========== 关键：用npm install稳定下载正确框架 ==========
+      - name: Download Correct NodeMobile Framework via npm
         run: |
-          echo "=== 下载RN插件版NodeMobile框架（带完整消息通道）==="
+          echo "=== 通过npm install下载RN插件版NodeMobile框架 ==="
           
           TARGET_DIR="Libraries/nodejs-mobile"
           mkdir -p $TARGET_DIR
           rm -rf $TARGET_DIR/NodeMobile.xcframework
           
-          # 下载经过验证的、确定带消息通道的版本
-          # 这个版本是经过测试的，100%包含 node_post_message 和 node_register_message_callback
-          NODEJS_RN_VERSION="18.19.0"
-          echo "下载版本: nodejs-mobile-react-native@$NODEJS_RN_VERSION"
+          # 创建临时目录，用npm install安装（最稳定的方式）
+          TMP_NPM_DIR=$(mktemp -d)
+          cd "$TMP_NPM_DIR"
           
-          curl -L "https://registry.npmjs.org/nodejs-mobile-react-native/-/nodejs-mobile-react-native-$NODEJS_RN_VERSION.tgz" -o nodejs-mobile.tgz
+          echo "初始化临时npm项目..."
+          npm init -y
           
-          # 解压并提取
-          tar -xzf nodejs-mobile.tgz
-          mv package/ios/NodeMobile.xcframework $TARGET_DIR/
+          echo "安装nodejs-mobile-react-native@18.19.0..."
+          npm install nodejs-mobile-react-native@18.19.0
+          
+          echo "复制框架到项目目录..."
+          cp -r node_modules/nodejs-mobile-react-native/ios/NodeMobile.xcframework "$GITHUB_WORKSPACE/$TARGET_DIR/"
           
           # 清理
-          rm -rf nodejs-mobile.tgz package
+          cd "$GITHUB_WORKSPACE"
+          rm -rf "$TMP_NPM_DIR"
           
           echo "✅ 框架下载完成"
           
