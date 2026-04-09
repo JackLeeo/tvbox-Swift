@@ -42,9 +42,9 @@ struct SourceBean: Codable, Identifiable, Hashable {
     var isFilterable: Bool { filterable == 1 }
     var isQuickSearchEnabled: Bool { quickSearch == 1 }
     
-    /// 是否在 Swift 版中受支持（type=3 为 JAR/Spider，需要 Java 运行时，暂不支持）
+    /// 是否在 Swift 版中受支持：现在已支持 JAR 类型 (type=3)
     var isSupportedInSwift: Bool {
-        return type == 0 || type == 1 || type == 4
+        return type == 0 || type == 1 || type == 3 || type == 4
     }
     
     /// 类型描述
