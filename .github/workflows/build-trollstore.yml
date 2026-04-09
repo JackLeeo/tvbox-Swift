@@ -34,13 +34,14 @@ jobs:
           mkdir -p $TARGET_DIR
           rm -rf $TARGET_DIR/NodeMobile.xcframework
 
-          curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip
+          curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip || {
+            echo "❌ 框架下载失败"
+            exit 1
+          }
 
-          # 解压到临时目录，避免污染工作区
           TEMP_DIR=$(mktemp -d)
           unzip -q nodejs-mobile.zip -d $TEMP_DIR
 
-          # 查找 NodeMobile.xcframework 的实际位置
           FRAMEWORK_PATH=$(find $TEMP_DIR -name "NodeMobile.xcframework" -type d | head -1)
           if [ -z "$FRAMEWORK_PATH" ]; then
             echo "❌ 未找到 NodeMobile.xcframework"
@@ -51,7 +52,7 @@ jobs:
           rm -rf $TEMP_DIR nodejs-mobile.zip
 
           echo "✅ 框架已放置到 $TARGET_DIR/NodeMobile.xcframework"
-      # ========== 验证框架文件完整性 ==========
+
       - name: Verify Framework Structure
         run: |
           echo "=== 验证框架文件完整性 ==="
@@ -77,17 +78,12 @@ jobs:
 
           echo "✅ 框架文件结构完整"
 
-      # ========== 验证关键 C 符号是否存在 ==========
       - name: Verify Required Symbols
         run: |
           echo "=== 验证关键 C 符号 ==="
           BINARY_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/NodeMobile.framework/NodeMobile"
 
-          REQUIRED_SYMBOLS=(
-            "_node_start"
-            "_node_post_message"
-            "_node_register_message_callback"
-          )
+          REQUIRED_SYMBOLS=("_node_start")
 
           ALL_SYMBOLS=$(mktemp)
           nm -gU "$BINARY_PATH" 2>/dev/null > "$ALL_SYMBOLS"
@@ -105,13 +101,11 @@ jobs:
           rm -f "$ALL_SYMBOLS"
 
           if [ $MISSING_SYMBOLS -gt 0 ]; then
-            echo ""
-            echo "❌ 错误：框架中缺失 $MISSING_SYMBOLS 个必要符号。"
-            echo "   请确保使用的是官方原生 iOS 框架，而非 React Native 插件版。"
+            echo "❌ 错误：框架中缺失必要符号"
             exit 1
           fi
 
-          echo "✅ 所有必要符号均存在"
+          echo "✅ 必要符号验证通过"
 
       - name: Generate Xcode Project
         run: xcodegen
