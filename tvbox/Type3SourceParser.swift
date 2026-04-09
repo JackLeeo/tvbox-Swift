@@ -8,14 +8,12 @@ class Type3SourceParser {
     
     /// 通用方法：向 Node.js 发送解析请求，返回原始字典
     func parseType3Source(sourceUrl: String, headers: [String: String]? = nil, completion: @escaping ([String: Any]?, Error?) -> Void) {
-        Logger.shared.log("Type3SourceParser 通用解析请求", level: .debug)
         nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers, completion: completion)
     }
     
     /// 通用方法：异步版本
     func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
-        Logger.shared.log("Type3SourceParser 异步通用解析", level: .debug)
-        return try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
+        try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
     }
     
     // MARK: - 首页解析
@@ -30,7 +28,7 @@ class Type3SourceParser {
             throw SourceError.emptyApi
         }
         
-        // 构建请求参数，传递源信息给 Node.js
+        // 构建请求 JSON，与 Node.js 端期望的格式一致
         let requestData: [String: Any] = [
             "action": "home",
             "api": api,
@@ -45,8 +43,7 @@ class Type3SourceParser {
         }
         
         Logger.shared.log("发送首页解析请求到 Node.js", level: .debug)
-        // 调用 Node.js 解析
-        let result = try await parseType3Source(sourceUrl: jsonString)
+        let result = try await sendRequest(jsonString: jsonString)
         
         // 解析返回数据
         guard let success = result["success"] as? Bool, success,
@@ -125,7 +122,7 @@ class Type3SourceParser {
             throw SourceError.parseError("无法构建请求数据")
         }
         
-        let result = try await parseType3Source(sourceUrl: jsonString)
+        let result = try await sendRequest(jsonString: jsonString)
         
         guard let success = result["success"] as? Bool, success,
               let data = result["data"] as? [String: Any],
@@ -174,7 +171,7 @@ class Type3SourceParser {
             throw SourceError.parseError("无法构建请求数据")
         }
         
-        let result = try await parseType3Source(sourceUrl: jsonString)
+        let result = try await sendRequest(jsonString: jsonString)
         
         guard let success = result["success"] as? Bool, success,
               let data = result["data"] as? [String: Any],
@@ -226,7 +223,7 @@ class Type3SourceParser {
             throw SourceError.parseError("无法构建请求数据")
         }
         
-        let result = try await parseType3Source(sourceUrl: jsonString)
+        let result = try await sendRequest(jsonString: jsonString)
         
         guard let success = result["success"] as? Bool, success,
               let data = result["data"] as? [String: Any],
@@ -247,5 +244,20 @@ class Type3SourceParser {
         
         Logger.shared.log("搜索到 \(videos.count) 个结果", level: .info)
         return videos
+    }
+    
+    // 内部方法：向 NodeJSBridge 发送 JSON 字符串并返回解析结果
+    private func sendRequest(jsonString: String) async throws -> [String: Any] {
+        try await withCheckedThrowingContinuation { continuation in
+            nodeBridge.sendRequest(jsonString: jsonString) { result, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let result = result {
+                    continuation.resume(returning: result)
+                } else {
+                    continuation.resume(throwing: NSError(domain: "Type3SourceParser", code: -1))
+                }
+            }
+        }
     }
 }
