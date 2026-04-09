@@ -1,33 +1,16 @@
 import Foundation
 
-// 官方原生框架 C API 声明
 @_silgen_name("node_start")
 func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?)
-
-@_silgen_name("node_register_message_callback")
-func node_register_message_callback(_ callback: @convention(c) (UnsafePointer<Int8>?) -> Void)
-
-@_silgen_name("node_post_message")
-func node_post_message(_ message: UnsafePointer<Int8>?)
 
 class NodeJSBridge {
     static let shared = NodeJSBridge()
     private var isNodeStarted = false
-    private var pendingCompletions: [String: ([String: Any]?, Error?) -> Void] = [:]
+    private let httpSession = URLSession(configuration: .default)
+    private let baseURL = "http://127.0.0.1:3000"
 
     private init() {
-        registerNodeMessageCallback()
         startNodeInBackground()
-    }
-
-    private func registerNodeMessageCallback() {
-        node_register_message_callback { msgPtr in
-            guard let msgPtr = msgPtr else { return }
-            let message = String(cString: msgPtr)
-            DispatchQueue.main.async {
-                NodeJSBridge.shared.handleNodeMessage(message)
-            }
-        }
     }
 
     private func startNodeInBackground() {
@@ -45,53 +28,54 @@ class NodeJSBridge {
             node_start(Int32(args.count), &cArgs)
             cArgs.forEach { free($0) }
         }
+
+        // 等待服务器启动
+        Thread.sleep(forTimeInterval: 1.0)
     }
 
-    private func handleNodeMessage(_ message: String) {
-        do {
-            guard let data = message.data(using: .utf8),
-                  let result = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                  let requestId = result["id"] as? String,
-                  let completion = pendingCompletions.removeValue(forKey: requestId) else { return }
-
-            if let success = result["success"] as? Bool, success {
-                completion(result["data"] as? [String: Any], nil)
-            } else {
-                let error = NSError(domain: "NodeJSBridge", code: -1,
-                                    userInfo: [NSLocalizedDescriptionKey: result["error"] as? String ?? "解析失败"])
-                completion(nil, error)
-            }
-        } catch {
-            print("❌ 处理Node消息失败: \(error)")
-        }
-    }
-
-    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil,
-                         completion: @escaping ([String: Any]?, Error?) -> Void) {
-        let requestId = UUID().uuidString
-        pendingCompletions[requestId] = completion
-
+    func parseType3Source(sourceUrl: String,
+                          headers: [String: String]? = nil,
+                          completion: @escaping ([String: Any]?, Error?) -> Void) {
         let requestData: [String: Any] = [
-            "id": requestId,
             "url": sourceUrl,
-            "headers": headers ?? [
-                "User-Agent": "tvbox-Swift/1.0.0",
-                "Referer": "https://tvbox.example.com"
-            ]
+            "headers": headers ?? [:]
         ]
 
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData) else {
             completion(nil, NSError(domain: "NodeJSBridge", code: -2))
             return
         }
 
-        jsonString.withCString { ptr in
-            node_post_message(ptr)
-        }
+        var request = URLRequest(url: URL(string: "\(baseURL)/parse")!)
+        request.httpMethod = "POST"
+        request.httpBody = jsonData
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.timeoutInterval = 15
+
+        httpSession.dataTask(with: request) { data, response, error in
+            if let error = error {
+                completion(nil, error)
+                return
+            }
+
+            guard let data = data,
+                  let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                completion(nil, NSError(domain: "NodeJSBridge", code: -3))
+                return
+            }
+
+            if let success = result["success"] as? Bool, success {
+                completion(result["data"] as? [String: Any], nil)
+            } else {
+                let errorMsg = result["error"] as? String ?? "解析失败"
+                completion(nil, NSError(domain: "NodeJSBridge", code: -1,
+                                        userInfo: [NSLocalizedDescriptionKey: errorMsg]))
+            }
+        }.resume()
     }
 
-    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
+    func parseType3Source(sourceUrl: String,
+                          headers: [String: String]? = nil) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
             parseType3Source(sourceUrl: sourceUrl, headers: headers) { result, error in
                 if let error = error {
