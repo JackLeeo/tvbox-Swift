@@ -109,7 +109,32 @@ jobs:
 
       - name: Generate Xcode Project
         run: xcodegen
+      - name: Check for SwiftData remnants
+        run: |
+          echo "=== 检查项目中是否残留 SwiftData 代码 ==="
+          RESIDUE_FOUND=0
 
+          echo "1. 检查 import SwiftData:"
+          grep -rn --include="*.swift" "import SwiftData" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
+
+          echo "2. 检查 @Query:"
+          grep -rn --include="*.swift" "@Query" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
+
+          echo "3. 检查 modelContext:"
+          grep -rn --include="*.swift" "modelContext" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
+
+          echo "4. 检查 ModelContainer:"
+          grep -rn --include="*.swift" "ModelContainer" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
+
+          echo "5. 检查 @Model:"
+          grep -rn --include="*.swift" "@Model" tvbox/ && RESIDUE_FOUND=1 || echo "   ✅ 无残留"
+
+          if [ $RESIDUE_FOUND -eq 1 ]; then
+            echo "❌ 发现 SwiftData 代码残留！请移除所有 SwiftData 相关代码后再提交。"
+            exit 1
+          else
+            echo "✅ 未发现 SwiftData 残留，可以继续构建。"
+          fi
       - name: Build TVBox
         run: |
           echo "=== 清理构建目录 ==="
