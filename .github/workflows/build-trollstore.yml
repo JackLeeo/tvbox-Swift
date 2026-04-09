@@ -24,22 +24,90 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
+      # ========== 下载官方原生 NodeMobile 框架 ==========
       - name: Download Official Native NodeMobile Framework
+        id: download_framework
         run: |
           echo "=== 下载官方原生 NodeMobile 框架 ==="
-          VERSION="v18.19.0"
-          DOWNLOAD_URL="https://github.com/nodejs-mobile/nodejs-mobile/releases/download/${VERSION}/nodejs-mobile-${VERSION}-ios.zip"
+          VERSION="v18.20.4"
+          DOWNLOAD_URL="https://github.com/nodejs-mobile/nodejs-mobile/releases/download/v18.20.4/nodejs-mobile-v18.20.4-ios.zip"
           TARGET_DIR="Libraries/nodejs-mobile"
 
           mkdir -p $TARGET_DIR
           rm -rf $TARGET_DIR/NodeMobile.xcframework
 
-          curl -L "$DOWNLOAD_URL" -o nodejs-mobile.zip
+          curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip || {
+            echo "❌ 框架下载失败，请检查网络或版本号"
+            exit 1
+          }
+
           unzip -q nodejs-mobile.zip
           cp -r Release-universal/NodeMobile.xcframework $TARGET_DIR/
           rm -rf Release-iphoneos Release-universal nodejs-mobile.zip
 
           echo "✅ 框架已放置到 $TARGET_DIR/NodeMobile.xcframework"
+
+      # ========== 验证框架文件完整性 ==========
+      - name: Verify Framework Structure
+        run: |
+          echo "=== 验证框架文件完整性 ==="
+          FRAMEWORK_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework"
+          REQUIRED_PATHS=(
+            "$FRAMEWORK_PATH/Info.plist"
+            "$FRAMEWORK_PATH/ios-arm64/NodeMobile.framework/NodeMobile"
+            "$FRAMEWORK_PATH/ios-arm64/NodeMobile.framework/Info.plist"
+          )
+
+          MISSING_FILES=0
+          for path in "${REQUIRED_PATHS[@]}"; do
+            if [ ! -e "$path" ]; then
+              echo "❌ 缺失必要文件: $path"
+              MISSING_FILES=$((MISSING_FILES + 1))
+            fi
+          done
+
+          if [ $MISSING_FILES -gt 0 ]; then
+            echo "❌ 框架文件不完整，缺少 $MISSING_FILES 个必要组件"
+            exit 1
+          fi
+
+          echo "✅ 框架文件结构完整"
+
+      # ========== 验证关键 C 符号是否存在 ==========
+      - name: Verify Required Symbols
+        run: |
+          echo "=== 验证关键 C 符号 ==="
+          BINARY_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/NodeMobile.framework/NodeMobile"
+
+          REQUIRED_SYMBOLS=(
+            "_node_start"
+            "_node_post_message"
+            "_node_register_message_callback"
+          )
+
+          ALL_SYMBOLS=$(mktemp)
+          nm -gU "$BINARY_PATH" 2>/dev/null > "$ALL_SYMBOLS"
+
+          MISSING_SYMBOLS=0
+          for sym in "${REQUIRED_SYMBOLS[@]}"; do
+            if grep -q "$sym" "$ALL_SYMBOLS"; then
+              echo "✅ 符号存在: $sym"
+            else
+              echo "❌ 符号缺失: $sym"
+              MISSING_SYMBOLS=$((MISSING_SYMBOLS + 1))
+            fi
+          done
+
+          rm -f "$ALL_SYMBOLS"
+
+          if [ $MISSING_SYMBOLS -gt 0 ]; then
+            echo ""
+            echo "❌ 错误：框架中缺失 $MISSING_SYMBOLS 个必要符号。"
+            echo "   请确保使用的是官方原生 iOS 框架，而非 React Native 插件版。"
+            exit 1
+          fi
+
+          echo "✅ 所有必要符号均存在"
 
       - name: Generate Xcode Project
         run: xcodegen
@@ -66,6 +134,12 @@ jobs:
             echo "✅ 构建成功"
             APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -1)
             [ -z "$APP_PATH" ] && APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
+
+            if [ -z "$APP_PATH" ]; then
+              echo "❌ 未找到 .app 文件"
+              exit 1
+            fi
+
             mkdir -p Build/Payload
             cp -r "$APP_PATH" Build/Payload/
             cd Build
@@ -73,7 +147,10 @@ jobs:
             cd ..
             echo "✅ IPA 打包完成: Build/tvbox-Swift-TrollStore.ipa"
           else
-            echo "❌ 构建失败"
+            echo "❌ 构建失败，退出码: $BUILD_EXIT_CODE"
+            echo "=== 构建错误摘要 ==="
+            grep -A5 -B5 "error:" build.log | head -30 || echo "无编译错误"
+            tail -50 build.log
             exit 1
           fi
 
