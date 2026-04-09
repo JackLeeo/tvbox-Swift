@@ -24,79 +24,65 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
           
-      # ========== 新增：自动下载替换RN插件版NodeMobile框架 ==========
+      # ========== 修正后的框架替换步骤 ==========
       - name: Replace with RN Plugin NodeMobile Framework
         run: |
           echo "=== 下载RN插件版NodeMobile框架 ==="
           
-          # 配置版本号（可随时更新）
           NODEJS_VERSION="18.20.4"
           TARGET_DIR="Libraries/nodejs-mobile"
           
-          # 创建目标目录
+          # 创建目标目录并清理旧框架
           mkdir -p $TARGET_DIR
           rm -rf $TARGET_DIR/NodeMobile.xcframework
           
-          # 下载npm包并提取xcframework（比npm install更快）
-          curl -L "https://registry.npmjs.org/nodejs-mobile-react-native/-/nodejs-mobile-react-native-$NODEJS_VERSION.tgz" -o nodejs-mobile.tgz
+          # 下载 npm 包（支持重试）
+          for i in {1..3}; do
+            curl -L "https://registry.npmjs.org/nodejs-mobile-react-native/-/nodejs-mobile-react-native-$NODEJS_VERSION.tgz" -o nodejs-mobile.tgz && break
+            echo "下载失败，重试 $i..."
+            sleep 5
+          done
           
-          # 解压并提取ios目录下的xcframework
-          tar -xzf nodejs-mobile.tgz --strip-components=1 package/ios/NodeMobile.xcframework
+          # 解压到临时目录
+          TEMP_DIR=$(mktemp -d)
+          tar -xzf nodejs-mobile.tgz -C $TEMP_DIR
           
-          # 移动到目标目录
-          mv NodeMobile.xcframework $TARGET_DIR/
+          # 复制 xcframework 到目标位置
+          cp -r $TEMP_DIR/package/ios/NodeMobile.xcframework $TARGET_DIR/
           
           # 清理临时文件
-          rm -f nodejs-mobile.tgz
+          rm -rf $TEMP_DIR nodejs-mobile.tgz
           
           echo "✅ 框架替换完成"
           echo "框架路径: $TARGET_DIR/NodeMobile.xcframework"
           ls -la $TARGET_DIR/NodeMobile.xcframework/
-      # ============================================================
+      # ==========================================
           
       - name: Generate Xcode Project
         run: xcodegen
 
-      - name: Detailed NodeMobile Symbol Analysis
+      - name: Verify NodeMobile Symbols
         run: |
-          echo "=== 详细分析 NodeMobile 框架中的所有符号 ==="
+          echo "=== 验证 NodeMobile 框架关键符号 ==="
           
           FRAMEWORK_PATH="Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/NodeMobile.framework"
           BINARY_PATH="$FRAMEWORK_PATH/NodeMobile"
           
           if [ -f "$BINARY_PATH" ]; then
-            echo "✅ 找到 NodeMobile 二进制文件: $BINARY_PATH"
+            echo "✅ 找到二进制文件: $BINARY_PATH"
             
-            echo "1. 文件基本信息:"
-            file "$BINARY_PATH"
-            echo ""
+            echo "检查 node_start:"
+            nm "$BINARY_PATH" 2>/dev/null | grep "_node_start" || echo "  ⚠️ 未找到"
             
-            echo "2. 支持的架构:"
-            lipo -info "$BINARY_PATH" 2>/dev/null || echo "无法获取架构信息"
-            echo ""
+            echo "检查 node_post_message:"
+            nm "$BINARY_PATH" 2>/dev/null | grep "_node_post_message" || echo "  ⚠️ 未找到"
             
-            echo "3. 查找关键函数:"
-            echo "node_start:"
-            nm "$BINARY_PATH" 2>/dev/null | grep "_node_start" || echo "未找到"
-            echo ""
-            echo "node_post_message:"
-            nm "$BINARY_PATH" 2>/dev/null | grep "_node_post_message" || echo "未找到"
-            echo ""
-            echo "node_register_message_callback:"
-            nm "$BINARY_PATH" 2>/dev/null | grep "_node_register_message_callback" || echo "未找到"
-            
+            echo "检查 node_register_message_callback:"
+            nm "$BINARY_PATH" 2>/dev/null | grep "_node_register_message_callback" || echo "  ⚠️ 未找到"
           else
-            echo "❌ NodeMobile 二进制文件不存在: $BINARY_PATH"
+            echo "❌ 二进制文件不存在: $BINARY_PATH"
             exit 1
           fi
-
-      - name: Upload Symbol Analysis Artifacts
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: node-symbol-analysis
-          path: ./symbol-analysis/
-          retention-days: 7
           
       - name: Build TVBox
         run: |
