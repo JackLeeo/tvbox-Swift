@@ -37,79 +37,55 @@ jobs:
           if [ -f "$BINARY_PATH" ]; then
             echo "✅ 找到 NodeMobile 二进制文件: $BINARY_PATH"
             
-            # 1. 获取文件信息
             echo "1. 文件基本信息:"
             file "$BINARY_PATH"
             echo ""
             
-            # 2. 检查支持的架构
             echo "2. 支持的架构:"
             lipo -info "$BINARY_PATH" 2>/dev/null || echo "无法获取架构信息"
             echo ""
             
-            # 3. 列出所有符号并保存到文件
-            echo "3. 正在提取所有符号，这可能需要一些时间..."
-            
-            # 创建输出目录
+            echo "3. 正在提取所有符号..."
             mkdir -p ./symbol-analysis
             
-            # 方法1: 使用nm提取所有符号（完整列表）
-            echo "=== 提取所有符号（方法1: nm）==="
             nm "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/all-symbols.txt
-            
-            # 统计符号数量
             SYMBOL_COUNT=$(wc -l < ./symbol-analysis/all-symbols.txt)
             echo "✅ 提取完成，共找到 $SYMBOL_COUNT 个符号"
             echo ""
             
-            # 4. 按类型分类符号
             echo "4. 按类型分类符号:"
-            
-            # 未定义符号
             nm -u "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/undefined-symbols.txt
             echo "   ✅ 未定义符号: $(wc -l < ./symbol-analysis/undefined-symbols.txt) 个"
             
-            # 外部符号
             nm -gU "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/external-symbols.txt
             echo "   ✅ 外部符号: $(wc -l < ./symbol-analysis/external-symbols.txt) 个"
             
-            # 已定义符号
             nm -g "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/defined-symbols.txt
             echo "   ✅ 已定义符号: $(wc -l < ./symbol-analysis/defined-symbols.txt) 个"
             
-            # 5. 查找与node相关的所有符号
-            echo "5. 查找与'node'相关的所有符号:"
+            echo "5. 查找与node相关的所有符号:"
             grep -i "node" ./symbol-analysis/all-symbols.txt > ./symbol-analysis/node-symbols-full.txt
-            
             NODE_SYMBOL_COUNT=$(wc -l < ./symbol-analysis/node-symbols-full.txt)
             echo "   ✅ 找到 $NODE_SYMBOL_COUNT 个包含'node'的符号"
             
-            # 6. 查找特定函数
             echo "6. 查找可能的消息发送函数:"
             grep -i -E "(post|send|message|msg)" ./symbol-analysis/all-symbols.txt > ./symbol-analysis/message-symbols.txt
-            
             MESSAGE_SYMBOL_COUNT=$(wc -l < ./symbol-analysis/message-symbols.txt)
             echo "   ✅ 找到 $MESSAGE_SYMBOL_COUNT 个与消息相关的符号"
             
-            # 7. 查找node_前缀的函数
             echo "7. 查找node_前缀的函数:"
             grep -E "\sT\s_node_" ./symbol-analysis/all-symbols.txt > ./symbol-analysis/node-prefix-symbols.txt
-            
             NODE_PREFIX_COUNT=$(wc -l < ./symbol-analysis/node-prefix-symbols.txt)
             echo "   ✅ 找到 $NODE_PREFIX_COUNT 个node_前缀的函数"
             
-            # 8. 使用objdump获取更多详细信息
             echo "8. 使用objdump获取动态符号表:"
             objdump -T "$BINARY_PATH" 2>/dev/null | grep -i "node" > ./symbol-analysis/objdump-node-symbols.txt || echo "objdump不可用"
             
-            # 9. 使用strings查看字符串常量
             echo "9. 提取所有字符串常量:"
             strings "$BINARY_PATH" | grep -i "node" | head -100 > ./symbol-analysis/strings-node.txt
             
-            # 10. 显示关键符号摘要
             echo ""
             echo "=== 关键符号摘要 ==="
-            
             echo "A. 所有node_前缀的函数:"
             head -30 ./symbol-analysis/node-prefix-symbols.txt
             echo ""
@@ -130,7 +106,6 @@ jobs:
             grep -i "start" ./symbol-analysis/all-symbols.txt | head -20
             echo ""
             
-            # 11. 生成符号统计报告
             echo "=== 符号统计报告 ===" > ./symbol-analysis/symbol-report.txt
             echo "总符号数: $SYMBOL_COUNT" >> ./symbol-analysis/symbol-report.txt
             echo "包含'node'的符号数: $NODE_SYMBOL_COUNT" >> ./symbol-analysis/symbol-report.txt
@@ -140,16 +115,14 @@ jobs:
             echo "前20个node_前缀函数:" >> ./symbol-analysis/symbol-report.txt
             head -20 ./symbol-analysis/node-prefix-symbols.txt >> ./symbol-analysis/symbol-report.txt
             
-            echo "✅ 符号分析完成，结果保存在 ./symbol-analysis/ 目录"
-            
-            # 12. 列出生成的文件
+            echo "✅ 符号分析完成"
             echo ""
             echo "=== 生成的分析文件 ==="
             ls -la ./symbol-analysis/
             
           else
             echo "❌ NodeMobile 二进制文件不存在: $BINARY_PATH"
-            echo "请检查路径是否正确"
+            exit 1
           fi
 
       - name: Upload Symbol Analysis Artifacts
@@ -157,19 +130,16 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: node-symbol-analysis
-          path: |
-            ./symbol-analysis/
+          path: ./symbol-analysis/
           retention-days: 7
           
       - name: Build TVBox
         run: |
-          # 清理构建目录
           echo "=== 清理构建目录 ==="
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' || echo "清理完成"
           
           echo "=== 开始构建应用 ==="
           
-          # 构建并捕获退出状态
           set +o pipefail
           xcodebuild build \
             -project tvbox.xcodeproj \
@@ -186,10 +156,9 @@ jobs:
           if [ $BUILD_EXIT_CODE -eq 0 ]; then
             echo "✅ 构建成功"
             
-            # 找到.app包
-            APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -n 1)
+            APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -1)
             if [ -z "$APP_PATH" ]; then
-              APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -n 1)
+              APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
             fi
             
             if [ -z "$APP_PATH" ]; then
@@ -200,107 +169,62 @@ jobs:
             
             echo "APP_PATH: $APP_PATH"
             
-            # 验证.app包结构
             echo "=== 验证.app包结构 ==="
             
-            # 1. 检查可执行文件
             if [ -f "$APP_PATH/TVBox" ] || [ -f "$APP_PATH/tvbox" ]; then
               echo "✅ 可执行文件存在"
             else
-              echo "⚠️ 可执行文件不存在，检查其他文件:"
+              echo "⚠️ 可执行文件不存在"
               find "$APP_PATH" -type f -name "*" | grep -v ".DS_Store"
               
-              # 如果找到 __preview.dylib，重命名为 TVBox
               if [ -f "$APP_PATH/__preview.dylib" ]; then
                 mv "$APP_PATH/__preview.dylib" "$APP_PATH/TVBox"
                 echo "✅ 已重命名 __preview.dylib 为 TVBox"
               fi
             fi
             
-            # 2. 检查Info.plist
             if [ -f "$APP_PATH/Info.plist" ]; then
               echo "✅ Info.plist存在"
             else
-              echo "⚠️ Info.plist不存在，从源位置复制"
-              if [ -f "tvbox/Info.plist" ]; then
-                cp "tvbox/Info.plist" "$APP_PATH/"
-                echo "✅ 已复制Info.plist"
-              else
-                # 创建基本的Info.plist（使用 printf 避免 YAML 误解析）
-                printf '%s\n' \
-                  '<?xml version="1.0" encoding="UTF-8"?>' \
-                  '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
-                  '<plist version="1.0">' \
-                  '<dict>' \
-                  '    <key>CFBundleDevelopmentRegion</key>' \
-                  '    <string>en</string>' \
-                  '    <key>CFBundleDisplayName</key>' \
-                  '    <string>TVBox</string>' \
-                  '    <key>CFBundleExecutable</key>' \
-                  '    <string>TVBox</string>' \
-                  '    <key>CFBundleIdentifier</key>' \
-                  '    <string>com.tvbox.app</string>' \
-                  '    <key>CFBundleInfoDictionaryVersion</key>' \
-                  '    <string>6.0</string>' \
-                  '    <key>CFBundleName</key>' \
-                  '    <string>TVBox</string>' \
-                  '    <key>CFBundlePackageType</key>' \
-                  '    <string>APPL</string>' \
-                  '    <key>CFBundleShortVersionString</key>' \
-                  '    <string>1.0.3</string>' \
-                  '    <key>CFBundleVersion</key>' \
-                  '    <string>1</string>' \
-                  '    <key>LSRequiresIPhoneOS</key>' \
-                  '    <true/>' \
-                  '    <key>UIApplicationSupportsIndirectInputEvents</key>' \
-                  '    <true/>' \
-                  '    <key>UILaunchScreen</key>' \
-                  '    <dict/>' \
-                  '    <key>UIRequiredDeviceCapabilities</key>' \
-                  '    <array>' \
-                  '        <string>armv7</string>' \
-                  '    </array>' \
-                  '    <key>UISupportedInterfaceOrientations</key>' \
-                  '    <array>' \
-                  '        <string>UIInterfaceOrientationPortrait</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeLeft</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeRight</string>' \
-                  '    </array>' \
-                  '    <key>UISupportedInterfaceOrientations~ipad</key>' \
-                  '    <array>' \
-                  '        <string>UIInterfaceOrientationPortrait</string>' \
-                  '        <string>UIInterfaceOrientationPortraitUpsideDown</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeLeft</string>' \
-                  '        <string>UIInterfaceOrientationLandscapeRight</string>' \
-                  '    </array>' \
-                  '    <key>NSAppTransportSecurity</key>' \
-                  '    <dict>' \
-                  '        <key>NSAllowsArbitraryLoads</key>' \
-                  '        <true/>' \
-                  '    </dict>' \
-                  '</dict>' \
-                  '</plist>' \
-                  > "$APP_PATH/Info.plist"
-                echo "✅ 已创建Info.plist"
-              fi
+              echo "⚠️ 创建自动修复 Info.plist"
+              printf '%s\n' \
+                '<?xml version="1.0" encoding="UTF-8"?>' \
+                '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+                '<plist version="1.0">' \
+                '<dict>' \
+                '    <key>CFBundleDevelopmentRegion</key><string>en</string>' \
+                '    <key>CFBundleDisplayName</key><string>TVBox</string>' \
+                '    <key>CFBundleExecutable</key><string>TVBox</string>' \
+                '    <key>CFBundleIdentifier</key><string>com.tvbox.app</string>' \
+                '    <key>CFBundleInfoDictionaryVersion</key><string>6.0</string>' \
+                '    <key>CFBundleName</key><string>TVBox</string>' \
+                '    <key>CFBundlePackageType</key><string>APPL</string>' \
+                '    <key>CFBundleShortVersionString</key><string>1.0.3</string>' \
+                '    <key>CFBundleVersion</key><string>1</string>' \
+                '    <key>LSRequiresIPhoneOS</key><true/>' \
+                '    <key>UIApplicationSupportsIndirectInputEvents</key><true/>' \
+                '    <key>UILaunchScreen</key><dict/>' \
+                '    <key>UIRequiredDeviceCapabilities</key><array><string>armv7</string></array>' \
+                '    <key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>' \
+                '    <key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>' \
+                '    <key>NSAppTransportSecurity</key><dict><key>NSAllowsArbitraryLoads</key><true/></dict>' \
+                '</dict></plist>' \
+                > "$APP_PATH/Info.plist"
+              echo "✅ Info.plist 创建完成"
             fi
             
-            # 3. 确保PkgInfo存在
             if [ ! -f "$APP_PATH/PkgInfo" ]; then
               echo "APPL????" > "$APP_PATH/PkgInfo"
               echo "✅ 已创建PkgInfo"
             fi
             
-            # 4. 更新Info.plist中的可执行文件名
             if [ -f "$APP_PATH/Info.plist" ] && [ -f "$APP_PATH/TVBox" ]; then
               /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable TVBox" "$APP_PATH/Info.plist" 2>/dev/null || true
             fi
             
-            # 5. 检查.app包内容
             echo ".app包内容:"
             ls -la "$APP_PATH/"
             
-            # 打包IPA
             echo "=== 打包IPA ==="
             mkdir -p ./Build
             TEMP_DIR=$(mktemp -d)
@@ -317,15 +241,10 @@ jobs:
             echo "✅ IPA打包完成: ./Build/tvbox-Swift-TrollStore.ipa"
             ls -lh ./Build/tvbox-Swift-TrollStore.ipa
             
-            # 检查IPA文件大小
-            IPA_SIZE=$(du -h ./Build/tvbox-Swift-TrollStore.ipa | cut -f1)
-            echo "IPA文件大小: $IPA_SIZE"
-            
           else
             echo "❌ 构建失败，退出码: $BUILD_EXIT_CODE"
             echo "=== 构建错误摘要 ==="
             
-            echo "### 提取错误信息 ###"
             echo "1. 链接器错误:"
             grep -A5 -B5 "ld:.*not found" build.log | head -20 || echo "无链接器错误"
             
@@ -335,7 +254,6 @@ jobs:
             echo "3. 最后50行构建日志:"
             tail -50 build.log
             
-            echo "❌ 构建失败，停止执行"
             exit 1
           fi
           
@@ -351,6 +269,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: build-logs
-          path: |
-            ./build.log
+          path: ./build.log
           retention-days: 7
