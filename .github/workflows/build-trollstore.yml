@@ -24,6 +24,36 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
           
+      # ========== 新增：自动下载替换RN插件版NodeMobile框架 ==========
+      - name: Replace with RN Plugin NodeMobile Framework
+        run: |
+          echo "=== 下载RN插件版NodeMobile框架 ==="
+          
+          # 配置版本号（可随时更新）
+          NODEJS_VERSION="18.20.4"
+          TARGET_DIR="Libraries/nodejs-mobile"
+          
+          # 创建目标目录
+          mkdir -p $TARGET_DIR
+          rm -rf $TARGET_DIR/NodeMobile.xcframework
+          
+          # 下载npm包并提取xcframework（比npm install更快）
+          curl -L "https://registry.npmjs.org/nodejs-mobile-react-native/-/nodejs-mobile-react-native-$NODEJS_VERSION.tgz" -o nodejs-mobile.tgz
+          
+          # 解压并提取ios目录下的xcframework
+          tar -xzf nodejs-mobile.tgz --strip-components=1 package/ios/NodeMobile.xcframework
+          
+          # 移动到目标目录
+          mv NodeMobile.xcframework $TARGET_DIR/
+          
+          # 清理临时文件
+          rm -f nodejs-mobile.tgz
+          
+          echo "✅ 框架替换完成"
+          echo "框架路径: $TARGET_DIR/NodeMobile.xcframework"
+          ls -la $TARGET_DIR/NodeMobile.xcframework/
+      # ============================================================
+          
       - name: Generate Xcode Project
         run: xcodegen
 
@@ -45,80 +75,15 @@ jobs:
             lipo -info "$BINARY_PATH" 2>/dev/null || echo "无法获取架构信息"
             echo ""
             
-            echo "3. 正在提取所有符号..."
-            mkdir -p ./symbol-analysis
-            
-            nm "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/all-symbols.txt
-            SYMBOL_COUNT=$(wc -l < ./symbol-analysis/all-symbols.txt)
-            echo "✅ 提取完成，共找到 $SYMBOL_COUNT 个符号"
+            echo "3. 查找关键函数:"
+            echo "node_start:"
+            nm "$BINARY_PATH" 2>/dev/null | grep "_node_start" || echo "未找到"
             echo ""
-            
-            echo "4. 按类型分类符号:"
-            nm -u "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/undefined-symbols.txt
-            echo "   ✅ 未定义符号: $(wc -l < ./symbol-analysis/undefined-symbols.txt) 个"
-            
-            nm -gU "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/external-symbols.txt
-            echo "   ✅ 外部符号: $(wc -l < ./symbol-analysis/external-symbols.txt) 个"
-            
-            nm -g "$BINARY_PATH" 2>/dev/null > ./symbol-analysis/defined-symbols.txt
-            echo "   ✅ 已定义符号: $(wc -l < ./symbol-analysis/defined-symbols.txt) 个"
-            
-            echo "5. 查找与node相关的所有符号:"
-            grep -i "node" ./symbol-analysis/all-symbols.txt > ./symbol-analysis/node-symbols-full.txt
-            NODE_SYMBOL_COUNT=$(wc -l < ./symbol-analysis/node-symbols-full.txt)
-            echo "   ✅ 找到 $NODE_SYMBOL_COUNT 个包含'node'的符号"
-            
-            echo "6. 查找可能的消息发送函数:"
-            grep -i -E "(post|send|message|msg)" ./symbol-analysis/all-symbols.txt > ./symbol-analysis/message-symbols.txt
-            MESSAGE_SYMBOL_COUNT=$(wc -l < ./symbol-analysis/message-symbols.txt)
-            echo "   ✅ 找到 $MESSAGE_SYMBOL_COUNT 个与消息相关的符号"
-            
-            echo "7. 查找node_前缀的函数:"
-            grep -E "\sT\s_node_" ./symbol-analysis/all-symbols.txt > ./symbol-analysis/node-prefix-symbols.txt
-            NODE_PREFIX_COUNT=$(wc -l < ./symbol-analysis/node-prefix-symbols.txt)
-            echo "   ✅ 找到 $NODE_PREFIX_COUNT 个node_前缀的函数"
-            
-            echo "8. 使用objdump获取动态符号表:"
-            objdump -T "$BINARY_PATH" 2>/dev/null | grep -i "node" > ./symbol-analysis/objdump-node-symbols.txt || echo "objdump不可用"
-            
-            echo "9. 提取所有字符串常量:"
-            strings "$BINARY_PATH" | grep -i "node" | head -100 > ./symbol-analysis/strings-node.txt
-            
+            echo "node_post_message:"
+            nm "$BINARY_PATH" 2>/dev/null | grep "_node_post_message" || echo "未找到"
             echo ""
-            echo "=== 关键符号摘要 ==="
-            echo "A. 所有node_前缀的函数:"
-            head -30 ./symbol-analysis/node-prefix-symbols.txt
-            echo ""
-            
-            echo "B. 包含'message'的符号:"
-            head -20 ./symbol-analysis/message-symbols.txt
-            echo ""
-            
-            echo "C. 包含'post'的符号:"
-            grep -i "post" ./symbol-analysis/all-symbols.txt | head -20
-            echo ""
-            
-            echo "D. 包含'send'的符号:"
-            grep -i "send" ./symbol-analysis/all-symbols.txt | head -20
-            echo ""
-            
-            echo "E. 包含'start'的符号:"
-            grep -i "start" ./symbol-analysis/all-symbols.txt | head -20
-            echo ""
-            
-            echo "=== 符号统计报告 ===" > ./symbol-analysis/symbol-report.txt
-            echo "总符号数: $SYMBOL_COUNT" >> ./symbol-analysis/symbol-report.txt
-            echo "包含'node'的符号数: $NODE_SYMBOL_COUNT" >> ./symbol-analysis/symbol-report.txt
-            echo "node_前缀的函数数: $NODE_PREFIX_COUNT" >> ./symbol-analysis/symbol-report.txt
-            echo "与消息相关的符号数: $MESSAGE_SYMBOL_COUNT" >> ./symbol-analysis/symbol-report.txt
-            echo "" >> ./symbol-analysis/symbol-report.txt
-            echo "前20个node_前缀函数:" >> ./symbol-analysis/symbol-report.txt
-            head -20 ./symbol-analysis/node-prefix-symbols.txt >> ./symbol-analysis/symbol-report.txt
-            
-            echo "✅ 符号分析完成"
-            echo ""
-            echo "=== 生成的分析文件 ==="
-            ls -la ./symbol-analysis/
+            echo "node_register_message_callback:"
+            nm "$BINARY_PATH" 2>/dev/null | grep "_node_register_message_callback" || echo "未找到"
             
           else
             echo "❌ NodeMobile 二进制文件不存在: $BINARY_PATH"
