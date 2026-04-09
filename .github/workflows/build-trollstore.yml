@@ -32,8 +32,8 @@ jobs:
           # 清理构建目录
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS'
           
-          echo "=== 构建应用 ==="
-          xcodebuild build \
+          echo "=== 策略1: 使用基本链接器标志 ==="
+          if xcodebuild build \
             -project tvbox.xcodeproj \
             -scheme tvbox \
             -destination 'generic/platform=iOS' \
@@ -44,14 +44,44 @@ jobs:
             ENABLE_PREVIEWS=NO \
             ENABLE_SWIFTUI_PREVIEWS=NO \
             GENERATE_PKGINFO_FILE=YES \
-            MACH_O_TYPE=mh_execute
+            MACH_O_TYPE=mh_execute \
+            OTHER_LDFLAGS="-framework NodeMobile" \
+            2>&1 | tee build.log; then
+            echo "✅ 策略1 成功"
+            BUILD_SUCCESS=true
+            DERIVED_DATA="./DerivedData"
+          else
+            echo "❌ 策略1 失败，尝试策略2"
+            BUILD_SUCCESS=false
+          fi
+          
+          # 策略2: 如果策略1失败，添加更多链接器标志
+          if [ "$BUILD_SUCCESS" = false ]; then
+            echo "=== 策略2: 添加系统库链接器标志 ==="
+            if xcodebuild build \
+              -project tvbox.xcodeproj \
+              -scheme tvbox \
+              -destination 'generic/platform=iOS' \
+              CODE_SIGN_IDENTITY="" \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              -derivedDataPath ./DerivedData2 \
+              OTHER_LDFLAGS="-framework NodeMobile -lSystem -lc++ -ObjC" \
+              2>&1 | tee -a build.log; then
+              echo "✅ 策略2 成功"
+              BUILD_SUCCESS=true
+              DERIVED_DATA="./DerivedData2"
+            else
+              echo "❌ 所有构建策略都失败"
+              exit 1
+            fi
+          fi
           
           # 找到.app包
-          APP_PATH=$(find ./DerivedData -name "*.app" -type d | head -n 1)
+          APP_PATH=$(find "$DERIVED_DATA" -name "*.app" -type d | head -n 1)
           
           if [ -z "$APP_PATH" ]; then
             echo "❌ 未找到.app文件"
-            find ./DerivedData -name "*" -type d
             exit 1
           fi
           
@@ -79,7 +109,6 @@ jobs:
           
           # 4. 更新Info.plist中的可执行文件名
           if [ -f "$APP_PATH/Info.plist" ]; then
-            # 使用PlistBuddy更新CFBundleExecutable
             /usr/libexec/PlistBuddy -c "Set :CFBundleExecutable TVBox" "$APP_PATH/Info.plist" 2>/dev/null || true
           fi
           
@@ -88,8 +117,6 @@ jobs:
           echo "1. Info.plist: $(ls -la "$APP_PATH/Info.plist" 2>/dev/null || echo '不存在')"
           echo "2. PkgInfo: $(ls -la "$APP_PATH/PkgInfo" 2>/dev/null || echo '不存在')"
           echo "3. 可执行文件TVBox: $(ls -la "$APP_PATH/TVBox" 2>/dev/null || echo '不存在')"
-          echo "4. 完整文件列表:"
-          find "$APP_PATH" -type f | head -20
           
           # 打包IPA
           echo "=== 打包IPA ==="
