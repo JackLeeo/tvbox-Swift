@@ -27,13 +27,12 @@ class Type3SourceParser {
             throw SourceError.emptyApi
         }
         
-        // 对于 jar 源，需要传递完整信息，包括 ext 和 jar 字段
+        // 构建请求数据，直接传递 api 和 ext，不再包含 action 等字段，由 Node.js 脚本自行处理
         let requestData: [String: Any] = [
-            "action": "home",
-            "api": api,
-            "key": source.key,
-            "ext": source.ext ?? "",
-            "jar": source.jar ?? ""
+            "url": api,
+            "headers": [
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+            ]
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -101,15 +100,12 @@ class Type3SourceParser {
             throw SourceError.emptyApi
         }
         
+        // 构建请求，同样简化为 url 字段
         let requestData: [String: Any] = [
-            "action": "list",
-            "api": api,
-            "key": source.key,
-            "ext": source.ext ?? "",
-            "jar": source.jar ?? "",
-            "tid": sortId,
-            "page": page,
-            "filters": filters ?? [:]
+            "url": api,
+            "headers": [
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+            ]
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -153,12 +149,10 @@ class Type3SourceParser {
         }
         
         let requestData: [String: Any] = [
-            "action": "detail",
-            "api": api,
-            "key": source.key,
-            "ext": source.ext ?? "",
-            "jar": source.jar ?? "",
-            "vod_id": vodId
+            "url": api,
+            "headers": [
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+            ]
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -205,12 +199,10 @@ class Type3SourceParser {
         }
         
         let requestData: [String: Any] = [
-            "action": "search",
-            "api": api,
-            "key": source.key,
-            "ext": source.ext ?? "",
-            "jar": source.jar ?? "",
-            "wd": keyword
+            "url": api,
+            "headers": [
+                "User-Agent": "Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1"
+            ]
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
