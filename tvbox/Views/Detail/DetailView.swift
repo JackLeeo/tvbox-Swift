@@ -1,5 +1,4 @@
 import SwiftUI
-import SwiftData
 #if os(macOS)
 import AppKit
 #endif
@@ -11,7 +10,6 @@ struct DetailView: View {
     @StateObject private var sharedSystemController = SystemPlayerSessionController()
     @StateObject private var sharedVLCController = VLCPlayerController()
     @EnvironmentObject var appState: AppState
-    @Environment(\.modelContext) private var modelContext
     @State private var showFullScreen = false
     #if os(macOS)
     @State private var pendingMacWindowFullScreen = false
@@ -441,13 +439,8 @@ struct DetailView: View {
             progressSeconds: progress
         )
         
-        Task { @MainActor in
-            CacheStore.shared.addRecord(
-                video,
-                playNote: playNote,
-                playbackState: playbackState,
-                context: modelContext
-            )
+        Task {
+            await CacheStore.shared.addRecord(video, playNote: playNote, playbackState: playbackState)
         }
     }
     
@@ -470,35 +463,36 @@ struct DetailView: View {
     }
     
     private func restorePlaybackFromHistory() {
-        guard let playbackState = CacheStore.shared.getPlaybackState(
-            vodId: video.id,
-            sourceKey: video.sourceKey,
-            context: modelContext
-        ) else { return }
-        
-        viewModel.applyPlaybackState(playbackState)
-        lastPersistedProgress = max(playbackState.progressSeconds, 0)
+        Task {
+            let state = await CacheStore.shared.getPlaybackState(vodId: video.id, sourceKey: video.sourceKey)
+            await MainActor.run {
+                if let state {
+                    viewModel.applyPlaybackState(state)
+                    lastPersistedProgress = max(state.progressSeconds, 0)
+                }
+            }
+        }
     }
     
     private func refreshCollectState() {
-        isCollected = CacheStore.shared.isCollected(
-            vodId: video.id,
-            sourceKey: video.sourceKey,
-            context: modelContext
-        )
+        Task {
+            let collected = await CacheStore.shared.isCollected(vodId: video.id, sourceKey: video.sourceKey)
+            await MainActor.run {
+                isCollected = collected
+            }
+        }
     }
     
     private func toggleCollect() {
-        if isCollected {
-            CacheStore.shared.removeCollect(
-                vodId: video.id,
-                sourceKey: video.sourceKey,
-                context: modelContext
-            )
-        } else {
-            CacheStore.shared.addCollect(video, context: modelContext)
+        Task {
+            if isCollected {
+                await CacheStore.shared.removeCollect(vodId: video.id, sourceKey: video.sourceKey)
+                await MainActor.run { isCollected = false }
+            } else {
+                await CacheStore.shared.addCollect(video)
+                await MainActor.run { isCollected = true }
+            }
         }
-        refreshCollectState()
     }
     
     private func playNextEpisodeIfNeeded() {
