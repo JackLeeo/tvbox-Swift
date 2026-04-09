@@ -24,25 +24,22 @@ jobs:
       - name: Install xcodegen
         run: brew install xcodegen
 
-      - name: Download & Extract RN Plugin NodeMobile Framework
+      - name: Download Official Native NodeMobile Framework
         run: |
-          echo "=== 下载 RN 插件版 NodeMobile 框架 ==="
-          NODEJS_VERSION="18.20.4"
+          echo "=== 下载官方原生 NodeMobile 框架 ==="
+          VERSION="v18.19.0"
+          DOWNLOAD_URL="https://github.com/nodejs-mobile/nodejs-mobile/releases/download/${VERSION}/nodejs-mobile-${VERSION}-ios.zip"
           TARGET_DIR="Libraries/nodejs-mobile"
+
           mkdir -p $TARGET_DIR
           rm -rf $TARGET_DIR/NodeMobile.xcframework
 
-          # 下载 npm 包
-          curl -L "https://registry.npmjs.org/nodejs-mobile-react-native/-/nodejs-mobile-react-native-$NODEJS_VERSION.tgz" -o nodejs-mobile.tgz
+          curl -L "$DOWNLOAD_URL" -o nodejs-mobile.zip
+          unzip -q nodejs-mobile.zip
+          cp -r Release-universal/NodeMobile.xcframework $TARGET_DIR/
+          rm -rf Release-iphoneos Release-universal nodejs-mobile.zip
 
-          # 解压到临时目录并复制框架
-          TEMP_DIR=$(mktemp -d)
-          tar -xzf nodejs-mobile.tgz -C $TEMP_DIR
-          cp -r $TEMP_DIR/package/ios/NodeMobile.xcframework $TARGET_DIR/
-
-          rm -rf $TEMP_DIR nodejs-mobile.tgz
           echo "✅ 框架已放置到 $TARGET_DIR/NodeMobile.xcframework"
-          ls -la $TARGET_DIR/NodeMobile.xcframework
 
       - name: Generate Xcode Project
         run: xcodegen
@@ -65,18 +62,10 @@ jobs:
             2>&1 | tee build.log
 
           BUILD_EXIT_CODE=${PIPESTATUS[0]}
-
           if [ $BUILD_EXIT_CODE -eq 0 ]; then
             echo "✅ 构建成功"
             APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -1)
             [ -z "$APP_PATH" ] && APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
-
-            if [ -z "$APP_PATH" ]; then
-              echo "❌ 未找到 .app 文件"
-              exit 1
-            fi
-
-            # 打包 IPA
             mkdir -p Build/Payload
             cp -r "$APP_PATH" Build/Payload/
             cd Build
