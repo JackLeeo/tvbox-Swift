@@ -23,7 +23,7 @@ struct tvboxApp: App {
                     .environmentObject(appState)
                     .environmentObject(networkMonitor)
                 
-                // 调试悬浮窗（仅当有日志时显示，或一直显示）
+                // 调试悬浮窗（始终可交互）
                 DebugOverlay()
                     .allowsHitTesting(true)
             }
