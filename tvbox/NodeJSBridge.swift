@@ -2,20 +2,33 @@ import Foundation
 import UIKit
 
 class NodeJSBridge: NSObject {
-    // 单例实例
     static let shared = NodeJSBridge()
-    // Node.js 脚本路径（打包后从 Bundle 读取）
-    private var nodeScriptPath: String {
-        Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: "nodejs-project")!
-    }
-    // 解析结果回调
-    var parseCompletion: (([String: Any]?, Error?) -> Void)?
     
-    // 初始化 Node.js 环境（在子线程执行，避免阻塞主线程）
+    // 状态标记
+    private var isNodeReady = false
+    private var pendingMessages: [String] = []
+    
+    // 回调映射，支持同时解析多个源
+    private var pendingCompletions: [String: ([String: Any]?, Error?) -> Void] = [:]
+    
+    private var nodeScriptPath: String? {
+        Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: "nodejs-project")
+    }
+    
+    private override init() {
+        super.init()
+        setupNodeEnvironment()
+    }
+    
     func setupNodeEnvironment() {
-        DispatchQueue.global().async {
-            // 1. 设置 Node.js 运行参数（指定脚本路径）
-            let args = [self.nodeScriptPath]
+        DispatchQueue.global().async { [weak self] in
+            guard let self = self, let scriptPath = self.nodeScriptPath else {
+                print("❌ Node 脚本路径不存在")
+                return
+            }
+            
+            // 启动参数
+            let args = [scriptPath]
             let argc = args.count
             let argv = UnsafeMutablePointer<UnsafeMutablePointer<Int8>>.allocate(capacity: argc)
             
@@ -23,10 +36,10 @@ class NodeJSBridge: NSObject {
                 argv[i] = strdup(args[i])
             }
             
-            // 2. 初始化 Node.js 并执行脚本
+            // 旧版 nodejs-mobile 启动函数，你的框架里有这个符号
             node_start(Int32(argc), argv)
             
-            // 3. 释放内存
+            // 释放内存
             for i in 0..<argc {
                 free(argv[i])
             }
@@ -34,41 +47,91 @@ class NodeJSBridge: NSObject {
         }
     }
     
-    // 传递 type=3 源数据给 Node.js 脚本
-    func parseType3Source(_ sourceData: [String: Any]) {
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: sourceData),
+    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil, completion: @escaping ([String: Any]?, Error?) -> Void) {
+        let requestId = UUID().uuidString
+        pendingCompletions[requestId] = completion
+        
+        // 构造请求数据
+        let type3Data: [String: Any] = [
+            "id": requestId,
+            "type": 3,
+            "url": sourceUrl,
+            "headers": headers ?? [
+                "User-Agent": "tvbox-Swift/1.0.0",
+                "Referer": "https://tvbox.example.com"
+            ]
+        ]
+        
+        guard let jsonData = try? JSONSerialization.data(withJSONObject: type3Data),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
-            parseCompletion?(nil, NSError(domain: "NodeJSBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "无效的 type=3 源数据"]))
+            completion(nil, NSError(domain: "NodeJSBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "无效的请求数据"]))
             return
         }
         
-        // 通过 Node.js 全局变量传递数据（需在脚本中监听）
-        DispatchQueue.global().async {
-            jsonString.withCString { node_post_message($0) }
+        if isNodeReady {
+            // Node 已就绪，直接发消息
+            sendMessageToNode(jsonString)
+        } else {
+            // Node 还在启动，先缓存消息
+            pendingMessages.append(jsonString)
         }
     }
     
-    // Node.js 脚本回调结果处理（需暴露给 C 层）
+    private func sendMessageToNode(_ message: String) {
+        message.withCString { cStr in
+            node_post_message(cStr)
+        }
+    }
+    
+    // Node 消息回调
     @objc func handleNodeMessage(_ message: String) {
         DispatchQueue.main.async { [weak self] in
-            guard let data = message.data(using: .utf8),
-                  let result = try? JSONSerialization.jsonObject(with: data, options: []) as? [String: Any] else {
-                self?.parseCompletion?(nil, NSError(domain: "NodeJSBridge", code: -2, userInfo: [NSLocalizedDescriptionKey: "无效的解析结果"]))
-                return
+            guard let self = self else { return }
+            
+            do {
+                guard let data = message.data(using: .utf8),
+                      let result = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                    return
+                }
+                
+                // 处理 Node 就绪通知
+                if let status = result["status"] as? String, status == "nodejs_ready" {
+                    self.isNodeReady = true
+                    // 处理缓存的消息
+                    for msg in self.pendingMessages {
+                        self.sendMessageToNode(msg)
+                    }
+                    self.pendingMessages.removeAll()
+                    return
+                }
+                
+                // 处理解析结果，按请求ID匹配回调
+                if let requestId = result["id"] as? String,
+                   let completion = self.pendingCompletions.removeValue(forKey: requestId) {
+                    if let success = result["success"] as? Bool, success {
+                        completion(result["data"] as? [String: Any], nil)
+                    } else {
+                        let error = NSError(domain: "NodeJSBridge", code: -2, userInfo: [
+                            NSLocalizedDescriptionKey: result["error"] as? String ?? "解析失败"
+                        ])
+                        completion(nil, error)
+                    }
+                }
+            } catch {
+                print("❌ 处理Node消息失败: \(error)")
             }
-            self?.parseCompletion?(result, nil)
         }
     }
 }
 
-// MARK: - C 层回调绑定（Node.js 消息传递需 C 接口）
+// MARK: - C 层回调
 @_cdecl("node_message_handler")
 func node_message_handler(message: UnsafePointer<CChar>) {
     let messageString = String(cString: message)
     NodeJSBridge.shared.handleNodeMessage(messageString)
 }
 
-// MARK: - Node.js 核心函数声明（来自 nodejs-mobile 静态库）
+// MARK: - 旧版 nodejs-mobile 函数声明（你的框架里有这些符号）
 @_silgen_name("node_start")
 func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>>)
 
