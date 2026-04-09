@@ -147,11 +147,11 @@ struct HomeView: View {
                     syncCategoryScrollAnchorIfNeeded()
                     scrollCategoryBar(to: categoryScrollAnchorId, proxy: proxy, animated: false)
                 }
-                .onChange(of: viewModel.sorts.map(\.id)) { oldValue, newValue in
+                .onChange(of: viewModel.sorts.map(\.id)) { newValue in
                     syncCategoryScrollAnchorIfNeeded()
                     scrollCategoryBar(to: categoryScrollAnchorId, proxy: proxy, animated: false)
                 }
-                .onChange(of: viewModel.selectedSort?.id) { oldId, newId in
+                .onChange(of: viewModel.selectedSort?.id) { newId in
                     guard let newId else { return }
                     categoryScrollAnchorId = newId
                     scrollCategoryBar(to: newId, proxy: proxy)
