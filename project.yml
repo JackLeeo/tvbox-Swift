@@ -28,6 +28,7 @@ targets:
           - Info.plist
     resources:
       - path: tvbox/Resources
+        copyOriginal: true      
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
