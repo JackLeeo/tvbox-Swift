@@ -1,6 +1,5 @@
 import Foundation
 
-// 官方原生框架 C API 声明（双参数 node_start）
 @_silgen_name("node_start")
 func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?)
 
@@ -11,12 +10,56 @@ class NodeJSBridge {
     private let baseURL = "http://127.0.0.1:3000"
 
     private init() {
-        Logger.shared.log("NodeJSBridge 初始化（HTTP 模式）", level: .info)
+        Logger.shared.log("NodeJSBridge 初始化 (HTTP 模式)", level: .info)
+        listAllScriptsInBundle()
         startNodeInBackground()
-        // 延迟 2 秒后测试服务器是否就绪
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2.0) {
+        DispatchQueue.global().asyncAfter(deadline: .now() + 2.5) {
             self.testServerReady()
         }
+    }
+
+    private func listAllScriptsInBundle() {
+        Logger.shared.log("扫描 Bundle 中的脚本文件...", level: .debug)
+        guard let resourcePath = Bundle.main.resourcePath else {
+            Logger.shared.log("无法获取 Bundle 资源路径", level: .warning)
+            return
+        }
+        let enumerator = FileManager.default.enumerator(atPath: resourcePath)
+        var found = false
+        while let file = enumerator?.nextObject() as? String {
+            if file.hasSuffix(".js") || file.contains("type3") {
+                Logger.shared.log("发现文件: \(file)", level: .info)
+                found = true
+            }
+        }
+        if !found {
+            Logger.shared.log("未找到任何 .js 文件", level: .warning)
+        }
+    }
+
+    private func findScriptPath() -> String? {
+        // 尝试1：标准 nodejs-project 子目录
+        if let path = Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: "nodejs-project") {
+            Logger.shared.log("路径1 命中: \(path)", level: .info)
+            return path
+        }
+        // 尝试2：直接在资源根目录
+        if let path = Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: nil) {
+            Logger.shared.log("路径2 命中: \(path)", level: .info)
+            return path
+        }
+        // 尝试3：遍历查找
+        if let resourcePath = Bundle.main.resourcePath,
+           let enumerator = FileManager.default.enumerator(atPath: resourcePath) {
+            while let file = enumerator.nextObject() as? String {
+                if file.hasSuffix("type3-parser.js") {
+                    let fullPath = (resourcePath as NSString).appendingPathComponent(file)
+                    Logger.shared.log("路径3 命中: \(fullPath)", level: .info)
+                    return fullPath
+                }
+            }
+        }
+        return nil
     }
 
     private func startNodeInBackground() {
@@ -25,44 +68,39 @@ class NodeJSBridge {
         Logger.shared.log("准备启动 Node.js 线程", level: .info)
 
         Thread.detachNewThread {
-            guard let scriptPath = Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: "nodejs-project") else {
-                Logger.shared.log("❌ Node 脚本路径不存在！请检查 Bundle 资源", level: .error)
+            guard let scriptPath = self.findScriptPath() else {
+                Logger.shared.log("❌ 未找到 Node 脚本！请检查 Bundle 资源", level: .error)
                 return
             }
-            Logger.shared.log("✅ 脚本路径: \(scriptPath)", level: .info)
+            Logger.shared.log("使用脚本路径: \(scriptPath)", level: .info)
 
             let args = ["node", scriptPath]
             var cArgs = args.map { strdup($0) }
             node_start(Int32(args.count), &cArgs)
             cArgs.forEach { free($0) }
-            Logger.shared.log("▶️ node_start 已调用（注意：此函数通常不会返回）", level: .info)
+            Logger.shared.log("node_start 已调用", level: .info)
         }
 
-        Logger.shared.log("Node 线程已分离，等待服务器启动...", level: .info)
+        Logger.shared.log("Node 线程已分离", level: .info)
     }
 
-    /// 测试 HTTP 服务器是否已经可以接受请求
     private func testServerReady() {
-        Logger.shared.log("🔍 开始测试 HTTP 服务器是否就绪...", level: .debug)
-
+        Logger.shared.log("测试 HTTP 服务器是否就绪...", level: .debug)
         var request = URLRequest(url: URL(string: "\(baseURL)/health")!)
         request.httpMethod = "GET"
         request.timeoutInterval = 3
 
-        let task = httpSession.dataTask(with: request) { data, response, error in
+        httpSession.dataTask(with: request) { data, response, error in
             if let error = error {
-                Logger.shared.log("❌ 服务器健康检查失败: \(error.localizedDescription)", level: .error)
-                Logger.shared.log("💡 可能原因：Node.js 启动失败、端口被占用、脚本执行出错", level: .error)
+                Logger.shared.log("健康检查失败: \(error.localizedDescription)", level: .error)
                 return
             }
             if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                let body = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
-                Logger.shared.log("✅ HTTP 服务器已就绪，健康检查响应: \(body)", level: .info)
+                Logger.shared.log("✅ HTTP 服务器已就绪", level: .info)
             } else {
-                Logger.shared.log("⚠️ 服务器响应异常: \(String(describing: response))", level: .warning)
+                Logger.shared.log("健康检查响应异常: \(response?.description ?? "")", level: .warning)
             }
-        }
-        task.resume()
+        }.resume()
     }
 
     func parseType3Source(sourceUrl: String,
@@ -70,7 +108,6 @@ class NodeJSBridge {
                           completion: @escaping ([String: Any]?, Error?) -> Void) {
         let requestId = UUID().uuidString.prefix(8)
         Logger.shared.log("[\(requestId)] 发送 HTTP 请求到 \(baseURL)/parse", level: .debug)
-        Logger.shared.log("[\(requestId)] 请求 URL: \(sourceUrl)", level: .debug)
 
         let requestData: [String: Any] = [
             "url": sourceUrl,
@@ -78,7 +115,6 @@ class NodeJSBridge {
         ]
 
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData) else {
-            Logger.shared.log("[\(requestId)] 无法序列化请求数据", level: .error)
             completion(nil, NSError(domain: "NodeJSBridge", code: -2))
             return
         }
@@ -89,22 +125,16 @@ class NodeJSBridge {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.timeoutInterval = 15
 
-        let task = httpSession.dataTask(with: request) { data, response, error in
+        httpSession.dataTask(with: request) { data, response, error in
             if let error = error {
                 Logger.shared.log("[\(requestId)] 网络错误: \(error.localizedDescription)", level: .error)
                 completion(nil, error)
                 return
             }
 
-            guard let data = data else {
-                Logger.shared.log("[\(requestId)] 响应数据为空", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -3))
-                return
-            }
-
-            guard let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                let responseStr = String(data: data, encoding: .utf8) ?? "无法解析"
-                Logger.shared.log("[\(requestId)] 响应不是有效 JSON: \(responseStr.prefix(200))", level: .error)
+            guard let data = data,
+                  let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+                Logger.shared.log("[\(requestId)] 响应非 JSON", level: .error)
                 completion(nil, NSError(domain: "NodeJSBridge", code: -3))
                 return
             }
@@ -114,17 +144,14 @@ class NodeJSBridge {
                 completion(result["data"] as? [String: Any], nil)
             } else {
                 let errorMsg = result["error"] as? String ?? "解析失败"
-                Logger.shared.log("[\(requestId)] Node 返回错误: \(errorMsg)", level: .error)
+                Logger.shared.log("[\(requestId)] Node 错误: \(errorMsg)", level: .error)
                 completion(nil, NSError(domain: "NodeJSBridge", code: -1,
                                         userInfo: [NSLocalizedDescriptionKey: errorMsg]))
             }
-        }
-        task.resume()
-        Logger.shared.log("[\(requestId)] 请求已发出，等待响应...", level: .debug)
+        }.resume()
     }
 
-    func parseType3Source(sourceUrl: String,
-                          headers: [String: String]? = nil) async throws -> [String: Any] {
+    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
             parseType3Source(sourceUrl: sourceUrl, headers: headers) { result, error in
                 if let error = error {
