@@ -16,34 +16,26 @@ class Type3SourceParser {
         return try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
     }
     
-    // MARK: - 辅助方法：获取 jar 源的实际请求 URL
-    private func resolveJarRequestUrl(for source: SourceBean) -> String {
-        // 如果 api 已经是 http(s) URL，直接使用
-        if source.api.hasPrefix("http://") || source.api.hasPrefix("https://") {
-            return source.api
-        }
-        // 否则，尝试从 ext 中获取 URL
-        if let ext = source.ext, ext.hasPrefix("http://") || ext.hasPrefix("https://") {
-            return ext
-        }
-        // 如果 ext 是 JSON 字符串或对象，可能需要提取其中的 URL，这里简化处理
-        // 如果都不行，返回 api 字段本身（后续会报错，但至少能看到错误信息）
-        return source.api
-    }
-    
     // MARK: - 首页解析
     
     func parseHome(from source: SourceBean) async throws -> (sorts: [MovieSort.SortData], homeVideos: [Movie.Video]) {
         Logger.shared.log("开始解析首页 (源: \(source.name), type=\(source.type))", level: .info)
         
-        let actualUrl = resolveJarRequestUrl(for: source)
-        Logger.shared.log("实际请求 URL: \(actualUrl)", level: .debug)
+        let api = source.api
+        guard !api.isEmpty else {
+            Logger.shared.log("源 API 为空", level: .error)
+            throw SourceError.emptyApi
+        }
+        
+        // 获取全局 spider 地址
+        let spider = ApiConfig.shared.spider
         
         let requestData: [String: Any] = [
             "action": "home",
-            "api": actualUrl,
+            "api": api,
             "key": source.key,
-            "ext": source.ext ?? ""
+            "ext": source.ext ?? "",
+            "spider": spider
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -105,15 +97,23 @@ class Type3SourceParser {
     func parseList(from source: SourceBean, sortId: String, page: Int = 1, filters: [String: String]? = nil) async throws -> [Movie.Video] {
         Logger.shared.log("开始解析分类列表 (源: \(source.name), 分类ID: \(sortId), 页码: \(page))", level: .info)
         
-        let actualUrl = resolveJarRequestUrl(for: source)
+        let api = source.api
+        guard !api.isEmpty else {
+            Logger.shared.log("源 API 为空", level: .error)
+            throw SourceError.emptyApi
+        }
+        
+        let spider = ApiConfig.shared.spider
+        
         let requestData: [String: Any] = [
             "action": "list",
-            "api": actualUrl,
+            "api": api,
             "key": source.key,
             "ext": source.ext ?? "",
             "tid": sortId,
             "page": page,
-            "filters": filters ?? [:]
+            "filters": filters ?? [:],
+            "spider": spider
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -150,13 +150,21 @@ class Type3SourceParser {
     func parseDetail(from source: SourceBean, vodId: String) async throws -> VodInfo? {
         Logger.shared.log("开始解析详情 (源: \(source.name), vodId: \(vodId))", level: .info)
         
-        let actualUrl = resolveJarRequestUrl(for: source)
+        let api = source.api
+        guard !api.isEmpty else {
+            Logger.shared.log("源 API 为空", level: .error)
+            throw SourceError.emptyApi
+        }
+        
+        let spider = ApiConfig.shared.spider
+        
         let requestData: [String: Any] = [
             "action": "detail",
-            "api": actualUrl,
+            "api": api,
             "key": source.key,
             "ext": source.ext ?? "",
-            "vod_id": vodId
+            "vod_id": vodId,
+            "spider": spider
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
@@ -196,13 +204,21 @@ class Type3SourceParser {
     func parseSearch(from source: SourceBean, keyword: String) async throws -> [Movie.Video] {
         Logger.shared.log("开始搜索 (源: \(source.name), 关键词: \(keyword))", level: .info)
         
-        let actualUrl = resolveJarRequestUrl(for: source)
+        let api = source.api
+        guard !api.isEmpty else {
+            Logger.shared.log("源 API 为空", level: .error)
+            throw SourceError.emptyApi
+        }
+        
+        let spider = ApiConfig.shared.spider
+        
         let requestData: [String: Any] = [
             "action": "search",
-            "api": actualUrl,
+            "api": api,
             "key": source.key,
             "ext": source.ext ?? "",
-            "wd": keyword
+            "wd": keyword,
+            "spider": spider
         ]
         
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
