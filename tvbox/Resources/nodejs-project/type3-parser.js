@@ -1,7 +1,6 @@
 const http = require('http');
 const https = require('https');
 const vm = require('vm');
-const URL = require('url');
 
 const PORT = 3000;
 const jarCache = new Map();
@@ -29,11 +28,11 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (api && api.startsWith('csp_') && spider) {
-                    // 强力清洗：移除分号及之后所有内容，并去除首尾空白和换行符
+                    // 强力清洗：移除分号及之后内容，并去除所有空白字符（包括换行、回车、制表符）
                     let cleanSpider = spider.split(';')[0];
-                    cleanSpider = cleanSpider.replace(/[\n\r\t]/g, '').trim();
-                    console.log('[Node] 原始 spider:', spider);
-                    console.log('[Node] 清洗后 spider:', cleanSpider);
+                    cleanSpider = cleanSpider.replace(/\s+/g, ''); // 移除所有空白字符
+                    console.log('[Node] 原始 spider:', JSON.stringify(spider));
+                    console.log('[Node] 清洗后 spider:', JSON.stringify(cleanSpider));
                     handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
@@ -149,15 +148,17 @@ function executeScript(scriptContent) {
 
 function fetchRemoteScript(url, headers, timeout) {
     return new Promise((resolve, reject) => {
-        // 预处理 URL：去除首尾空白、换行符
-        const cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
-        console.log('[Node] fetchRemoteScript 最终 URL:', cleanUrl);
+        // 再次强力清洗并验证URL
+        let cleanUrl = url.replace(/\s+/g, ''); // 移除所有空白字符
+        console.log('[Node] fetchRemoteScript 最终 URL:', JSON.stringify(cleanUrl));
         
         let parsedUrl;
         try {
-            parsedUrl = URL.parse(cleanUrl);
+            parsedUrl = new URL(cleanUrl);
         } catch (e) {
-            reject(new Error(`URL 解析失败: ${e.message}`));
+            console.error('[Node] URL 解析失败，原始字符串:', JSON.stringify(url));
+            console.error('[Node] 清洗后字符串:', JSON.stringify(cleanUrl));
+            reject(new Error(`URL 解析失败: ${e.message}，输入: ${cleanUrl}`));
             return;
         }
 
