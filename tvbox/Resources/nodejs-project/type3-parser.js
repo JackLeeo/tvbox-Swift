@@ -12,22 +12,25 @@ const server = http.createServer((req, res) => {
         let body = '';
         req.on('data', chunk => body += chunk);
         req.on('end', () => {
-            // 忽略所有请求参数，直接返回测试数据
+            const responseData = {
+                class: [
+                    { type_id: "1", type_name: "电影" },
+                    { type_id: "2", type_name: "电视剧" }
+                ],
+                list: [
+                    {
+                        vod_id: "test001",
+                        vod_name: "✅ 文件替换成功",
+                        vod_pic: "https://example.com/pic.jpg",
+                        vod_remarks: "测试影片"
+                    }
+                ]
+            };
+            const response = { success: true, data: responseData };
+            const jsonStr = JSON.stringify(response);
+            console.log('[Node] 返回数据:', jsonStr);
             res.writeHead(200, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-                success: true,
-                data: {
-                    class: [],
-                    list: [
-                        {
-                            vod_id: "test001",
-                            vod_name: "✅ 文件替换成功",
-                            vod_pic: "",
-                            vod_remarks: "请截图此页面反馈"
-                        }
-                    ]
-                }
-            }));
+            res.end(jsonStr);
         });
         return;
     }
