@@ -28,7 +28,7 @@ class Type3SourceParser {
         }
         
         // 获取全局 spider 地址
-        let spider = ApiConfig.shared.spider
+        let spider = await ApiConfig.shared.spider
         
         let requestData: [String: Any] = [
             "action": "home",
@@ -103,7 +103,7 @@ class Type3SourceParser {
             throw SourceError.emptyApi
         }
         
-        let spider = ApiConfig.shared.spider
+        let spider = await ApiConfig.shared.spider
         
         let requestData: [String: Any] = [
             "action": "list",
@@ -156,7 +156,7 @@ class Type3SourceParser {
             throw SourceError.emptyApi
         }
         
-        let spider = ApiConfig.shared.spider
+        let spider = await ApiConfig.shared.spider
         
         let requestData: [String: Any] = [
             "action": "detail",
@@ -210,7 +210,7 @@ class Type3SourceParser {
             throw SourceError.emptyApi
         }
         
-        let spider = ApiConfig.shared.spider
+        let spider = await ApiConfig.shared.spider
         
         let requestData: [String: Any] = [
             "action": "search",
