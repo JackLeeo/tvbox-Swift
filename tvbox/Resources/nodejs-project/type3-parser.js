@@ -24,7 +24,7 @@ const server = http.createServer((req, res) => {
                 if (url) {
                     parseGeneric(url, headers)
                         .then(data => sendSuccess(res, data))
-                        .catch(err => sendError(res, err.message));
+                        .catch(err => sendError(res, `[Generic] ${err.message}`));
                     return;
                 }
 
@@ -32,18 +32,15 @@ const server = http.createServer((req, res) => {
                     let cleanSpider = spider.split(';')[0];
                     cleanSpider = cleanSpider.replace(/[\n\r\t]/g, '').trim();
                     
-                    // 直接在这里尝试处理，并将任何错误以详细消息返回
                     handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
-                        .catch(err => {
-                            sendError(res, err.message);
-                        });
+                        .catch(err => sendError(res, `[Jar] ${err.message}`));
                     return;
                 }
 
-                sendError(res, '无效的请求参数：api不是csp_开头或缺少spider');
+                sendError(res, '无效的请求参数');
             } catch (err) {
-                sendError(res, `[ParseError] ${err.message}`);
+                sendError(res, `[Parse] ${err.message}`);
             }
         });
         return;
@@ -66,23 +63,17 @@ function sendError(res, error) {
 }
 
 async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, keyword) {
-    if (!spiderUrl) throw new Error('[JarError] 缺少spider地址');
-    
+    if (!spiderUrl) throw new Error('缺少spider地址');
     let scriptContent = jarCache.get(spiderUrl);
     if (!scriptContent) {
         try {
             scriptContent = await fetchRemoteScript(spiderUrl, getDefaultHeaders(), 15000);
             jarCache.set(spiderUrl, scriptContent);
         } catch (e) {
-            throw new Error(`[DownloadError] ${e.message}`);
+            throw new Error(`下载失败: ${e.message}`);
         }
     }
-    
-    try {
-        return executeJarScript(scriptContent, action, key, ext, tid, page, vodId, keyword);
-    } catch (e) {
-        throw new Error(`[ExecError] ${e.message}`);
-    }
+    return executeJarScript(scriptContent, action, key, ext, tid, page, vodId, keyword);
 }
 
 function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, keyword) {
@@ -90,15 +81,8 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
         result: null,
         console: { log: () => {}, error: () => {} },
         setResult: (data) => { sandbox.result = data; },
-        ACTION: action,
-        KEY: key,
-        EXT: ext,
-        TID: tid,
-        PAGE: page,
-        VOD_ID: vodId,
-        KEYWORD: keyword,
+        ACTION: action, KEY: key, EXT: ext, TID: tid, PAGE: page, VOD_ID: vodId, KEYWORD: keyword,
     };
-
     vm.createContext(sandbox);
     vm.runInContext(scriptContent, sandbox, { filename: 'jar-script.js', timeout: 15000 });
 
@@ -119,11 +103,10 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
                 else if (sandbox.rule && typeof sandbox.rule.search === 'function') data = sandbox.rule.search(keyword);
             }
         } catch (e) {
-            throw new Error(`[JarCallError] ${e.message}`);
+            throw new Error(`调用函数异常: ${e.message}`);
         }
     }
-
-    if (!data) throw new Error('[JarNoData] jar脚本未返回有效数据');
+    if (!data) throw new Error('jar脚本未返回有效数据');
     return normalizeJarResponse(data, action);
 }
 
@@ -155,24 +138,21 @@ function executeScript(scriptContent) {
 function fetchRemoteScript(url, headers, timeout) {
     return new Promise((resolve, reject) => {
         const cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
-        
-        // 直接将即将请求的 URL 包含在错误信息中
         let parsedUrl;
         try {
             parsedUrl = URL.parse(cleanUrl);
         } catch (e) {
-            reject(new Error(`[URLParseError] 无法解析URL: "${cleanUrl}" | 原始错误: ${e.message}`));
+            reject(new Error(`URL解析失败: ${e.message}`));
             return;
         }
-
         const client = parsedUrl.protocol === 'https:' ? https : http;
         const req = client.get(cleanUrl, { headers }, (res) => {
             let data = '';
             res.on('data', chunk => data += chunk);
             res.on('end', () => resolve(data));
         });
-        req.on('error', err => reject(new Error(`[NetworkError] URL: ${cleanUrl} | ${err.message}`)));
-        req.setTimeout(timeout, () => { req.destroy(); reject(new Error(`[TimeoutError] URL: ${cleanUrl}`)); });
+        req.on('error', err => reject(new Error(`网络错误: ${err.message}`)));
+        req.setTimeout(timeout, () => { req.destroy(); reject(new Error('超时')); });
         req.end();
     });
 }
