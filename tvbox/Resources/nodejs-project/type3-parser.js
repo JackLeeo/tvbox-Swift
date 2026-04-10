@@ -5,8 +5,8 @@ const URL = require('url');
 
 const PORT = 3000;
 const jarCache = new Map();
-// 设置为 true 使用测试数据，false 使用真实 jar 解析
-const USE_TEST_DATA = true;
+// 设置为 false 以使用真实 jar 解析
+const USE_TEST_DATA = false;
 
 const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -21,10 +21,9 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const request = JSON.parse(body);
-                console.log('[Node] 解析后的请求:', JSON.stringify(request, null, 2));
+                console.log('[Node] 完整请求体:', body);
 
                 if (USE_TEST_DATA) {
-                    // 返回测试数据
                     const testData = {
                         class: [
                             { type_id: "1", type_name: "电影" },
@@ -39,7 +38,7 @@ const server = http.createServer((req, res) => {
                             }
                         ]
                     };
-                    sendJson(res, { success: true, data: testData });
+                    sendSuccess(res, testData);
                     return;
                 }
 
@@ -47,22 +46,22 @@ const server = http.createServer((req, res) => {
 
                 if (url) {
                     parseGeneric(url, headers)
-                        .then(data => sendJson(res, { success: true, data }))
-                        .catch(err => sendJson(res, { success: false, error: err.message }));
+                        .then(data => sendSuccess(res, data))
+                        .catch(err => sendError(res, err.message));
                     return;
                 }
 
                 if (api && api.startsWith('csp_') && spider) {
                     handleJarRequest(spider, action, key, ext, tid, page, vod_id, wd)
-                        .then(data => sendJson(res, { success: true, data }))
-                        .catch(err => sendJson(res, { success: false, error: err.message }));
+                        .then(data => sendSuccess(res, data))
+                        .catch(err => sendError(res, err.message));
                     return;
                 }
 
-                sendJson(res, { success: false, error: '无效的请求参数' });
+                sendError(res, '无效的请求参数：缺少spider或api不是jar源');
 
             } catch (err) {
-                sendJson(res, { success: false, error: err.message });
+                sendError(res, err.message);
             }
         });
         return;
@@ -76,11 +75,17 @@ server.listen(PORT, '127.0.0.1', () => {
     console.log(`[Node] HTTP server running on http://127.0.0.1:${PORT}`);
 });
 
-function sendJson(res, obj) {
+function sendSuccess(res, data) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(obj));
+    res.end(JSON.stringify({ success: true, data: data }));
 }
 
+function sendError(res, error) {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ success: false, error: error }));
+}
+
+// ---------- 处理jar源请求 ----------
 async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, keyword) {
     if (!spiderUrl) throw new Error('缺少spider地址');
     console.log(`[Node] 下载jar脚本: ${spiderUrl}`);
@@ -114,6 +119,15 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
             if (action === 'home') {
                 if (typeof sandbox.home === 'function') data = sandbox.home();
                 else if (sandbox.rule && typeof sandbox.rule.home === 'function') data = sandbox.rule.home();
+            } else if (action === 'list') {
+                if (typeof sandbox.list === 'function') data = sandbox.list(tid, page);
+                else if (sandbox.rule && typeof sandbox.rule.list === 'function') data = sandbox.rule.list(tid, page);
+            } else if (action === 'detail') {
+                if (typeof sandbox.detail === 'function') data = sandbox.detail(vodId);
+                else if (sandbox.rule && typeof sandbox.rule.detail === 'function') data = sandbox.rule.detail(vodId);
+            } else if (action === 'search') {
+                if (typeof sandbox.search === 'function') data = sandbox.search(keyword);
+                else if (sandbox.rule && typeof sandbox.rule.search === 'function') data = sandbox.rule.search(keyword);
             }
         } catch (e) {
             console.error('[Jar] 调用函数失败:', e.message);
@@ -127,10 +141,17 @@ function normalizeJarResponse(data, action) {
     if (action === 'home') {
         if (Array.isArray(data.class) || data.list) return data;
         if (Array.isArray(data)) return { class: [], list: data };
+    } else if (action === 'list' || action === 'search') {
+        if (Array.isArray(data)) return { list: data };
+        if (data.list) return data;
+    } else if (action === 'detail') {
+        if (!Array.isArray(data) && data.vod_id) return { list: [data] };
+        if (data.list) return data;
     }
     return data;
 }
 
+// ---------- 通用解析 ----------
 function parseGeneric(url, headers = {}) {
     return fetchRemoteScript(url, headers, 10000).then(remoteScript => executeScript(remoteScript));
 }
