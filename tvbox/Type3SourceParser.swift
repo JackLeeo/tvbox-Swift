@@ -37,6 +37,9 @@ class Type3SourceParser {
             "spider": spider
         ]
         
+        // ✅ 打印即将发送的请求数据（用于确认 spider 是否正确传递）
+        Logger.shared.log("请求数据: \(requestData)", level: .debug)
+        
         guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
               let jsonString = String(data: jsonData, encoding: .utf8) else {
             Logger.shared.log("无法构建首页请求数据", level: .error)
