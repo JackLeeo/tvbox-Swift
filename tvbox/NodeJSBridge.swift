@@ -100,7 +100,6 @@ class NodeJSBridge {
         }.resume()
     }
 
-    // 内部方法：向 Node.js 发送任意 JSON 请求，并返回解析结果
     func sendRequest(jsonString: String, completion: @escaping ([String: Any]?, Error?) -> Void) {
         let requestId = UUID().uuidString.prefix(8)
         Logger.shared.log("[\(requestId)] 发送 HTTP 请求到 \(baseURL)/parse", level: .debug)
@@ -138,61 +137,18 @@ class NodeJSBridge {
                 return
             }
 
-            Logger.shared.log("[\(requestId)] JSON 对象类型: \(type(of: jsonObject))", level: .debug)
-
             guard let result = jsonObject as? [String: Any] else {
-                Logger.shared.log("[\(requestId)] JSON 对象不是字典，而是: \(jsonObject)", level: .error)
+                Logger.shared.log("[\(requestId)] JSON 对象不是字典，而是: \(type(of: jsonObject))", level: .error)
                 completion(nil, NSError(domain: "NodeJSBridge", code: -3))
                 return
             }
 
-            // 详细检查 success 字段
-            let successValue = result["success"]
-            Logger.shared.log("[\(requestId)] success 字段原始值: \(String(describing: successValue)), 类型: \(type(of: successValue))", level: .debug)
-
-            let success: Bool
-            if let boolSuccess = successValue as? Bool {
-                success = boolSuccess
-            } else if let intSuccess = successValue as? Int {
-                success = intSuccess != 0
-            } else {
-                Logger.shared.log("[\(requestId)] success 字段类型不支持", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -1))
-                return
-            }
-
-            guard success else {
-                let errorMsg = result["error"] as? String ?? "解析失败"
-                Logger.shared.log("[\(requestId)] Node 错误: \(errorMsg)", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -1,
-                                        userInfo: [NSLocalizedDescriptionKey: errorMsg]))
-                return
-            }
-
-            // 提取 data 字段
-            let dataValue = result["data"]
-            Logger.shared.log("[\(requestId)] data 字段原始值类型: \(type(of: dataValue))", level: .debug)
-
-            if let dataDict = dataValue as? [String: Any] {
-                Logger.shared.log("[\(requestId)] 解析成功 (data 是字典)", level: .info)
-                completion(dataDict, nil)
-            } else if let dataArray = dataValue as? [[String: Any]] {
-                Logger.shared.log("[\(requestId)] data 是数组，包装为字典", level: .debug)
-                completion(["list": dataArray], nil)
-            } else {
-                // 如果没有 data 字段，但 result 本身包含 class/list 等字段，则直接返回 result
-                if result["class"] != nil || result["list"] != nil {
-                    Logger.shared.log("[\(requestId)] 响应无 data 包装，直接使用整个 result", level: .debug)
-                    completion(result, nil)
-                } else {
-                    Logger.shared.log("[\(requestId)] data 字段缺失且 result 无有效数据", level: .error)
-                    completion(nil, NSError(domain: "NodeJSBridge", code: -1))
-                }
-            }
+            // 直接将完整的响应字典传递给上层，不再剥离 data 字段
+            Logger.shared.log("[\(requestId)] 返回完整响应字典", level: .debug)
+            completion(result, nil)
         }.resume()
     }
 
-    // 兼容旧接口
     func parseType3Source(sourceUrl: String,
                           headers: [String: String]? = nil,
                           completion: @escaping ([String: Any]?, Error?) -> Void) {
