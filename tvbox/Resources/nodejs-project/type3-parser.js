@@ -1,7 +1,7 @@
 const http = require('http');
 const https = require('https');
 const vm = require('vm');
-const URL = require('url');
+const { URL } = require('url');
 
 const PORT = 3000;
 const jarCache = new Map();
@@ -19,39 +19,40 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const request = JSON.parse(body);
-                console.log('[Node] 完整请求体:', body);
                 const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider } = request;
 
-                // 通用解析
                 if (url) {
-                    console.log('[Node] 进入通用解析分支, url:', url);
                     parseGeneric(url, headers)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
                     return;
                 }
 
-                // jar源请求
                 if (api && api.startsWith('csp_') && spider) {
-                    console.log('[Node] 进入 jar 解析分支, 原始 spider:', spider);
-                    // 强力清洗：移除分号及之后内容，移除所有换行、回车、制表符，去除首尾空格
+                    // 强力清洗：去除分号及之后内容，去除所有空白字符（包括换行、回车、制表符）
                     let cleanSpider = spider.split(';')[0];
-                    cleanSpider = cleanSpider.replace(/[\n\r\t]/g, '').trim();
-                    // 如果清洗后仍包含空格，则进行 URL 编码
-                    if (cleanSpider.includes(' ')) {
-                        cleanSpider = encodeURI(cleanSpider);
+                    cleanSpider = cleanSpider.replace(/\s+/g, ''); // 移除所有空白字符
+                    console.log('[Node] 原始 spider:', JSON.stringify(spider));
+                    console.log('[Node] 清洗后 spider:', JSON.stringify(cleanSpider));
+
+                    // 验证 URL 是否合法
+                    try {
+                        new URL(cleanSpider);
+                    } catch (e) {
+                        console.error('[Node] 清洗后的 spider 不是有效 URL:', cleanSpider);
+                        sendError(res, 'Invalid spider URL after cleaning');
+                        return;
                     }
-                    console.log('[Node] 清洗后 spider:', cleanSpider);
+
                     handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
                     return;
                 }
 
-                console.log('[Node] 未匹配任何分支, api:', api, 'spider:', spider);
                 sendError(res, '无效的请求参数');
             } catch (err) {
-                console.error('[Node] 请求处理异常:', err.message);
+                console.error('[Node] 请求处理异常:', err);
                 sendError(res, err.message);
             }
         });
@@ -159,21 +160,11 @@ function executeScript(scriptContent) {
 
 function fetchRemoteScript(url, headers, timeout) {
     return new Promise((resolve, reject) => {
-        // 最终清洗：去除所有空白字符，然后编码空格
-        let cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
-        if (cleanUrl.includes(' ')) {
-            cleanUrl = encodeURI(cleanUrl);
-        }
+        // 再次确保 URL 干净
+        const cleanUrl = url.replace(/\s+/g, '');
         console.log('[Node] fetchRemoteScript 最终 URL:', cleanUrl);
-        
-        let parsedUrl;
-        try {
-            parsedUrl = URL.parse(cleanUrl);
-        } catch (e) {
-            reject(new Error(`URL 解析失败: ${e.message}`));
-            return;
-        }
 
+        const parsedUrl = new URL(cleanUrl);
         const client = parsedUrl.protocol === 'https:' ? https : http;
         const req = client.get(cleanUrl, { headers }, (res) => {
             let data = '';
