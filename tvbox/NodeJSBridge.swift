@@ -138,14 +138,45 @@ class NodeJSBridge {
             }
 
             guard let result = jsonObject as? [String: Any] else {
-                Logger.shared.log("[\(requestId)] JSON 对象不是字典，而是: \(type(of: jsonObject))", level: .error)
+                Logger.shared.log("[\(requestId)] JSON 对象不是字典", level: .error)
                 completion(nil, NSError(domain: "NodeJSBridge", code: -3))
                 return
             }
 
-            // 直接将完整的响应字典传递给上层，不再剥离 data 字段
-            Logger.shared.log("[\(requestId)] 返回完整响应字典", level: .debug)
-            completion(result, nil)
+            let success: Bool
+            if let boolSuccess = result["success"] as? Bool {
+                success = boolSuccess
+            } else if let intSuccess = result["success"] as? Int {
+                success = intSuccess != 0
+            } else {
+                Logger.shared.log("[\(requestId)] success 字段缺失或类型无效", level: .error)
+                completion(nil, NSError(domain: "NodeJSBridge", code: -1))
+                return
+            }
+
+            guard success else {
+                let errorMsg = result["error"] as? String ?? "解析失败"
+                Logger.shared.log("[\(requestId)] Node 错误: \(errorMsg)", level: .error)
+                completion(nil, NSError(domain: "NodeJSBridge", code: -1,
+                                        userInfo: [NSLocalizedDescriptionKey: errorMsg]))
+                return
+            }
+
+            if let dataDict = result["data"] as? [String: Any] {
+                Logger.shared.log("[\(requestId)] 解析成功 (data 是字典)", level: .info)
+                completion(dataDict, nil)
+            } else if let dataArray = result["data"] as? [[String: Any]] {
+                Logger.shared.log("[\(requestId)] data 是数组，包装为字典", level: .debug)
+                completion(["list": dataArray], nil)
+            } else {
+                if result["class"] != nil || result["list"] != nil {
+                    Logger.shared.log("[\(requestId)] 响应无 data 包装，直接使用整个 result", level: .debug)
+                    completion(result, nil)
+                } else {
+                    Logger.shared.log("[\(requestId)] data 字段缺失且 result 无有效数据", level: .error)
+                    completion(nil, NSError(domain: "NodeJSBridge", code: -1))
+                }
+            }
         }.resume()
     }
 
