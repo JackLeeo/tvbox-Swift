@@ -72,6 +72,7 @@ class Type3SourceParser {
         var sorts: [MovieSort.SortData] = []
         var homeVideos: [Movie.Video] = []
         
+        // 解析分类
         if let classList = data["class"] as? [[String: Any]] {
             for cls in classList {
                 let id: String
@@ -89,35 +90,46 @@ class Type3SourceParser {
             }
             Logger.shared.log("解析到 \(sorts.count) 个分类", level: .info)
         } else {
-            Logger.shared.log("data 中 class 字段不是数组: \(String(describing: data["class"]))", level: .warning)
+            Logger.shared.log("data 中 class 字段不是数组，将使用默认分类", level: .warning)
         }
         
+        // 解析视频列表（手动解析，宽容处理）
         if let list = data["list"] as? [[String: Any]] {
             for (index, item) in list.enumerated() {
-                do {
-                    let itemData = try JSONSerialization.data(withJSONObject: item)
-                    let decoder = JSONDecoder()
-                    var video = try decoder.decode(Movie.Video.self, from: itemData)
-                    video.sourceKey = source.key
-                    homeVideos.append(video)
-                } catch {
-                    Logger.shared.log("解码第 \(index) 个视频条目失败: \(error)", level: .error)
-                    if let decodingError = error as? DecodingError {
-                        switch decodingError {
-                        case .keyNotFound(let key, let context):
-                            Logger.shared.log("  缺失字段: \(key.stringValue), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                        case .typeMismatch(let type, let context):
-                            Logger.shared.log("  类型不匹配: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                        case .valueNotFound(let type, let context):
-                            Logger.shared.log("  值为空: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                        case .dataCorrupted(let context):
-                            Logger.shared.log("  数据损坏: \(context.debugDescription)", level: .error)
-                        @unknown default:
-                            Logger.shared.log("  未知解码错误", level: .error)
-                        }
-                    }
-                    Logger.shared.log("  原始数据: \(item)", level: .debug)
+                var video = Movie.Video()
+                
+                // 解析 vod_id
+                if let intId = item["vod_id"] as? Int {
+                    video.id = String(intId)
+                } else if let strId = item["vod_id"] as? String {
+                    video.id = strId
+                } else {
+                    Logger.shared.log("第 \(index) 个视频缺少 vod_id，跳过", level: .warning)
+                    continue
                 }
+                
+                // 解析 vod_name
+                video.name = item["vod_name"] as? String ?? ""
+                
+                // 解析 vod_pic
+                video.pic = item["vod_pic"] as? String ?? ""
+                
+                // 解析 vod_remarks
+                video.note = item["vod_remarks"] as? String ?? ""
+                
+                // 解析其他可选字段
+                video.year = item["vod_year"] as? String ?? ""
+                video.area = item["vod_area"] as? String ?? ""
+                video.type = item["type_name"] as? String ?? ""
+                video.director = item["vod_director"] as? String ?? ""
+                video.actor = item["vod_actor"] as? String ?? ""
+                video.des = item["vod_content"] as? String ?? ""
+                
+                // 设置来源 key
+                video.sourceKey = source.key
+                
+                homeVideos.append(video)
+                Logger.shared.log("成功解析视频: \(video.name)", level: .debug)
             }
             Logger.shared.log("成功解析 \(homeVideos.count) 个首页视频", level: .info)
         } else {
@@ -188,31 +200,29 @@ class Type3SourceParser {
         }
         
         var videos: [Movie.Video] = []
-        for (index, item) in list.enumerated() {
-            do {
-                let itemData = try JSONSerialization.data(withJSONObject: item)
-                let decoder = JSONDecoder()
-                var video = try decoder.decode(Movie.Video.self, from: itemData)
-                video.sourceKey = source.key
-                videos.append(video)
-            } catch {
-                Logger.shared.log("解码第 \(index) 个视频条目失败: \(error)", level: .error)
-                if let decodingError = error as? DecodingError {
-                    switch decodingError {
-                    case .keyNotFound(let key, let context):
-                        Logger.shared.log("  缺失字段: \(key.stringValue), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                    case .typeMismatch(let type, let context):
-                        Logger.shared.log("  类型不匹配: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                    case .valueNotFound(let type, let context):
-                        Logger.shared.log("  值为空: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                    case .dataCorrupted(let context):
-                        Logger.shared.log("  数据损坏: \(context.debugDescription)", level: .error)
-                    @unknown default:
-                        Logger.shared.log("  未知解码错误", level: .error)
-                    }
-                }
-                Logger.shared.log("  原始数据: \(item)", level: .debug)
+        for item in list {
+            var video = Movie.Video()
+            
+            if let intId = item["vod_id"] as? Int {
+                video.id = String(intId)
+            } else if let strId = item["vod_id"] as? String {
+                video.id = strId
+            } else {
+                continue
             }
+            
+            video.name = item["vod_name"] as? String ?? ""
+            video.pic = item["vod_pic"] as? String ?? ""
+            video.note = item["vod_remarks"] as? String ?? ""
+            video.year = item["vod_year"] as? String ?? ""
+            video.area = item["vod_area"] as? String ?? ""
+            video.type = item["type_name"] as? String ?? ""
+            video.director = item["vod_director"] as? String ?? ""
+            video.actor = item["vod_actor"] as? String ?? ""
+            video.des = item["vod_content"] as? String ?? ""
+            video.sourceKey = source.key
+            
+            videos.append(video)
         }
         
         Logger.shared.log("解析到 \(videos.count) 个视频", level: .info)
@@ -273,36 +283,31 @@ class Type3SourceParser {
             throw SourceError.parseError("详情数据为空")
         }
         
-        do {
-            let itemData = try JSONSerialization.data(withJSONObject: first)
-            let decoder = JSONDecoder()
-            var video = try decoder.decode(Movie.Video.self, from: itemData)
-            video.sourceKey = source.key
-            
-            let playFrom = first["vod_play_from"] as? String ?? ""
-            let playUrl = first["vod_play_url"] as? String ?? ""
-            
-            Logger.shared.log("详情解析成功", level: .info)
-            return VodInfo.from(video: video, playFrom: playFrom, playUrl: playUrl)
-        } catch {
-            Logger.shared.log("解码详情视频失败: \(error)", level: .error)
-            if let decodingError = error as? DecodingError {
-                switch decodingError {
-                case .keyNotFound(let key, let context):
-                    Logger.shared.log("  缺失字段: \(key.stringValue), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                case .typeMismatch(let type, let context):
-                    Logger.shared.log("  类型不匹配: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                case .valueNotFound(let type, let context):
-                    Logger.shared.log("  值为空: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                case .dataCorrupted(let context):
-                    Logger.shared.log("  数据损坏: \(context.debugDescription)", level: .error)
-                @unknown default:
-                    Logger.shared.log("  未知解码错误", level: .error)
-                }
-            }
-            Logger.shared.log("  原始数据: \(first)", level: .debug)
-            throw SourceError.parseError("详情数据解码失败")
+        var video = Movie.Video()
+        if let intId = first["vod_id"] as? Int {
+            video.id = String(intId)
+        } else if let strId = first["vod_id"] as? String {
+            video.id = strId
+        } else {
+            throw SourceError.parseError("缺少 vod_id")
         }
+        
+        video.name = first["vod_name"] as? String ?? ""
+        video.pic = first["vod_pic"] as? String ?? ""
+        video.note = first["vod_remarks"] as? String ?? ""
+        video.year = first["vod_year"] as? String ?? ""
+        video.area = first["vod_area"] as? String ?? ""
+        video.type = first["type_name"] as? String ?? ""
+        video.director = first["vod_director"] as? String ?? ""
+        video.actor = first["vod_actor"] as? String ?? ""
+        video.des = first["vod_content"] as? String ?? ""
+        video.sourceKey = source.key
+        
+        let playFrom = first["vod_play_from"] as? String ?? ""
+        let playUrl = first["vod_play_url"] as? String ?? ""
+        
+        Logger.shared.log("详情解析成功", level: .info)
+        return VodInfo.from(video: video, playFrom: playFrom, playUrl: playUrl)
     }
     
     // MARK: - 搜索解析
@@ -359,31 +364,29 @@ class Type3SourceParser {
         }
         
         var videos: [Movie.Video] = []
-        for (index, item) in list.enumerated() {
-            do {
-                let itemData = try JSONSerialization.data(withJSONObject: item)
-                let decoder = JSONDecoder()
-                var video = try decoder.decode(Movie.Video.self, from: itemData)
-                video.sourceKey = source.key
-                videos.append(video)
-            } catch {
-                Logger.shared.log("解码第 \(index) 个视频条目失败: \(error)", level: .error)
-                if let decodingError = error as? DecodingError {
-                    switch decodingError {
-                    case .keyNotFound(let key, let context):
-                        Logger.shared.log("  缺失字段: \(key.stringValue), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                    case .typeMismatch(let type, let context):
-                        Logger.shared.log("  类型不匹配: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                    case .valueNotFound(let type, let context):
-                        Logger.shared.log("  值为空: 期望 \(type), 路径: \(context.codingPath.map { $0.stringValue })", level: .error)
-                    case .dataCorrupted(let context):
-                        Logger.shared.log("  数据损坏: \(context.debugDescription)", level: .error)
-                    @unknown default:
-                        Logger.shared.log("  未知解码错误", level: .error)
-                    }
-                }
-                Logger.shared.log("  原始数据: \(item)", level: .debug)
+        for item in list {
+            var video = Movie.Video()
+            
+            if let intId = item["vod_id"] as? Int {
+                video.id = String(intId)
+            } else if let strId = item["vod_id"] as? String {
+                video.id = strId
+            } else {
+                continue
             }
+            
+            video.name = item["vod_name"] as? String ?? ""
+            video.pic = item["vod_pic"] as? String ?? ""
+            video.note = item["vod_remarks"] as? String ?? ""
+            video.year = item["vod_year"] as? String ?? ""
+            video.area = item["vod_area"] as? String ?? ""
+            video.type = item["type_name"] as? String ?? ""
+            video.director = item["vod_director"] as? String ?? ""
+            video.actor = item["vod_actor"] as? String ?? ""
+            video.des = item["vod_content"] as? String ?? ""
+            video.sourceKey = source.key
+            
+            videos.append(video)
         }
         
         Logger.shared.log("搜索到 \(videos.count) 个结果", level: .info)
