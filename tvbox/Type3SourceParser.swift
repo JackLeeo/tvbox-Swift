@@ -5,17 +5,14 @@ class Type3SourceParser {
     private let nodeBridge = NodeJSBridge.shared
     
     func parseType3Source(sourceUrl: String, headers: [String: String]? = nil, completion: @escaping ([String: Any]?, Error?) -> Void) {
-        Logger.shared.log("Type3SourceParser 通用解析请求", level: .debug)
         nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers, completion: completion)
     }
     
     func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
-        Logger.shared.log("Type3SourceParser 异步通用解析", level: .debug)
-        return try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
+        try await nodeBridge.parseType3Source(sourceUrl: sourceUrl, headers: headers)
     }
     
     func parseHome(from source: SourceBean) async throws -> (sorts: [MovieSort.SortData], homeVideos: [Movie.Video]) {
-        Logger.shared.log("开始解析首页 (源: \(source.name), type=\(source.type))", level: .info)
         let api = source.api
         guard !api.isEmpty else { throw SourceError.emptyApi }
         let spider = await ApiConfig.shared.spider
