@@ -100,6 +100,7 @@ class NodeJSBridge {
         }.resume()
     }
 
+    /// 直接发送 JSON 字符串到 Node.js 服务器
     func sendRequest(jsonString: String, completion: @escaping ([String: Any]?, Error?) -> Void) {
         let requestId = UUID().uuidString.prefix(8)
         Logger.shared.log("[\(requestId)] 发送 HTTP 请求到 \(baseURL)/parse", level: .debug)
@@ -180,24 +181,10 @@ class NodeJSBridge {
         }.resume()
     }
 
-    func parseType3Source(sourceUrl: String,
-                          headers: [String: String]? = nil,
-                          completion: @escaping ([String: Any]?, Error?) -> Void) {
-        let requestData: [String: Any] = [
-            "url": sourceUrl,
-            "headers": headers ?? [:]
-        ]
-        guard let jsonData = try? JSONSerialization.data(withJSONObject: requestData),
-              let jsonString = String(data: jsonData, encoding: .utf8) else {
-            completion(nil, NSError(domain: "NodeJSBridge", code: -2))
-            return
-        }
-        sendRequest(jsonString: jsonString, completion: completion)
-    }
-
-    func parseType3Source(sourceUrl: String, headers: [String: String]? = nil) async throws -> [String: Any] {
+    /// 异步版本
+    func sendRequest(jsonString: String) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
-            parseType3Source(sourceUrl: sourceUrl, headers: headers) { result, error in
+            sendRequest(jsonString: jsonString) { result, error in
                 if let error = error {
                     continuation.resume(throwing: error)
                 } else if let result = result {
