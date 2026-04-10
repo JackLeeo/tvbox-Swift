@@ -19,20 +19,28 @@ const server = http.createServer((req, res) => {
         req.on('end', () => {
             try {
                 const request = JSON.parse(body);
+                console.log('[Node] 完整请求体:', body);
                 const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider } = request;
 
-                console.log('[Node] 收到请求 action:', action, 'api:', api, 'spider:', spider ? spider.substring(0, 100) : 'none');
-
+                // 通用解析
                 if (url) {
+                    console.log('[Node] 进入通用解析分支, url:', url);
                     parseGeneric(url, headers)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
                     return;
                 }
 
+                // jar源请求
                 if (api && api.startsWith('csp_') && spider) {
+                    console.log('[Node] 进入 jar 解析分支, 原始 spider:', spider);
+                    // 强力清洗：移除分号及之后内容，移除所有换行、回车、制表符，去除首尾空格
                     let cleanSpider = spider.split(';')[0];
                     cleanSpider = cleanSpider.replace(/[\n\r\t]/g, '').trim();
+                    // 如果清洗后仍包含空格，则进行 URL 编码
+                    if (cleanSpider.includes(' ')) {
+                        cleanSpider = encodeURI(cleanSpider);
+                    }
                     console.log('[Node] 清洗后 spider:', cleanSpider);
                     handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
@@ -40,9 +48,10 @@ const server = http.createServer((req, res) => {
                     return;
                 }
 
+                console.log('[Node] 未匹配任何分支, api:', api, 'spider:', spider);
                 sendError(res, '无效的请求参数');
             } catch (err) {
-                console.error('[Node] 请求处理异常:', err);
+                console.error('[Node] 请求处理异常:', err.message);
                 sendError(res, err.message);
             }
         });
@@ -72,14 +81,9 @@ async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, k
     let scriptContent = jarCache.get(spiderUrl);
     if (!scriptContent) {
         console.log('[Node] 开始下载 jar 脚本:', spiderUrl);
-        try {
-            scriptContent = await fetchRemoteScript(spiderUrl, getDefaultHeaders(), 15000);
-            jarCache.set(spiderUrl, scriptContent);
-            console.log('[Node] jar 脚本下载完成，长度:', scriptContent.length);
-        } catch (e) {
-            console.error('[Node] jar 脚本下载失败:', e.message);
-            throw e;
-        }
+        scriptContent = await fetchRemoteScript(spiderUrl, getDefaultHeaders(), 15000);
+        jarCache.set(spiderUrl, scriptContent);
+        console.log('[Node] jar 脚本下载完成，长度:', scriptContent.length);
     } else {
         console.log('[Node] 使用缓存的 jar 脚本');
     }
@@ -101,12 +105,7 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
     };
 
     vm.createContext(sandbox);
-    try {
-        vm.runInContext(scriptContent, sandbox, { filename: 'jar-script.js', timeout: 15000 });
-    } catch (e) {
-        console.error('[Jar] 脚本执行异常:', e.message);
-        throw new Error('jar脚本执行失败: ' + e.message);
-    }
+    vm.runInContext(scriptContent, sandbox, { filename: 'jar-script.js', timeout: 15000 });
 
     let data = sandbox.result;
     if (!data) {
@@ -125,15 +124,11 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
                 else if (sandbox.rule && typeof sandbox.rule.search === 'function') data = sandbox.rule.search(keyword);
             }
         } catch (e) {
-            console.error('[Jar] 调用函数失败:', e.message);
+            console.error('[Jar] 调用失败:', e.message);
         }
     }
 
-    if (!data) {
-        console.error('[Jar] 未能获取数据，sandbox 内容:', Object.keys(sandbox));
-        throw new Error('jar脚本未返回有效数据');
-    }
-    console.log('[Jar] 成功获取数据，字段:', Object.keys(data));
+    if (!data) throw new Error('jar脚本未返回有效数据');
     return normalizeJarResponse(data, action);
 }
 
@@ -164,7 +159,11 @@ function executeScript(scriptContent) {
 
 function fetchRemoteScript(url, headers, timeout) {
     return new Promise((resolve, reject) => {
-        const cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
+        // 最终清洗：去除所有空白字符，然后编码空格
+        let cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
+        if (cleanUrl.includes(' ')) {
+            cleanUrl = encodeURI(cleanUrl);
+        }
         console.log('[Node] fetchRemoteScript 最终 URL:', cleanUrl);
         
         let parsedUrl;
