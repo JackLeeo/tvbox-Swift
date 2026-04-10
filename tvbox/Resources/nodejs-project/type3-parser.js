@@ -5,8 +5,6 @@ const URL = require('url');
 
 const PORT = 3000;
 const jarCache = new Map();
-// 设置为 true 使用测试数据，false 使用真实 jar 解析
-const USE_TEST_DATA = false;
 
 const server = http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
@@ -23,27 +21,9 @@ const server = http.createServer((req, res) => {
                 const request = JSON.parse(body);
                 console.log('[Node] 完整请求体:', body);
 
-                if (USE_TEST_DATA) {
-                    const testData = {
-                        class: [
-                            { type_id: "1", type_name: "电影" },
-                            { type_id: "2", type_name: "电视剧" }
-                        ],
-                        list: [
-                            {
-                                vod_id: "test001",
-                                vod_name: "✅ 文件替换成功",
-                                vod_pic: "",
-                                vod_remarks: "测试影片"
-                            }
-                        ]
-                    };
-                    sendSuccess(res, testData);
-                    return;
-                }
-
                 const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider } = request;
 
+                // 通用解析（直接执行远程脚本）
                 if (url) {
                     parseGeneric(url, headers)
                         .then(data => sendSuccess(res, data))
@@ -51,10 +31,12 @@ const server = http.createServer((req, res) => {
                     return;
                 }
 
+                // jar源请求：api以csp_开头，且有spider地址
                 if (api && api.startsWith('csp_') && spider) {
-                    // ✅ 清洗 spider 地址：移除分号及其后的所有内容
+                    // 清洗 spider 地址：移除分号及其后的所有内容
                     const cleanSpider = spider.split(';')[0].trim();
-                    console.log('[Node] 清洗后的 spider:', cleanSpider);
+                    console.log('[Node] 原始spider:', spider);
+                    console.log('[Node] 清洗后spider:', cleanSpider);
                     handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
@@ -91,11 +73,14 @@ function sendError(res, error) {
 // ---------- 处理jar源请求 ----------
 async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, keyword) {
     if (!spiderUrl) throw new Error('缺少spider地址');
-    console.log(`[Node] 下载jar脚本: ${spiderUrl}`);
+    console.log(`[Node] 开始下载jar脚本: ${spiderUrl}`);
     let scriptContent = jarCache.get(spiderUrl);
     if (!scriptContent) {
         scriptContent = await fetchRemoteScript(spiderUrl, getDefaultHeaders(), 15000);
         jarCache.set(spiderUrl, scriptContent);
+        console.log(`[Node] jar脚本下载完成，长度: ${scriptContent.length}`);
+    } else {
+        console.log('[Node] 使用缓存的jar脚本');
     }
     return executeJarScript(scriptContent, action, key, ext, tid, page, vodId, keyword);
 }
@@ -106,6 +91,7 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
         console: console,
         log: (msg) => console.log(`[Jar] ${msg}`),
         setResult: (data) => { sandbox.result = data; },
+        // 注入请求参数
         ACTION: action,
         KEY: key,
         EXT: ext,
@@ -114,10 +100,13 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
         VOD_ID: vodId,
         KEYWORD: keyword,
     };
+
     vm.createContext(sandbox);
     vm.runInContext(scriptContent, sandbox, { filename: 'jar-script.js', timeout: 15000 });
+
     let data = sandbox.result;
     if (!data) {
+        // 尝试调用可能存在的函数
         try {
             if (action === 'home') {
                 if (typeof sandbox.home === 'function') data = sandbox.home();
@@ -136,6 +125,7 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
             console.error('[Jar] 调用函数失败:', e.message);
         }
     }
+
     if (!data) throw new Error('jar脚本未返回有效数据');
     return normalizeJarResponse(data, action);
 }
@@ -156,7 +146,7 @@ function normalizeJarResponse(data, action) {
 
 // ---------- 通用解析 ----------
 function parseGeneric(url, headers = {}) {
-    return fetchRemoteScript(url, headers, 10000).then(remoteScript => executeScript(remoteScript));
+    return fetchRemoteScript(url, headers, 10000).then(script => executeScript(script));
 }
 
 function executeScript(scriptContent) {
