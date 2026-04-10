@@ -20,32 +20,35 @@ const server = http.createServer((req, res) => {
             try {
                 const request = JSON.parse(body);
                 console.log('[Node] 完整请求体:', body);
+                console.log('[Node] 解析后的请求:', JSON.stringify(request, null, 2));
 
                 const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider } = request;
 
-                // 通用解析（直接执行远程脚本）
+                // 通用解析
                 if (url) {
+                    console.log('[Node] 进入通用解析分支, url:', url);
                     parseGeneric(url, headers)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
                     return;
                 }
 
-                // jar源请求：api以csp_开头，且有spider地址
+                // jar源请求
                 if (api && api.startsWith('csp_') && spider) {
-                    // 清洗 spider 地址：移除分号及其后的所有内容
+                    console.log('[Node] 进入 jar 解析分支, api:', api, 'spider:', spider);
                     const cleanSpider = spider.split(';')[0].trim();
-                    console.log('[Node] 原始spider:', spider);
-                    console.log('[Node] 清洗后spider:', cleanSpider);
+                    console.log('[Node] 清洗后的 spider:', cleanSpider);
                     handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
                     return;
                 }
 
+                console.log('[Node] 未匹配任何分支, api:', api, 'spider:', spider);
                 sendError(res, '无效的请求参数：缺少spider或api不是jar源');
 
             } catch (err) {
+                console.error('[Node] 请求处理异常:', err.message);
                 sendError(res, err.message);
             }
         });
@@ -70,12 +73,13 @@ function sendError(res, error) {
     res.end(JSON.stringify({ success: false, error: error }));
 }
 
-// ---------- 处理jar源请求 ----------
 async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, keyword) {
+    console.log(`[Node] 开始处理 jar 请求, spiderUrl: ${spiderUrl}, action: ${action}`);
     if (!spiderUrl) throw new Error('缺少spider地址');
-    console.log(`[Node] 开始下载jar脚本: ${spiderUrl}`);
+    
     let scriptContent = jarCache.get(spiderUrl);
     if (!scriptContent) {
+        console.log(`[Node] 下载jar脚本: ${spiderUrl}`);
         scriptContent = await fetchRemoteScript(spiderUrl, getDefaultHeaders(), 15000);
         jarCache.set(spiderUrl, scriptContent);
         console.log(`[Node] jar脚本下载完成，长度: ${scriptContent.length}`);
@@ -86,12 +90,12 @@ async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, k
 }
 
 function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, keyword) {
+    console.log('[Node] 开始在沙箱中执行 jar 脚本');
     const sandbox = {
         result: null,
         console: console,
         log: (msg) => console.log(`[Jar] ${msg}`),
         setResult: (data) => { sandbox.result = data; },
-        // 注入请求参数
         ACTION: action,
         KEY: key,
         EXT: ext,
@@ -106,7 +110,7 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
 
     let data = sandbox.result;
     if (!data) {
-        // 尝试调用可能存在的函数
+        console.log('[Node] sandbox.result 为空，尝试调用函数');
         try {
             if (action === 'home') {
                 if (typeof sandbox.home === 'function') data = sandbox.home();
@@ -127,6 +131,7 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
     }
 
     if (!data) throw new Error('jar脚本未返回有效数据');
+    console.log('[Node] jar 脚本返回数据:', JSON.stringify(data).slice(0, 500));
     return normalizeJarResponse(data, action);
 }
 
@@ -144,7 +149,6 @@ function normalizeJarResponse(data, action) {
     return data;
 }
 
-// ---------- 通用解析 ----------
 function parseGeneric(url, headers = {}) {
     return fetchRemoteScript(url, headers, 10000).then(script => executeScript(script));
 }
