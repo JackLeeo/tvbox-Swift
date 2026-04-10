@@ -5,7 +5,7 @@ const URL = require('url');
 
 const PORT = 3000;
 const jarCache = new Map();
-// 设置为 false 以使用真实 jar 解析
+// 设置为 true 使用测试数据，false 使用真实 jar 解析
 const USE_TEST_DATA = false;
 
 const server = http.createServer((req, res) => {
@@ -52,7 +52,10 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (api && api.startsWith('csp_') && spider) {
-                    handleJarRequest(spider, action, key, ext, tid, page, vod_id, wd)
+                    // ✅ 清洗 spider 地址：移除分号及其后的所有内容
+                    const cleanSpider = spider.split(';')[0].trim();
+                    console.log('[Node] 清洗后的 spider:', cleanSpider);
+                    handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
                         .catch(err => sendError(res, err.message));
                     return;
