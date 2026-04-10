@@ -29,7 +29,6 @@ const server = http.createServer((req, res) => {
                 }
 
                 if (api && api.startsWith('csp_') && spider) {
-                    // 清洗 spider 地址
                     let cleanSpider = spider.split(';')[0];
                     cleanSpider = cleanSpider.replace(/[\n\r\t]/g, '').trim();
                     
@@ -37,8 +36,7 @@ const server = http.createServer((req, res) => {
                     handleJarRequest(cleanSpider, action, key, ext, tid, page, vod_id, wd)
                         .then(data => sendSuccess(res, data))
                         .catch(err => {
-                            // 将错误消息详细返回，便于在悬浮窗中查看
-                            sendError(res, `[JarError] ${err.message}`);
+                            sendError(res, err.message);
                         });
                     return;
                 }
@@ -55,9 +53,7 @@ const server = http.createServer((req, res) => {
     res.end();
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-    // 启动成功不输出，避免干扰
-});
+server.listen(PORT, '127.0.0.1', () => {});
 
 function sendSuccess(res, data) {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -70,7 +66,7 @@ function sendError(res, error) {
 }
 
 async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, keyword) {
-    if (!spiderUrl) throw new Error('缺少spider地址');
+    if (!spiderUrl) throw new Error('[JarError] 缺少spider地址');
     
     let scriptContent = jarCache.get(spiderUrl);
     if (!scriptContent) {
@@ -78,24 +74,21 @@ async function handleJarRequest(spiderUrl, action, key, ext, tid, page, vodId, k
             scriptContent = await fetchRemoteScript(spiderUrl, getDefaultHeaders(), 15000);
             jarCache.set(spiderUrl, scriptContent);
         } catch (e) {
-            throw new Error(`下载jar脚本失败: ${e.message} (URL: ${spiderUrl})`);
+            throw new Error(`[DownloadError] ${e.message}`);
         }
     }
     
     try {
         return executeJarScript(scriptContent, action, key, ext, tid, page, vodId, keyword);
     } catch (e) {
-        throw new Error(`执行jar脚本失败: ${e.message}`);
+        throw new Error(`[ExecError] ${e.message}`);
     }
 }
 
 function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, keyword) {
     const sandbox = {
         result: null,
-        console: {
-            log: () => {}, // 静默
-            error: () => {}
-        },
+        console: { log: () => {}, error: () => {} },
         setResult: (data) => { sandbox.result = data; },
         ACTION: action,
         KEY: key,
@@ -126,11 +119,11 @@ function executeJarScript(scriptContent, action, key, ext, tid, page, vodId, key
                 else if (sandbox.rule && typeof sandbox.rule.search === 'function') data = sandbox.rule.search(keyword);
             }
         } catch (e) {
-            throw new Error(`调用jar函数异常: ${e.message}`);
+            throw new Error(`[JarCallError] ${e.message}`);
         }
     }
 
-    if (!data) throw new Error('jar脚本未返回有效数据');
+    if (!data) throw new Error('[JarNoData] jar脚本未返回有效数据');
     return normalizeJarResponse(data, action);
 }
 
@@ -163,11 +156,12 @@ function fetchRemoteScript(url, headers, timeout) {
     return new Promise((resolve, reject) => {
         const cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
         
+        // 直接将即将请求的 URL 包含在错误信息中
         let parsedUrl;
         try {
             parsedUrl = URL.parse(cleanUrl);
         } catch (e) {
-            reject(new Error(`URL解析失败: ${e.message} (URL: ${cleanUrl})`));
+            reject(new Error(`[URLParseError] 无法解析URL: "${cleanUrl}" | 原始错误: ${e.message}`));
             return;
         }
 
@@ -177,8 +171,8 @@ function fetchRemoteScript(url, headers, timeout) {
             res.on('data', chunk => data += chunk);
             res.on('end', () => resolve(data));
         });
-        req.on('error', err => reject(new Error(`网络请求失败: ${err.message}`)));
-        req.setTimeout(timeout, () => { req.destroy(); reject(new Error('请求超时')); });
+        req.on('error', err => reject(new Error(`[NetworkError] URL: ${cleanUrl} | ${err.message}`)));
+        req.setTimeout(timeout, () => { req.destroy(); reject(new Error(`[TimeoutError] URL: ${cleanUrl}`)); });
         req.end();
     });
 }
