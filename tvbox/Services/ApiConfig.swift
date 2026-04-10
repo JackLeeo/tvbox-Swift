@@ -26,6 +26,8 @@ class ApiConfig: ObservableObject {
     @Published var configUrl: String = ""
     @Published var liveConfigUrl: String = ""
     @Published var wallpaper: String = ""
+    // ✅ 新增：存储配置中的 spider 字段（jar 脚本下载地址）
+    @Published var spider: String = ""
     
     private let network = NetworkManager.shared
     private var activeLoadToken = UUID()
@@ -626,6 +628,8 @@ class ApiConfig: ObservableObject {
             
             // 壁纸
             self.wallpaper = config.wallpaper ?? ""
+            // ✅ 新增：解析并存储 spider 字段
+            self.spider = config.spider ?? ""
         }
         
         if includeLive {
