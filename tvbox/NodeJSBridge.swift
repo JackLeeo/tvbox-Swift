@@ -38,17 +38,14 @@ class NodeJSBridge {
     }
 
     private func findScriptPath() -> String? {
-        // 尝试1：标准 nodejs-project 子目录
         if let path = Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: "nodejs-project") {
             Logger.shared.log("路径1 命中: \(path)", level: .info)
             return path
         }
-        // 尝试2：直接在资源根目录
         if let path = Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: nil) {
             Logger.shared.log("路径2 命中: \(path)", level: .info)
             return path
         }
-        // 尝试3：遍历查找
         if let resourcePath = Bundle.main.resourcePath,
            let enumerator = FileManager.default.enumerator(atPath: resourcePath) {
             while let file = enumerator.nextObject() as? String {
@@ -126,21 +123,55 @@ class NodeJSBridge {
                 return
             }
 
-            guard let data = data,
-                  let result = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-                Logger.shared.log("[\(requestId)] 响应非 JSON", level: .error)
+            guard let data = data else {
+                Logger.shared.log("[\(requestId)] 响应数据为空", level: .error)
                 completion(nil, NSError(domain: "NodeJSBridge", code: -3))
                 return
             }
 
-            if let success = result["success"] as? Bool, success {
-                Logger.shared.log("[\(requestId)] 解析成功", level: .info)
-                completion(result["data"] as? [String: Any], nil)
+            // ✅ 打印原始响应字符串，便于确认服务器返回内容
+            let rawResponse = String(data: data, encoding: .utf8) ?? "无法解码"
+            Logger.shared.log("[\(requestId)] 原始响应: \(rawResponse)", level: .debug)
+
+            guard let jsonObject = try? JSONSerialization.jsonObject(with: data),
+                  let result = jsonObject as? [String: Any] else {
+                Logger.shared.log("[\(requestId)] 响应非 JSON 字典: \(rawResponse)", level: .error)
+                completion(nil, NSError(domain: "NodeJSBridge", code: -3))
+                return
+            }
+
+            // 检查 success 字段
+            let success: Bool
+            if let boolSuccess = result["success"] as? Bool {
+                success = boolSuccess
+            } else if let intSuccess = result["success"] as? Int {
+                success = intSuccess != 0
             } else {
+                Logger.shared.log("[\(requestId)] 响应缺少 success 字段", level: .error)
+                completion(nil, NSError(domain: "NodeJSBridge", code: -1))
+                return
+            }
+
+            guard success else {
                 let errorMsg = result["error"] as? String ?? "解析失败"
                 Logger.shared.log("[\(requestId)] Node 错误: \(errorMsg)", level: .error)
                 completion(nil, NSError(domain: "NodeJSBridge", code: -1,
                                         userInfo: [NSLocalizedDescriptionKey: errorMsg]))
+                return
+            }
+
+            // 提取 data 字段
+            if let dataDict = result["data"] as? [String: Any] {
+                Logger.shared.log("[\(requestId)] 解析成功", level: .info)
+                completion(dataDict, nil)
+            } else if let dataArray = result["data"] as? [[String: Any]] {
+                // 如果 data 是数组，包装成字典以兼容下游
+                Logger.shared.log("[\(requestId)] data 是数组，包装为字典", level: .debug)
+                completion(["list": dataArray], nil)
+            } else {
+                // 如果整个 result 就是数据本身（无 data 包装），直接使用 result
+                Logger.shared.log("[\(requestId)] 响应无 data 包装，直接使用整个 result", level: .debug)
+                completion(result, nil)
             }
         }.resume()
     }
