@@ -13,7 +13,7 @@ const jarCache = new Map();
 const NODE_PATH = process.env.NODE_PATH || path.join(__dirname, '..', 'Documents');
 if (!fs.existsSync(NODE_PATH)) fs.mkdirSync(NODE_PATH, { recursive: true });
 
-// ========== cat.js 模拟 ==========
+// ========== 内置 cat.js 完整模拟 ==========
 const _ = {
     get: (obj, path, defaultValue) => {
         const keys = path.split('.');
@@ -114,6 +114,7 @@ const qs = {
         const parts = [];
         for (const key in obj) {
             if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                const value = obj[key];
                 parts.push(`${encode ? encodeURIComponent(key) : key}=${encode ? encodeURIComponent(value) : value}`);
             }
         }
@@ -162,7 +163,7 @@ function localSet(storage, key, value) {
     fs.writeFileSync(filePath, JSON.stringify(data));
 }
 
-// ========== ZIP 解压 ==========
+// ========== ZIP 解压（纯 JS） ==========
 function unzipBuffer(buffer) {
     if (buffer.length < 22) throw new Error('文件太小');
     const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -201,14 +202,14 @@ function unzipBuffer(buffer) {
     return files;
 }
 
-// ========== DEX 字符串提取（增强边界检查） ==========
+// ========== DEX 字符串提取 ==========
 function extractStringsFromDex(dexBuffer) {
     if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
     const stringIdsSize = view.getUint32(56, true);
     const stringIdsOff = view.getUint32(60, true);
     if (stringIdsSize === 0) throw new Error('DEX字符串池为空');
-    if (stringIdsOff + stringIdsSize * 4 > dexBuffer.length) throw new Error(`字符串索引区越界: off=${stringIdsOff}, size=${stringIdsSize}, max=${dexBuffer.length}`);
+    if (stringIdsOff + stringIdsSize * 4 > dexBuffer.length) throw new Error(`字符串索引区越界`);
     const strings = [];
     for (let i = 0; i < stringIdsSize; i++) {
         const stringOff = view.getUint32(stringIdsOff + i * 4, true);
@@ -224,12 +225,37 @@ function extractStringsFromDex(dexBuffer) {
     return strings;
 }
 
+// ========== 尝试解密 Spider 文本（常见 TVBox 加密方式） ==========
+function tryDecodeSpider(content) {
+    // 1. 尝试 base64 解码
+    try {
+        const decoded = Buffer.from(content, 'base64').toString('utf8');
+        if (decoded.includes('function') || decoded.includes('__jsEvalReturn')) return decoded;
+    } catch (e) {}
+    // 2. 尝试常见的 XOR 或简单替换（此处仅示例，实际 Spider 加密可能更复杂）
+    // 3. 如果内容以特定魔术头开头（如 `_$decode`），则尝试 eval 解密函数后调用
+    if (content.includes('_$decode') || content.includes('decode(')) {
+        try {
+            const sandbox = { result: null };
+            vm.createContext(sandbox);
+            vm.runInContext(content, sandbox, { timeout: 5000 });
+            if (typeof sandbox._$decode === 'function') {
+                const decoded = sandbox._$decode();
+                if (decoded && typeof decoded === 'string') return decoded;
+            }
+        } catch (e) {}
+    }
+    return null;
+}
+
 // ========== 下载远程 Jar 并提取 Spider JS ==========
 async function fetchSpiderFromJar(spiderUrl) {
     let cleanUrl = spiderUrl.split(';')[0].trim();
     console.log(`[Node] 清洗后 spider: ${cleanUrl}`);
     const buffer = await downloadBuffer(cleanUrl);
     console.log(`[Node] 下载完成，大小: ${buffer.length} bytes`);
+    
+    // 1. 尝试 ZIP
     if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
         const files = unzipBuffer(buffer);
         const dexFile = files.find(f => f.name === 'classes.dex');
@@ -241,12 +267,28 @@ async function fetchSpiderFromJar(spiderUrl) {
         const spiderCode = strings[0];
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
         return spiderCode;
-    } else {
-        const content = buffer.toString('utf8').trim();
-        if (content.startsWith('<?xml') || content.includes('<Error>')) throw new Error(`下载到错误页面: ${content.slice(0, 200)}`);
-        if (content.includes('function') || content.includes('var ') || content.includes('__jsEvalReturn')) return content;
-        throw new Error(`下载内容无法识别。预览: ${content.slice(0, 200)}`);
     }
+    
+    // 2. 非 ZIP，尝试作为文本处理
+    let content = buffer.toString('utf8').trim();
+    if (content.startsWith('<?xml') || content.includes('<Error>')) {
+        throw new Error(`下载到错误页面: ${content.slice(0, 200)}`);
+    }
+    
+    // 2.1 直接执行试试
+    if (content.includes('function') && content.includes('__jsEvalReturn')) {
+        return content;
+    }
+    
+    // 2.2 尝试解密
+    const decoded = tryDecodeSpider(content);
+    if (decoded) {
+        console.log('[Node] 成功解密 Spider 内容');
+        return decoded;
+    }
+    
+    // 2.3 仍然失败，返回原始内容预览
+    throw new Error(`无法解析 Spider 内容。预览: ${content.slice(0, 200)}`);
 }
 
 function downloadBuffer(url) {
@@ -362,9 +404,16 @@ async function executeSpider(spiderModule, action, key, ext, tid, page, vodId, k
 }
 
 function normalizeResponse(data, action) {
-    if (action === 'home') { if (data.class || data.list) return data; if (Array.isArray(data)) return { class: [], list: data }; }
-    else if (action === 'list' || action === 'search') { if (data.list) return data; if (Array.isArray(data)) return { list: data }; }
-    else if (action === 'detail') { if (data.list) return data; if (data.vod_id) return { list: [data] }; }
+    if (action === 'home') {
+        if (data.class || data.list) return data;
+        if (Array.isArray(data)) return { class: [], list: data };
+    } else if (action === 'list' || action === 'search') {
+        if (data.list) return data;
+        if (Array.isArray(data)) return { list: data };
+    } else if (action === 'detail') {
+        if (data.list) return data;
+        if (data.vod_id) return { list: [data] };
+    }
     return data;
 }
 
