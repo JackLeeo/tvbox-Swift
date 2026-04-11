@@ -1,17 +1,16 @@
 import SwiftUI
 
-/// 悬浮调试窗口，显示实时日志
 struct DebugOverlay: View {
     @ObservedObject var logger = Logger.shared
     @State private var isExpanded = false
     @State private var isVisible = true
-    
+    @State private var copyConfirmation = false
+
     var body: some View {
         if isVisible {
             VStack {
                 Spacer()
                 VStack(alignment: .leading, spacing: 4) {
-                    // 标题栏
                     HStack {
                         Text("📋 调试日志")
                             .font(.caption)
@@ -20,6 +19,23 @@ struct DebugOverlay: View {
                         Spacer()
                         Button(action: { isExpanded.toggle() }) {
                             Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                                .font(.caption2)
+                                .foregroundColor(.white)
+                        }
+                        Button(action: {
+                            let allLogs = logger.messages.map { "[\($0.formattedTime)] [\($0.level.emoji)] \($0.message)" }.joined(separator: "\n")
+                            #if os(iOS)
+                            UIPasteboard.general.string = allLogs
+                            #else
+                            NSPasteboard.general.clearContents()
+                            NSPasteboard.general.setString(allLogs, forType: .string)
+                            #endif
+                            copyConfirmation = true
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                copyConfirmation = false
+                            }
+                        }) {
+                            Image(systemName: "doc.on.doc")
                                 .font(.caption2)
                                 .foregroundColor(.white)
                         }
@@ -37,7 +53,14 @@ struct DebugOverlay: View {
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(Color.black.opacity(0.7))
-                    
+
+                    if copyConfirmation {
+                        Text("✅ 日志已复制")
+                            .font(.caption)
+                            .foregroundColor(.green)
+                            .padding(.horizontal, 8)
+                    }
+
                     if isExpanded {
                         ScrollViewReader { proxy in
                             ScrollView {
@@ -50,9 +73,22 @@ struct DebugOverlay: View {
                                             Text(entry.message)
                                                 .font(.system(size: 10))
                                                 .foregroundColor(logColor(for: entry.level))
-                                                .lineLimit(3)
+                                                .lineLimit(5)
                                         }
                                         .id(entry.id)
+                                        .onLongPressGesture {
+                                            let singleLog = "[\(entry.formattedTime)] [\(entry.level.emoji)] \(entry.message)"
+                                            #if os(iOS)
+                                            UIPasteboard.general.string = singleLog
+                                            #else
+                                            NSPasteboard.general.clearContents()
+                                            NSPasteboard.general.setString(singleLog, forType: .string)
+                                            #endif
+                                            copyConfirmation = true
+                                            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                                                copyConfirmation = false
+                                            }
+                                        }
                                     }
                                 }
                                 .padding(6)
@@ -61,9 +97,7 @@ struct DebugOverlay: View {
                             .background(Color.black.opacity(0.8))
                             .onChange(of: logger.messages.count) { _ in
                                 if let last = logger.messages.last {
-                                    withAnimation {
-                                        proxy.scrollTo(last.id, anchor: .bottom)
-                                    }
+                                    withAnimation { proxy.scrollTo(last.id, anchor: .bottom) }
                                 }
                             }
                         }
@@ -77,7 +111,7 @@ struct DebugOverlay: View {
             .transition(.move(edge: .bottom))
         }
     }
-    
+
     private func logColor(for level: LogLevel) -> Color {
         switch level {
         case .debug: return .gray
@@ -88,10 +122,9 @@ struct DebugOverlay: View {
     }
 }
 
-/// 用于在 App 启动后显示调试窗口的小按钮（当悬浮窗被关闭时可用）
 struct DebugToggleButton: View {
     @State private var showOverlay = false
-    
+
     var body: some View {
         VStack {
             Spacer()
