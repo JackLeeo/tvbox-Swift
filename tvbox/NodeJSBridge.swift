@@ -71,7 +71,6 @@ class NodeJSBridge {
             }
             Logger.shared.log("使用脚本路径: \(scriptPath)", level: .info)
 
-            // 设置 NODE_PATH 环境变量为 App 的 Documents 目录（可写）
             let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? ""
             setenv("NODE_PATH", documentsPath, 1)
             Logger.shared.log("NODE_PATH 设置为: \(documentsPath)", level: .info)
