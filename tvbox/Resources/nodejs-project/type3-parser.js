@@ -13,6 +13,21 @@ const jarCache = new Map();
 const NODE_PATH = process.env.NODE_PATH || path.join(__dirname, '..', 'Documents');
 if (!fs.existsSync(NODE_PATH)) fs.mkdirSync(NODE_PATH, { recursive: true });
 
+// 保存下载的原始文件用于调试
+function saveDebugFile(buffer, url) {
+    try {
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const fileName = `spider_cache_${timestamp}.jar`;
+        const filePath = path.join(NODE_PATH, fileName);
+        fs.writeFileSync(filePath, buffer);
+        console.log(`[Node] 调试文件已保存: ${filePath}`);
+        return filePath;
+    } catch (e) {
+        console.log(`[Node] 保存调试文件失败: ${e.message}`);
+        return null;
+    }
+}
+
 function safePreview(str, len = 200) {
     if (!str) return '';
     return str.slice(0, len).replace(/[\\]/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
@@ -293,6 +308,11 @@ async function fetchSpiderFromJar(spiderUrl) {
     console.log(`[Node] 清洗后 URL: ${cleanUrl}`);
     const buffer = await downloadBuffer(cleanUrl);
     console.log(`[Node] 下载完成，大小: ${buffer.length} bytes`);
+    
+    // 保存调试文件
+    const savedPath = saveDebugFile(buffer, cleanUrl);
+    if (savedPath) console.log(`[Node] 原始文件已保存到: ${savedPath}`);
+    
     if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
         console.log(`[Node] 检测为 ZIP 文件，开始解压`);
         const files = unzipBuffer(buffer);
