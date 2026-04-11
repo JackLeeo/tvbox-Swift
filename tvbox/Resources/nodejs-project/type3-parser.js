@@ -6,10 +6,12 @@ const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
 const zlib = require('zlib');
+const AdmZip = require('adm-zip');
 
 const PORT = 3000;
 const jarCache = new Map();
 
+// ========== 可写目录 ==========
 const NODE_PATH = process.env.NODE_PATH || path.join(__dirname, '..', 'Documents');
 if (!fs.existsSync(NODE_PATH)) fs.mkdirSync(NODE_PATH, { recursive: true });
 
@@ -90,10 +92,19 @@ const axios = {
             const parsed = URL.parse(url);
             const client = parsed.protocol === 'https:' ? https : http;
             const req = client.request(url, { method, headers }, (res) => {
+                // 自动处理301/302重定向
+                if (res.statusCode === 301 || res.statusCode === 302) {
+                    const location = res.headers.location;
+                    if (location) return downloadBuffer(location).then(resolve).catch(reject);
+                }
                 const chunks = [];
                 res.on('data', chunk => chunks.push(chunk));
                 res.on('end', () => {
-                    const buffer = Buffer.concat(chunks);
+                    let buffer = Buffer.concat(chunks);
+                    // 自动处理gzip压缩
+                    if (res.headers['content-encoding'] === 'gzip') {
+                        try { buffer = zlib.gunzipSync(buffer); } catch (e) {}
+                    }
                     let respData;
                     if (responseType === 'arraybuffer') respData = buffer;
                     else respData = buffer.toString('utf8');
@@ -168,48 +179,25 @@ function localSet(storage, key, value) {
     fs.writeFileSync(filePath, JSON.stringify(data));
 }
 
-// ========== ZIP 解压 ==========
-function unzipBuffer(buffer) {
-    if (buffer.length < 22) throw new Error('文件太小');
-    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
-    let eocdOffset = -1;
-    for (let i = buffer.length - 22; i >= 0; i--) if (view.getUint32(i, true) === 0x06054b50) { eocdOffset = i; break; }
-    if (eocdOffset === -1) throw new Error('不是有效的ZIP文件');
-    const cdOffset = view.getUint32(eocdOffset + 16, true);
-    const totalEntries = view.getUint16(eocdOffset + 10, true);
-    const files = [];
-    let offset = cdOffset;
-    for (let i = 0; i < totalEntries; i++) {
-        if (offset + 46 > buffer.length) break;
-        if (view.getUint32(offset, true) !== 0x02014b50) break;
-        const compressionMethod = view.getUint16(offset + 10, true);
-        const compressedSize = view.getUint32(offset + 20, true);
-        const fileNameLength = view.getUint16(offset + 28, true);
-        const extraFieldLength = view.getUint16(offset + 30, true);
-        const fileCommentLength = view.getUint16(offset + 32, true);
-        const localHeaderOffset = view.getUint32(offset + 42, true);
-        if (offset + 46 + fileNameLength > buffer.length) break;
-        const fileName = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLength);
-        let localOffset = localHeaderOffset;
-        if (localOffset + 30 > buffer.length) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
-        if (view.getUint32(localOffset, true) !== 0x04034b50) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
-        const localFileNameLength = view.getUint16(localOffset + 26, true);
-        const localExtraFieldLength = view.getUint16(localOffset + 28, true);
-        const dataOffset = localOffset + 30 + localFileNameLength + localExtraFieldLength;
-        if (dataOffset + compressedSize > buffer.length) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
-        let fileData = buffer.slice(dataOffset, dataOffset + compressedSize);
-        if (compressionMethod === 8) {
-            try { fileData = zlib.inflateRawSync(fileData); } catch (e) { fileData = zlib.inflateSync(fileData); }
-        }
-        files.push({ name: fileName, data: fileData });
-        offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
-    }
-    return files;
+// ========== ULEB128 解码（DEX 字符串长度用的就是这个！）==========
+function readUleb128(view, pos) {
+    let result = 0;
+    let shift = 0;
+    let byte;
+    do {
+        byte = view.getUint8(pos++);
+        result |= (byte & 0x7F) << shift;
+        shift += 7;
+    } while ((byte & 0x80) !== 0);
+    return { result, pos };
 }
 
-// ========== DEX 字符串提取（过滤 Java 类名，优先 JS 关键字） ==========
+// ========== DEX 字符串提取 ==========
 function isJavaClassName(str) {
-    return str.startsWith('L') && (str.includes('/') || str.includes(';'));
+    // 过滤所有 Java 类名：
+    // 1. Lxxx/xxx; 普通类
+    // 2. [Lxxx/xxx; 数组类
+    return (str.startsWith('L') || str.startsWith('[')) && str.includes('/');
 }
 
 function extractStringsFromDex(dexBuffer) {
@@ -219,17 +207,25 @@ function extractStringsFromDex(dexBuffer) {
     const stringIdsOff = view.getUint32(60, true);
     if (stringIdsSize === 0) throw new Error('DEX字符串池为空');
     if (stringIdsOff + stringIdsSize * 4 > dexBuffer.length) throw new Error(`字符串索引区越界`);
+    
     const strings = [];
     for (let i = 0; i < stringIdsSize; i++) {
         const stringOff = view.getUint32(stringIdsOff + i * 4, true);
         if (stringOff + 4 > dexBuffer.length) continue;
-        let pos = stringOff;
-        const len = view.getUint16(pos, true);
-        pos += 2;
+        
+        // 用 ULEB128 读取长度！这才是正确的！
+        const { result: len, pos: newPos } = readUleb128(view, stringOff);
+        let pos = newPos;
+        
         if (pos + len > dexBuffer.length) continue;
+        
+        // 读取字符串
         let str = '';
-        for (let j = 0; j < len; j++) str += String.fromCharCode(view.getUint8(pos++));
-        // 过滤 Java 类名
+        for (let j = 0; j < len; j++) {
+            str += String.fromCharCode(view.getUint8(pos++));
+        }
+        
+        // 过滤 Java 垃圾类名
         if (!isJavaClassName(str)) {
             strings.push(str);
         }
@@ -265,12 +261,18 @@ function selectSpiderCode(strings) {
 async function fetchSpiderFromJar(spiderUrl) {
     let cleanUrl = spiderUrl.split(';')[0].trim();
     const buffer = await downloadBuffer(cleanUrl);
-    if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
-        const files = unzipBuffer(buffer);
-        const dexFile = files.find(f => f.name === 'classes.dex');
-        if (!dexFile) throw new Error('Jar中未找到classes.dex');
-        const strings = extractStringsFromDex(dexFile.data);
+    
+    // 检查是不是有效的ZIP
+    if (buffer.length >= 4 && buffer.readUInt32LE(0) === 0x04034b50) {
+        // 用adm-zip解压，100%稳定
+        const zip = new AdmZip(buffer);
+        const dexEntry = zip.getEntry('classes.dex');
+        if (!dexEntry) throw new Error('Jar中未找到classes.dex文件');
+        const dexBuffer = zip.readFile(dexEntry);
+        
+        const strings = extractStringsFromDex(dexBuffer);
         if (strings.length === 0) throw new Error('DEX字符串池为空（过滤后）');
+        
         const spiderCode = selectSpiderCode(strings);
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
         console.log(`[Node] 选中 Spider 预览: ${safePreview(spiderCode, 150)}`);
@@ -303,10 +305,22 @@ function downloadBuffer(url) {
         const parsed = URL.parse(cleanUrl);
         const client = parsed.protocol === 'https:' ? https : http;
         client.get(cleanUrl, { headers: getDefaultHeaders() }, (res) => {
+            // 自动处理301/302重定向
+            if (res.statusCode === 301 || res.statusCode === 302) {
+                const location = res.headers.location;
+                if (location) return downloadBuffer(location).then(resolve).catch(reject);
+            }
             if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
             const chunks = [];
             res.on('data', chunk => chunks.push(chunk));
-            res.on('end', () => resolve(Buffer.concat(chunks)));
+            res.on('end', () => {
+                let buffer = Buffer.concat(chunks);
+                // 自动处理gzip压缩
+                if (res.headers['content-encoding'] === 'gzip') {
+                    try { buffer = zlib.gunzipSync(buffer); } catch (e) {}
+                }
+                resolve(buffer);
+            });
         }).on('error', reject);
     });
 }
