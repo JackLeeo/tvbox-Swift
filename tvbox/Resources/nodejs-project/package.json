@@ -3,5 +3,8 @@
   "version": "1.0.0",
   "description": "Type3 source parser for TVBox",
   "main": "type3-parser.js",
-  "dependencies": {}
+  "dependencies": {
+    "axios": "^1.4.0",
+    "qs": "^6.11.2"
+  }
 }
