@@ -239,11 +239,8 @@ function readUleb128(view, pos) {
     return { result, pos };
 }
 
-function isJavaClassName(str) {
-    return (str.startsWith('L') || str.startsWith('[')) && str.includes('/');
-}
-
-function extractStringsFromDex(dexBuffer) {
+// ========== 提取所有字符串（不过滤） ==========
+function extractAllStringsFromDex(dexBuffer) {
     console.log(`[Node] 开始解析 DEX，大小: ${dexBuffer.length} bytes`);
     if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
@@ -253,7 +250,6 @@ function extractStringsFromDex(dexBuffer) {
     if (stringIdsSize === 0) throw new Error('DEX字符串池为空');
     if (stringIdsOff + stringIdsSize * 4 > dexBuffer.length) throw new Error(`字符串索引区越界`);
     const strings = [];
-    let javaFilteredCount = 0;
     for (let i = 0; i < stringIdsSize; i++) {
         const stringOff = view.getUint32(stringIdsOff + i * 4, true);
         if (stringOff + 4 > dexBuffer.length) continue;
@@ -267,39 +263,10 @@ function extractStringsFromDex(dexBuffer) {
         if (pos + len > dexBuffer.length) continue;
         let str = '';
         for (let j = 0; j < len; j++) str += String.fromCharCode(view.getUint8(pos++));
-        if (!isJavaClassName(str)) {
-            strings.push(str);
-        } else {
-            javaFilteredCount++;
-        }
+        strings.push(str);
     }
-    console.log(`[Node] 提取字符串: 总计 ${stringIdsSize}, 过滤 Java 类名 ${javaFilteredCount}, 剩余候选 ${strings.length}`);
-    if (strings.length > 0) {
-        console.log(`[Node] 候选字符串前3个预览:`);
-        strings.slice(0, 3).forEach((s, idx) => console.log(`  [${idx}] ${safePreview(s, 100)}`));
-    }
+    console.log(`[Node] 提取到 ${strings.length} 个字符串`);
     return strings;
-}
-
-function selectSpiderCode(strings) {
-    console.log(`[Node] 开始从 ${strings.length} 个候选中选择 Spider 代码`);
-    const jsKeywords = ['function', 'var ', 'const ', '__jsEvalReturn', 'home(', 'category(', 'detail(', 'search('];
-    for (const kw of jsKeywords) {
-        const found = strings.find(s => s.includes(kw));
-        if (found) {
-            console.log(`[Node] 通过关键字 '${kw}' 匹配到 Spider，长度: ${found.length}`);
-            return found;
-        }
-    }
-    const longStrings = strings.filter(s => s.length > 500);
-    if (longStrings.length > 0) {
-        longStrings.sort((a, b) => b.length - a.length);
-        console.log(`[Node] 使用最长非 Java 字符串 (长度: ${longStrings[0].length})`);
-        return longStrings[0];
-    }
-    strings.sort((a, b) => b.length - a.length);
-    console.log(`[Node] 回退到最长字符串 (长度: ${strings[0].length})`);
-    return strings[0];
 }
 
 // ========== 下载远程 Jar ==========
@@ -309,7 +276,6 @@ async function fetchSpiderFromJar(spiderUrl) {
     const buffer = await downloadBuffer(cleanUrl);
     console.log(`[Node] 下载完成，大小: ${buffer.length} bytes`);
     
-    // 保存调试文件
     const savedPath = saveDebugFile(buffer, cleanUrl);
     if (savedPath) console.log(`[Node] 原始文件已保存到: ${savedPath}`);
     
@@ -322,11 +288,20 @@ async function fetchSpiderFromJar(spiderUrl) {
             throw new Error('Jar中未找到classes.dex');
         }
         console.log(`[Node] 找到 classes.dex，大小: ${dexFile.data.length} bytes`);
-        const strings = extractStringsFromDex(dexFile.data);
-        if (strings.length === 0) throw new Error('DEX字符串池为空（过滤后）');
-        const spiderCode = selectSpiderCode(strings);
-        if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
-        console.log(`[Node] 选中 Spider 预览: ${safePreview(spiderCode, 200)}`);
+        const strings = extractAllStringsFromDex(dexFile.data);
+        if (strings.length === 0) throw new Error('DEX字符串池为空');
+        
+        // 输出所有候选字符串的预览
+        console.log(`[Node] ========== 所有候选字符串预览（前30个） ==========`);
+        strings.slice(0, 30).forEach((s, idx) => {
+            console.log(`[Node] [${idx}] 长度=${s.length} 预览=${safePreview(s, 200)}`);
+        });
+        
+        // 按长度排序，取最长的作为 Spider 代码
+        strings.sort((a, b) => b.length - a.length);
+        const spiderCode = strings[0];
+        console.log(`[Node] 最长字符串长度: ${spiderCode.length}`);
+        console.log(`[Node] 最长字符串预览: ${safePreview(spiderCode, 500)}`);
         return spiderCode;
     } else {
         console.log(`[Node] 非 ZIP 文件，尝试作为文本处理`);
@@ -334,25 +309,9 @@ async function fetchSpiderFromJar(spiderUrl) {
         if (content.startsWith('<?xml') || content.includes('<Error>')) {
             throw new Error(`下载到错误页面: ${safePreview(content, 200)}`);
         }
-        if (content.includes('function') || content.includes('__jsEvalReturn')) {
-            console.log(`[Node] 直接识别为 JavaScript，长度: ${content.length}`);
-            return content;
-        }
-        const decoded = tryDecodeSpider(content);
-        if (decoded) {
-            console.log(`[Node] 解密成功，长度: ${decoded.length}`);
-            return decoded;
-        }
-        throw new Error(`无法解析 Spider 内容。预览: ${safePreview(content, 150)}`);
+        console.log(`[Node] 文本内容预览: ${safePreview(content, 500)}`);
+        return content;
     }
-}
-
-function tryDecodeSpider(content) {
-    try {
-        const decoded = Buffer.from(content, 'base64').toString('utf8');
-        if (decoded.includes('function') || decoded.includes('__jsEvalReturn')) return decoded;
-    } catch (e) {}
-    return null;
 }
 
 function downloadBuffer(url, redirectCount = 0) {
@@ -380,7 +339,7 @@ function downloadBuffer(url, redirectCount = 0) {
     });
 }
 
-// ========== 创建 Spider 沙箱（完整 Java 模拟） ==========
+// ========== 创建 Spider 沙箱 ==========
 function createSpiderSandbox() {
     const sandbox = {
         axios, qs, crypto, https, fs, Uri, _, request,
@@ -389,36 +348,6 @@ function createSpiderSandbox() {
         console: { log: () => {}, error: () => {} },
         setTimeout, clearTimeout, Buffer,
         __dirname: path.join(__dirname, 'open'),
-        java: {
-            io: { File: class {}, IOException: class {} },
-            lang: {
-                String: String,
-                StringBuilder: class { constructor() { this.str = ''; } append(s) { this.str += s; return this; } toString() { return this.str; } },
-                Exception: Error,
-                Throwable: Error,
-                StackTraceElement: class {},
-            },
-            util: {
-                ArrayList: class { constructor() { this.list = []; } add(e) { this.list.push(e); } get(i) { return this.list[i]; } size() { return this.list.length; } },
-                HashMap: class { constructor() { this.map = new Map(); } put(k, v) { this.map.set(k, v); } get(k) { return this.map.get(k); } },
-            },
-        },
-        org: {
-            xmlpull: {
-                v1: {
-                    XmlPullParserFactory: {
-                        newInstance: () => ({
-                            setInput: () => {},
-                            next: () => 1,
-                            getEventType: () => 0,
-                            getName: () => '',
-                            getAttributeValue: () => null,
-                        }),
-                    },
-                },
-            },
-        },
-        META: { INF: { services: {} } },
     };
     sandbox.require = (modulePath) => {
         if (modulePath === 'axios') return axios;
@@ -443,7 +372,7 @@ function createSpiderSandbox() {
     return sandbox;
 }
 
-// ========== 统一加载 ==========
+// ========== 统一加载（移除纯Java检测） ==========
 async function loadSpider(spiderUrl) {
     if (!spiderUrl) throw new Error('未提供 spider 地址');
     console.log(`[Node] 开始加载 Spider: ${spiderUrl}`);
@@ -468,9 +397,6 @@ async function loadSpider(spiderUrl) {
             vm.runInContext(`(function(){${cleanScript}})()`, sandbox, { filename: 'spider.js', timeout: 30000 });
         } catch (e2) {
             console.log(`[Node] 包装执行也失败: ${e2.message}`);
-            if (cleanScript.includes('XmlPullParserFactory') || cleanScript.includes('META-INF/services')) {
-                throw new Error('此源为纯Java实现，无法在iOS上直接运行。请切换至纯JavaScript源或使用服务器中转。');
-            }
             throw new Error(`脚本执行失败: ${e.message}。预览: ${safePreview(cleanScript, 200)}`);
         }
     }
