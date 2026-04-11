@@ -13,6 +13,11 @@ const jarCache = new Map();
 const NODE_PATH = process.env.NODE_PATH || path.join(__dirname, '..', 'Documents');
 if (!fs.existsSync(NODE_PATH)) fs.mkdirSync(NODE_PATH, { recursive: true });
 
+function safePreview(str, len = 150) {
+    if (!str) return '';
+    return str.slice(0, len).replace(/[\\]/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
+}
+
 // ========== 内置 cat.js 完整模拟 ==========
 const _ = {
     get: (obj, path, defaultValue) => {
@@ -163,7 +168,7 @@ function localSet(storage, key, value) {
     fs.writeFileSync(filePath, JSON.stringify(data));
 }
 
-// ========== ZIP 解压（纯 JS） ==========
+// ========== ZIP 解压 ==========
 function unzipBuffer(buffer) {
     if (buffer.length < 22) throw new Error('文件太小');
     const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
@@ -225,70 +230,41 @@ function extractStringsFromDex(dexBuffer) {
     return strings;
 }
 
-// ========== 尝试解密 Spider 文本（常见 TVBox 加密方式） ==========
+// ========== 尝试解密 ==========
 function tryDecodeSpider(content) {
-    // 1. 尝试 base64 解码
     try {
         const decoded = Buffer.from(content, 'base64').toString('utf8');
         if (decoded.includes('function') || decoded.includes('__jsEvalReturn')) return decoded;
     } catch (e) {}
-    // 2. 尝试常见的 XOR 或简单替换（此处仅示例，实际 Spider 加密可能更复杂）
-    // 3. 如果内容以特定魔术头开头（如 `_$decode`），则尝试 eval 解密函数后调用
-    if (content.includes('_$decode') || content.includes('decode(')) {
-        try {
-            const sandbox = { result: null };
-            vm.createContext(sandbox);
-            vm.runInContext(content, sandbox, { timeout: 5000 });
-            if (typeof sandbox._$decode === 'function') {
-                const decoded = sandbox._$decode();
-                if (decoded && typeof decoded === 'string') return decoded;
-            }
-        } catch (e) {}
-    }
     return null;
 }
 
-// ========== 下载远程 Jar 并提取 Spider JS ==========
+// ========== 下载远程 Jar ==========
 async function fetchSpiderFromJar(spiderUrl) {
     let cleanUrl = spiderUrl.split(';')[0].trim();
-    console.log(`[Node] 清洗后 spider: ${cleanUrl}`);
     const buffer = await downloadBuffer(cleanUrl);
-    console.log(`[Node] 下载完成，大小: ${buffer.length} bytes`);
-    
-    // 1. 尝试 ZIP
     if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
         const files = unzipBuffer(buffer);
         const dexFile = files.find(f => f.name === 'classes.dex');
         if (!dexFile) throw new Error('Jar中未找到classes.dex');
-        console.log(`[Node] classes.dex 大小: ${dexFile.data.length} bytes`);
         const strings = extractStringsFromDex(dexFile.data);
         if (strings.length === 0) throw new Error('DEX字符串池为空');
         strings.sort((a, b) => b.length - a.length);
         const spiderCode = strings[0];
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
         return spiderCode;
+    } else {
+        let content = buffer.toString('utf8').trim();
+        if (content.startsWith('<?xml') || content.includes('<Error>')) {
+            throw new Error(`下载到错误页面: ${safePreview(content, 200)}`);
+        }
+        if (content.includes('function') || content.includes('__jsEvalReturn')) {
+            return content;
+        }
+        const decoded = tryDecodeSpider(content);
+        if (decoded) return decoded;
+        throw new Error(`无法解析 Spider 内容。预览: ${safePreview(content, 150)}`);
     }
-    
-    // 2. 非 ZIP，尝试作为文本处理
-    let content = buffer.toString('utf8').trim();
-    if (content.startsWith('<?xml') || content.includes('<Error>')) {
-        throw new Error(`下载到错误页面: ${content.slice(0, 200)}`);
-    }
-    
-    // 2.1 直接执行试试
-    if (content.includes('function') && content.includes('__jsEvalReturn')) {
-        return content;
-    }
-    
-    // 2.2 尝试解密
-    const decoded = tryDecodeSpider(content);
-    if (decoded) {
-        console.log('[Node] 成功解密 Spider 内容');
-        return decoded;
-    }
-    
-    // 2.3 仍然失败，返回原始内容预览
-    throw new Error(`无法解析 Spider 内容。预览: ${content.slice(0, 200)}`);
 }
 
 function downloadBuffer(url) {
@@ -338,7 +314,7 @@ function createSpiderSandbox() {
     return sandbox;
 }
 
-// ========== 统一加载（仅远程） ==========
+// ========== 统一加载 ==========
 async function loadSpider(spiderUrl) {
     if (!spiderUrl) throw new Error('未提供 spider 地址');
     let scriptContent = jarCache.get(spiderUrl);
@@ -346,9 +322,18 @@ async function loadSpider(spiderUrl) {
         scriptContent = await fetchSpiderFromJar(spiderUrl);
         jarCache.set(spiderUrl, scriptContent);
     }
+    let cleanScript = scriptContent.replace(/^\uFEFF/, '').trim();
     const sandbox = createSpiderSandbox();
     vm.createContext(sandbox);
-    vm.runInContext(scriptContent, sandbox, { filename: 'spider.js', timeout: 15000 });
+    try {
+        vm.runInContext(cleanScript, sandbox, { filename: 'spider.js', timeout: 15000 });
+    } catch (e) {
+        try {
+            vm.runInContext(`(function(){${cleanScript}})()`, sandbox, { filename: 'spider.js', timeout: 15000 });
+        } catch (e2) {
+            throw new Error(`脚本执行失败: ${e.message}。预览: ${safePreview(cleanScript, 150)}`);
+        }
+    }
     if (typeof sandbox.__jsEvalReturn === 'function') return sandbox.__jsEvalReturn();
     return sandbox;
 }
@@ -377,7 +362,9 @@ const server = http.createServer(async (req, res) => {
                 } else {
                     sendError(res, '无效的请求参数');
                 }
-            } catch (err) { sendError(res, `[Parse] ${err.message}`); }
+            } catch (err) {
+                sendError(res, `[Parse] ${safePreview(err.message, 500)}`);
+            }
         });
         return;
     }
@@ -407,7 +394,7 @@ function normalizeResponse(data, action) {
     if (action === 'home') {
         if (data.class || data.list) return data;
         if (Array.isArray(data)) return { class: [], list: data };
-    } else if (action === 'list' || action === 'search') {
+    } else if (action === 'list' || action === '9999') {
         if (data.list) return data;
         if (Array.isArray(data)) return { list: data };
     } else if (action === 'detail') {
