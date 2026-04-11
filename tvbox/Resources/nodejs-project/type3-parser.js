@@ -207,7 +207,11 @@ function unzipBuffer(buffer) {
     return files;
 }
 
-// ========== DEX 字符串提取 ==========
+// ========== DEX 字符串提取（过滤 Java 类名，优先 JS 关键字） ==========
+function isJavaClassName(str) {
+    return str.startsWith('L') && (str.includes('/') || str.includes(';'));
+}
+
 function extractStringsFromDex(dexBuffer) {
     if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
@@ -225,18 +229,36 @@ function extractStringsFromDex(dexBuffer) {
         if (pos + len > dexBuffer.length) continue;
         let str = '';
         for (let j = 0; j < len; j++) str += String.fromCharCode(view.getUint8(pos++));
-        strings.push(str);
+        // 过滤 Java 类名
+        if (!isJavaClassName(str)) {
+            strings.push(str);
+        }
     }
     return strings;
 }
 
-// ========== 尝试解密 ==========
-function tryDecodeSpider(content) {
-    try {
-        const decoded = Buffer.from(content, 'base64').toString('utf8');
-        if (decoded.includes('function') || decoded.includes('__jsEvalReturn')) return decoded;
-    } catch (e) {}
-    return null;
+function selectSpiderCode(strings) {
+    console.log(`[Node] 候选字符串数量: ${strings.length}`);
+    // 优先：包含 JS 关键字的
+    const jsKeywords = ['function', 'var ', 'const ', '__jsEvalReturn', 'home(', 'category(', 'detail(', 'search('];
+    for (const kw of jsKeywords) {
+        const found = strings.find(s => s.includes(kw));
+        if (found) {
+            console.log(`[Node] 通过关键字 '${kw}' 匹配到 Spider`);
+            return found;
+        }
+    }
+    // 其次：长度大于 500 的非 Java 字符串
+    const longStrings = strings.filter(s => s.length > 500);
+    if (longStrings.length > 0) {
+        longStrings.sort((a, b) => b.length - a.length);
+        console.log(`[Node] 使用最长非 Java 字符串 (长度: ${longStrings[0].length})`);
+        return longStrings[0];
+    }
+    // 最后：返回最长的
+    strings.sort((a, b) => b.length - a.length);
+    console.log(`[Node] 回退到最长字符串 (长度: ${strings[0].length})`);
+    return strings[0];
 }
 
 // ========== 下载远程 Jar ==========
@@ -248,10 +270,10 @@ async function fetchSpiderFromJar(spiderUrl) {
         const dexFile = files.find(f => f.name === 'classes.dex');
         if (!dexFile) throw new Error('Jar中未找到classes.dex');
         const strings = extractStringsFromDex(dexFile.data);
-        if (strings.length === 0) throw new Error('DEX字符串池为空');
-        strings.sort((a, b) => b.length - a.length);
-        const spiderCode = strings[0];
+        if (strings.length === 0) throw new Error('DEX字符串池为空（过滤后）');
+        const spiderCode = selectSpiderCode(strings);
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
+        console.log(`[Node] 选中 Spider 预览: ${safePreview(spiderCode, 150)}`);
         return spiderCode;
     } else {
         let content = buffer.toString('utf8').trim();
@@ -265,6 +287,14 @@ async function fetchSpiderFromJar(spiderUrl) {
         if (decoded) return decoded;
         throw new Error(`无法解析 Spider 内容。预览: ${safePreview(content, 150)}`);
     }
+}
+
+function tryDecodeSpider(content) {
+    try {
+        const decoded = Buffer.from(content, 'base64').toString('utf8');
+        if (decoded.includes('function') || decoded.includes('__jsEvalReturn')) return decoded;
+    } catch (e) {}
+    return null;
 }
 
 function downloadBuffer(url) {
@@ -394,7 +424,7 @@ function normalizeResponse(data, action) {
     if (action === 'home') {
         if (data.class || data.list) return data;
         if (Array.isArray(data)) return { class: [], list: data };
-    } else if (action === 'list' || action === '9999') {
+    } else if (action === 'list' || action === 'search') {
         if (data.list) return data;
         if (Array.isArray(data)) return { list: data };
     } else if (action === 'detail') {
