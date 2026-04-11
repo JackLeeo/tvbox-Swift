@@ -221,10 +221,12 @@ function readUleb128(view, pos) {
     return { result, pos };
 }
 
+// ========== 判断是否为 Java 类名（包括数组） ==========
 function isJavaClassName(str) {
     return (str.startsWith('L') || str.startsWith('[')) && str.includes('/');
 }
 
+// ========== DEX 字符串提取（修正 uleb128） ==========
 function extractStringsFromDex(dexBuffer) {
     if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
@@ -237,16 +239,24 @@ function extractStringsFromDex(dexBuffer) {
         const stringOff = view.getUint32(stringIdsOff + i * 4, true);
         if (stringOff + 4 > dexBuffer.length) continue;
         let pos = stringOff;
+        // 读取 uleb128 长度
         let len;
         try {
             const decoded = readUleb128(view, pos);
             len = decoded.result;
             pos = decoded.pos;
-        } catch (e) { continue; }
+        } catch (e) {
+            continue;
+        }
         if (pos + len > dexBuffer.length) continue;
         let str = '';
-        for (let j = 0; j < len; j++) str += String.fromCharCode(view.getUint8(pos++));
-        if (!isJavaClassName(str)) strings.push(str);
+        for (let j = 0; j < len; j++) {
+            str += String.fromCharCode(view.getUint8(pos++));
+        }
+        // 过滤 Java 类名
+        if (!isJavaClassName(str)) {
+            strings.push(str);
+        }
     }
     return strings;
 }
@@ -272,26 +282,32 @@ function selectSpiderCode(strings) {
     return strings[0];
 }
 
-// ========== 下载远程 Jar ==========
+// ========== 下载远程 Jar（支持重定向和 gzip） ==========
 async function fetchSpiderFromJar(spiderUrl) {
     let cleanUrl = spiderUrl.split(';')[0].trim();
     const buffer = await downloadBuffer(cleanUrl);
-    if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
+    
+    // 严格判断ZIP文件：前4个字节必须是 PK\003\004
+    if (buffer.length >= 4 && buffer.readUInt32LE(0) === 0x04034b50) {
         const files = unzipBuffer(buffer);
         const dexFile = files.find(f => f.name === 'classes.dex');
-        if (!dexFile) throw new Error('Jar中未找到classes.dex');
+        if (!dexFile) throw new Error('Jar中未找到classes.dex文件，可能下载到了错误的内容');
+        
         const strings = extractStringsFromDex(dexFile.data);
         if (strings.length === 0) throw new Error('DEX字符串池为空（过滤后）');
+        
         const spiderCode = selectSpiderCode(strings);
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
         console.log(`[Node] 选中 Spider 预览: ${safePreview(spiderCode, 150)}`);
         return spiderCode;
     } else {
         let content = buffer.toString('utf8').trim();
-        if (content.startsWith('<?xml') || content.includes('<Error>')) {
-            throw new Error(`下载到错误页面: ${safePreview(content, 200)}`);
+        if (content.startsWith('<?xml') || content.includes('<Error>') || content.includes('resource not found')) {
+            throw new Error(`下载到错误页面: ${safePreview(content, 200)}，Jar源服务器拒绝了访问，请检查网络`);
         }
-        if (content.includes('function') || content.includes('__jsEvalReturn')) return content;
+        if (content.includes('function') || content.includes('__jsEvalReturn')) {
+            return content;
+        }
         const decoded = tryDecodeSpider(content);
         if (decoded) return decoded;
         throw new Error(`无法解析 Spider 内容。预览: ${safePreview(content, 150)}`);
@@ -306,6 +322,7 @@ function tryDecodeSpider(content) {
     return null;
 }
 
+// 增强版下载：支持重定向（301/302）和 gzip 解压，用TVBox原生的okhttp请求头！
 function downloadBuffer(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
         if (redirectCount > 5) { reject(new Error('重定向次数过多')); return; }
@@ -330,7 +347,7 @@ function downloadBuffer(url, redirectCount = 0) {
     });
 }
 
-// ========== 创建 Spider 沙箱（完整 Java 模拟） ==========
+// ========== 创建 Spider 沙箱 ==========
 function createSpiderSandbox() {
     const sandbox = {
         axios, qs, crypto, https, fs, Uri, _, request,
@@ -339,36 +356,6 @@ function createSpiderSandbox() {
         console: { log: () => {}, error: () => {} },
         setTimeout, clearTimeout, Buffer,
         __dirname: path.join(__dirname, 'open'),
-        java: {
-            io: { File: class {}, IOException: class {} },
-            lang: {
-                String: String,
-                StringBuilder: class { constructor() { this.str = ''; } append(s) { this.str += s; return this; } toString() { return this.str; } },
-                Exception: Error,
-                Throwable: Error,
-                StackTraceElement: class {},
-            },
-            util: {
-                ArrayList: class { constructor() { this.list = []; } add(e) { this.list.push(e); } get(i) { return this.list[i]; } size() { return this.list.length; } },
-                HashMap: class { constructor() { this.map = new Map(); } put(k, v) { this.map.set(k, v); } get(k) { return this.map.get(k); } },
-            },
-        },
-        org: {
-            xmlpull: {
-                v1: {
-                    XmlPullParserFactory: {
-                        newInstance: () => ({
-                            setInput: () => {},
-                            next: () => 1,
-                            getEventType: () => 0,
-                            getName: () => '',
-                            getAttributeValue: () => null,
-                        }),
-                    },
-                },
-            },
-        },
-        META: { INF: { services: {} } },
     };
     sandbox.require = (modulePath) => {
         if (modulePath === 'axios') return axios;
@@ -393,7 +380,7 @@ function createSpiderSandbox() {
     return sandbox;
 }
 
-// ========== 统一加载（增加超时保护） ==========
+// ========== 统一加载 ==========
 async function loadSpider(spiderUrl) {
     if (!spiderUrl) throw new Error('未提供 spider 地址');
     let scriptContent = jarCache.get(spiderUrl);
@@ -405,10 +392,10 @@ async function loadSpider(spiderUrl) {
     const sandbox = createSpiderSandbox();
     vm.createContext(sandbox);
     try {
-        vm.runInContext(cleanScript, sandbox, { filename: 'spider.js', timeout: 30000 });
+        vm.runInContext(cleanScript, sandbox, { filename: 'spider.js', timeout: 15000 });
     } catch (e) {
         try {
-            vm.runInContext(`(function(){${cleanScript}})()`, sandbox, { filename: 'spider.js', timeout: 30000 });
+            vm.runInContext(`(function(){${cleanScript}})()`, sandbox, { filename: 'spider.js', timeout: 15000 });
         } catch (e2) {
             throw new Error(`脚本执行失败: ${e.message}。预览: ${safePreview(cleanScript, 150)}`);
         }
@@ -433,7 +420,8 @@ const server = http.createServer(async (req, res) => {
                     parseGeneric(url, headers).then(data => sendSuccess(res, data)).catch(err => sendError(res, `[Generic] ${err.message}`));
                     return;
                 }
-                if (api && api.startsWith('csp_')) {
+                // 这里放开了！不管是csp_还是远程Jar，都处理！
+                if (api) {
                     if (!spider) throw new Error('缺少 spider 地址');
                     const spiderModule = await loadSpider(spider);
                     const result = await executeSpider(spiderModule, action, key, ext, tid, page, vod_id, wd);
@@ -493,5 +481,10 @@ async function parseGeneric(url, headers) {
 }
 
 function getDefaultHeaders() {
-    return { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1' };
+    // TVBox原生的请求头！和安卓TVBox完全一样！Jar源的服务器绝对认这个！
+    return { 
+        'User-Agent': 'okhttp/3.14.9',
+        'Accept': '*/*',
+        'Connection': 'Keep-Alive'
+    };
 }
