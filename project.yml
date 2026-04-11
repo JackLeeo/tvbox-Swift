@@ -27,14 +27,15 @@ targets:
         excludes:
           - Info.plist
     resources:
-      # 单独指定需要的文件，避免子目录冲突
-      - path: tvbox/Resources/nodejs-project/type3-parser.js
-      - path: tvbox/Resources/nodejs-project/package.json
-      # 只复制 open 根目录下的 .js 文件，不包含子目录
-      - path: tvbox/Resources/nodejs-project/open
-        includes:
-          - "*.js"
+      - path: tvbox/Resources/nodejs-project
         copyOriginal: true
+        excludes:
+          - "open/lib"
+          - "open/qjsc"
+          - "open/local"
+          - "open/wrapper"
+          - "open/README.md"
+          - "open/package.json"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
