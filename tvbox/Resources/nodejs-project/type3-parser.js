@@ -218,12 +218,16 @@ function extractStringsFromDex(dexBuffer) {
     return strings;
 }
 
-// ========== 下载远程 Jar 并提取 Spider JS（智能检测） ==========
+// ========== 下载远程 Jar 并提取 Spider JS ==========
 async function fetchSpiderFromJar(spiderUrl) {
-    const buffer = await downloadBuffer(spiderUrl);
-    const preview = buffer.slice(0, 200).toString('utf8').replace(/[^\x20-\x7E]/g, '?'); // 可打印字符预览
-
-    // 检查是否为ZIP（PK头）
+    // 清洗 URL：移除 ;md5;... 后缀
+    let cleanUrl = spiderUrl.split(';')[0].trim();
+    console.log(`[Node] 原始 spider: ${spiderUrl}`);
+    console.log(`[Node] 清洗后 spider: ${cleanUrl}`);
+    
+    const buffer = await downloadBuffer(cleanUrl);
+    
+    // 检查是否为ZIP
     if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
         const files = unzipBuffer(buffer);
         const dexFile = files.find(f => f.name === 'classes.dex');
@@ -234,58 +238,18 @@ async function fetchSpiderFromJar(spiderUrl) {
         const spiderCode = strings[0];
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
         return spiderCode;
-    }
-
-    // 检查是否为裸DEX文件（以dex\n035或dex\n037开头）
-    if (buffer.length >= 8 && buffer.toString('utf8', 0, 3) === 'dex') {
-        const strings = extractStringsFromDex(buffer);
-        if (strings.length === 0) throw new Error('DEX字符串池为空');
-        strings.sort((a, b) => b.length - a.length);
-        const spiderCode = strings[0];
-        if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
-        return spiderCode;
-    }
-
-    // 尝试作为文本解析
-    const content = buffer.toString('utf8').trim();
-    
-    // 检测是否为HTML
-    if (content.includes('<html') || content.includes('<HTML')) {
-        throw new Error(`下载内容为HTML页面，非可执行脚本。预览: ${preview}`);
-    }
-
-    // 检测是否为JSON配置
-    try {
-        const json = JSON.parse(content);
-        if (json.spider) {
-            // 递归下载新的spider
-            return fetchSpiderFromJar(json.spider);
+    } else {
+        const content = buffer.toString('utf8').trim();
+        if (content.length === 0) throw new Error('下载的内容为空');
+        // 检查是否为错误页面（XML/HTML）
+        if (content.startsWith('<?xml') || content.startsWith('<!DOCTYPE') || content.includes('<Error>')) {
+            throw new Error(`下载到错误页面: ${content.slice(0, 200)}`);
         }
-        if (json.url) {
-            return fetchSpiderFromJar(json.url);
+        if (content.includes('function') || content.includes('var ') || content.includes('const ') || content.includes('__jsEvalReturn')) {
+            return content;
         }
-        throw new Error(`JSON配置中未找到spider/url字段。预览: ${preview}`);
-    } catch (e) {
-        if (e.message.includes('JSON')) {
-            // 不是JSON，继续
-        } else {
-            throw e;
-        }
+        throw new Error(`下载内容无法识别。预览: ${content.slice(0, 200)}`);
     }
-
-    // 检测是否为纯文本URL列表
-    const lines = content.split('\n').filter(l => l.trim().startsWith('http'));
-    if (lines.length > 0) {
-        return fetchSpiderFromJar(lines[0].trim());
-    }
-
-    // 检查是否为纯JavaScript
-    if (content.includes('function') || content.includes('var ') || content.includes('const ') || content.includes('__jsEvalReturn')) {
-        return content;
-    }
-
-    // 无法识别
-    throw new Error(`下载内容无法识别。预览: ${preview}`);
 }
 
 function downloadBuffer(url) {
@@ -294,6 +258,10 @@ function downloadBuffer(url) {
         const parsed = URL.parse(cleanUrl);
         const client = parsed.protocol === 'https:' ? https : http;
         client.get(cleanUrl, { headers: getDefaultHeaders() }, (res) => {
+            if (res.statusCode !== 200) {
+                reject(new Error(`HTTP ${res.statusCode}`));
+                return;
+            }
             const chunks = [];
             res.on('data', chunk => chunks.push(chunk));
             res.on('end', () => resolve(Buffer.concat(chunks)));
