@@ -13,7 +13,7 @@ const jarCache = new Map();
 const NODE_PATH = process.env.NODE_PATH || path.join(__dirname, '..', 'Documents');
 if (!fs.existsSync(NODE_PATH)) fs.mkdirSync(NODE_PATH, { recursive: true });
 
-function safePreview(str, len = 150) {
+function safePreview(str, len = 200) {
     if (!str) return '';
     return str.slice(0, len).replace(/[\\]/g, '\\\\').replace(/"/g, '\\"').replace(/\n/g, '\\n').replace(/\r/g, '\\r');
 }
@@ -86,30 +86,21 @@ const axios = {
         const method = (config.method || 'get').toUpperCase();
         const url = config.url, headers = config.headers || {}, data = config.data;
         const timeout = config.timeout || 15000, responseType = config.responseType;
-        console.log(`[Debug] axios 请求: ${method} ${url}`);
-        console.log(`[Debug] axios 头: ${JSON.stringify(headers)}`);
         return new Promise((resolve, reject) => {
             const parsed = URL.parse(url);
             const client = parsed.protocol === 'https:' ? https : http;
             const req = client.request(url, { method, headers }, (res) => {
-                console.log(`[Debug] axios 响应状态: ${res.statusCode}`);
-                console.log(`[Debug] axios 响应头: ${JSON.stringify(res.headers)}`);
                 const chunks = [];
                 res.on('data', chunk => chunks.push(chunk));
                 res.on('end', () => {
                     const buffer = Buffer.concat(chunks);
-                    console.log(`[Debug] axios 响应长度: ${buffer.length}`);
-                    console.log(`[Debug] axios 响应前20字节: ${buffer.slice(0,20).toString('hex')}`);
                     let respData;
                     if (responseType === 'arraybuffer') respData = buffer;
                     else respData = buffer.toString('utf8');
                     resolve({ status: res.statusCode, headers: res.headers, data: respData });
                 });
             });
-            req.on('error', (e) => {
-                console.log(`[Debug] axios 错误: ${e.message}`);
-                reject(e);
-            });
+            req.on('error', reject);
             if (data) {
                 if (typeof data === 'object' && !Buffer.isBuffer(data)) req.write(JSON.stringify(data));
                 else req.write(data);
@@ -179,7 +170,7 @@ function localSet(storage, key, value) {
 
 // ========== ZIP 解压 ==========
 function unzipBuffer(buffer) {
-    console.log(`[Debug] 开始解压ZIP，大小: ${buffer.length}`);
+    console.log(`[Node] ZIP 解压: 文件大小 ${buffer.length} bytes`);
     if (buffer.length < 22) throw new Error('文件太小');
     const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     let eocdOffset = -1;
@@ -187,7 +178,7 @@ function unzipBuffer(buffer) {
     if (eocdOffset === -1) throw new Error('不是有效的ZIP文件');
     const cdOffset = view.getUint32(eocdOffset + 16, true);
     const totalEntries = view.getUint16(eocdOffset + 10, true);
-    console.log(`[Debug] ZIP 条目数: ${totalEntries}`);
+    console.log(`[Node] ZIP 包含 ${totalEntries} 个条目`);
     const files = [];
     let offset = cdOffset;
     for (let i = 0; i < totalEntries; i++) {
@@ -201,7 +192,6 @@ function unzipBuffer(buffer) {
         const localHeaderOffset = view.getUint32(offset + 42, true);
         if (offset + 46 + fileNameLength > buffer.length) break;
         const fileName = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLength);
-        console.log(`[Debug] ZIP 找到文件: ${fileName}, 压缩方式: ${compressionMethod}`);
         let localOffset = localHeaderOffset;
         if (localOffset + 30 > buffer.length) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
         if (view.getUint32(localOffset, true) !== 0x04034b50) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
@@ -216,6 +206,7 @@ function unzipBuffer(buffer) {
         files.push({ name: fileName, data: fileData });
         offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
     }
+    console.log(`[Node] 成功解压 ${files.length} 个文件`);
     return files;
 }
 
@@ -233,56 +224,55 @@ function readUleb128(view, pos) {
     return { result, pos };
 }
 
-// ========== 判断是否为 Java 类名（包括数组） ==========
 function isJavaClassName(str) {
     return (str.startsWith('L') || str.startsWith('[')) && str.includes('/');
 }
 
-// ========== DEX 字符串提取（修正 uleb128） ==========
 function extractStringsFromDex(dexBuffer) {
-    console.log(`[Debug] 开始解析DEX，大小: ${dexBuffer.length}`);
+    console.log(`[Node] 开始解析 DEX，大小: ${dexBuffer.length} bytes`);
     if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
     const stringIdsSize = view.getUint32(56, true);
     const stringIdsOff = view.getUint32(60, true);
-    console.log(`[Debug] DEX 字符串数量: ${stringIdsSize}`);
+    console.log(`[Node] DEX 字符串池大小: ${stringIdsSize}, 偏移: ${stringIdsOff}`);
     if (stringIdsSize === 0) throw new Error('DEX字符串池为空');
     if (stringIdsOff + stringIdsSize * 4 > dexBuffer.length) throw new Error(`字符串索引区越界`);
     const strings = [];
+    let javaFilteredCount = 0;
     for (let i = 0; i < stringIdsSize; i++) {
         const stringOff = view.getUint32(stringIdsOff + i * 4, true);
         if (stringOff + 4 > dexBuffer.length) continue;
         let pos = stringOff;
-        // 读取 uleb128 长度
         let len;
         try {
             const decoded = readUleb128(view, pos);
             len = decoded.result;
             pos = decoded.pos;
-        } catch (e) {
-            continue;
-        }
+        } catch (e) { continue; }
         if (pos + len > dexBuffer.length) continue;
         let str = '';
-        for (let j = 0; j < len; j++) {
-            str += String.fromCharCode(view.getUint8(pos++));
-        }
-        // 过滤 Java 类名
+        for (let j = 0; j < len; j++) str += String.fromCharCode(view.getUint8(pos++));
         if (!isJavaClassName(str)) {
             strings.push(str);
+        } else {
+            javaFilteredCount++;
         }
     }
-    console.log(`[Debug] DEX 过滤后字符串数量: ${strings.length}`);
+    console.log(`[Node] 提取字符串: 总计 ${stringIdsSize}, 过滤 Java 类名 ${javaFilteredCount}, 剩余候选 ${strings.length}`);
+    if (strings.length > 0) {
+        console.log(`[Node] 候选字符串前3个预览:`);
+        strings.slice(0, 3).forEach((s, idx) => console.log(`  [${idx}] ${safePreview(s, 100)}`));
+    }
     return strings;
 }
 
 function selectSpiderCode(strings) {
-    console.log(`[Node] 候选字符串数量: ${strings.length}`);
+    console.log(`[Node] 开始从 ${strings.length} 个候选中选择 Spider 代码`);
     const jsKeywords = ['function', 'var ', 'const ', '__jsEvalReturn', 'home(', 'category(', 'detail(', 'search('];
     for (const kw of jsKeywords) {
         const found = strings.find(s => s.includes(kw));
         if (found) {
-            console.log(`[Node] 通过关键字 '${kw}' 匹配到 Spider`);
+            console.log(`[Node] 通过关键字 '${kw}' 匹配到 Spider，长度: ${found.length}`);
             return found;
         }
     }
@@ -297,42 +287,42 @@ function selectSpiderCode(strings) {
     return strings[0];
 }
 
-// ========== 下载远程 Jar（支持重定向和 gzip） ==========
+// ========== 下载远程 Jar ==========
 async function fetchSpiderFromJar(spiderUrl) {
-    console.log(`[Debug] 开始处理Jar源: ${spiderUrl}`);
     let cleanUrl = spiderUrl.split(';')[0].trim();
-    console.log(`[Debug] 清理后的URL: ${cleanUrl}`);
+    console.log(`[Node] 清洗后 URL: ${cleanUrl}`);
     const buffer = await downloadBuffer(cleanUrl);
-    console.log(`[Debug] 下载完成，buffer大小: ${buffer.length}`);
-    console.log(`[Debug] buffer前4字节: ${buffer.slice(0,4).toString('hex')}`);
-    
-    // 严格判断ZIP文件：前4个字节必须是 PK\003\004
-    if (buffer.length >= 4 && buffer.readUInt32LE(0) === 0x04034b50) {
+    console.log(`[Node] 下载完成，大小: ${buffer.length} bytes`);
+    if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
+        console.log(`[Node] 检测为 ZIP 文件，开始解压`);
         const files = unzipBuffer(buffer);
         const dexFile = files.find(f => f.name === 'classes.dex');
         if (!dexFile) {
-            console.log(`[Debug] 没找到classes.dex，找到的文件: ${files.map(f=>f.name).join(', ')}`);
-            throw new Error('Jar中未找到classes.dex文件，可能下载到了错误的内容');
+            console.log(`[Node] 文件列表: ${files.map(f => f.name).join(', ')}`);
+            throw new Error('Jar中未找到classes.dex');
         }
-        
+        console.log(`[Node] 找到 classes.dex，大小: ${dexFile.data.length} bytes`);
         const strings = extractStringsFromDex(dexFile.data);
         if (strings.length === 0) throw new Error('DEX字符串池为空（过滤后）');
-        
         const spiderCode = selectSpiderCode(strings);
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
-        console.log(`[Node] 选中 Spider 预览: ${safePreview(spiderCode, 150)}`);
+        console.log(`[Node] 选中 Spider 预览: ${safePreview(spiderCode, 200)}`);
         return spiderCode;
     } else {
+        console.log(`[Node] 非 ZIP 文件，尝试作为文本处理`);
         let content = buffer.toString('utf8').trim();
-        console.log(`[Debug] 不是ZIP，内容预览: ${safePreview(content, 500)}`);
-        if (content.startsWith('<?xml') || content.includes('<Error>') || content.includes('resource not found')) {
-            throw new Error(`下载到错误页面: ${safePreview(content, 200)}，Jar源服务器拒绝了访问`);
+        if (content.startsWith('<?xml') || content.includes('<Error>')) {
+            throw new Error(`下载到错误页面: ${safePreview(content, 200)}`);
         }
         if (content.includes('function') || content.includes('__jsEvalReturn')) {
+            console.log(`[Node] 直接识别为 JavaScript，长度: ${content.length}`);
             return content;
         }
         const decoded = tryDecodeSpider(content);
-        if (decoded) return decoded;
+        if (decoded) {
+            console.log(`[Node] 解密成功，长度: ${decoded.length}`);
+            return decoded;
+        }
         throw new Error(`无法解析 Spider 内容。预览: ${safePreview(content, 150)}`);
     }
 }
@@ -345,23 +335,18 @@ function tryDecodeSpider(content) {
     return null;
 }
 
-// 增强版下载：支持重定向（301/302）和 gzip 解压，用TVBox原生的okhttp请求头！
 function downloadBuffer(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
         if (redirectCount > 5) { reject(new Error('重定向次数过多')); return; }
         const cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
-        console.log(`[Debug] 下载URL: ${cleanUrl}, 重定向次数: ${redirectCount}`);
         const parsed = URL.parse(cleanUrl);
         const client = parsed.protocol === 'https:' ? https : http;
         const headers = getDefaultHeaders();
         headers['Accept-Encoding'] = 'gzip, deflate';
-        console.log(`[Debug] 下载请求头: ${JSON.stringify(headers)}`);
         client.get(cleanUrl, { headers }, (res) => {
-            console.log(`[Debug] 下载响应状态: ${res.statusCode}`);
-            console.log(`[Debug] 下载响应头: ${JSON.stringify(res.headers)}`);
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-                console.log(`[Debug] 重定向到: ${res.headers.location}`);
                 const newUrl = URL.resolve(cleanUrl, res.headers.location);
+                console.log(`[Node] 重定向 (${res.statusCode}) 到: ${newUrl}`);
                 resolve(downloadBuffer(newUrl, redirectCount + 1));
                 return;
             }
@@ -369,25 +354,51 @@ function downloadBuffer(url, redirectCount = 0) {
             const chunks = [];
             const stream = res.headers['content-encoding'] === 'gzip' ? res.pipe(zlib.createGunzip()) : res;
             stream.on('data', chunk => chunks.push(chunk));
-            stream.on('end', () => {
-                const buffer = Buffer.concat(chunks);
-                console.log(`[Debug] 下载完成，buffer大小: ${buffer.length}`);
-                resolve(buffer);
-            });
+            stream.on('end', () => resolve(Buffer.concat(chunks)));
             stream.on('error', reject);
         }).on('error', reject);
     });
 }
 
-// ========== 创建 Spider 沙箱 ==========
+// ========== 创建 Spider 沙箱（完整 Java 模拟） ==========
 function createSpiderSandbox() {
     const sandbox = {
         axios, qs, crypto, https, fs, Uri, _, request,
         md5, base64Encode, base64Decode, aes, des, rsa, randStr,
         localGet, localSet,
-        console: { log: console.log, error: console.error },
+        console: { log: () => {}, error: () => {} },
         setTimeout, clearTimeout, Buffer,
         __dirname: path.join(__dirname, 'open'),
+        java: {
+            io: { File: class {}, IOException: class {} },
+            lang: {
+                String: String,
+                StringBuilder: class { constructor() { this.str = ''; } append(s) { this.str += s; return this; } toString() { return this.str; } },
+                Exception: Error,
+                Throwable: Error,
+                StackTraceElement: class {},
+            },
+            util: {
+                ArrayList: class { constructor() { this.list = []; } add(e) { this.list.push(e); } get(i) { return this.list[i]; } size() { return this.list.length; } },
+                HashMap: class { constructor() { this.map = new Map(); } put(k, v) { this.map.set(k, v); } get(k) { return this.map.get(k); } },
+            },
+        },
+        org: {
+            xmlpull: {
+                v1: {
+                    XmlPullParserFactory: {
+                        newInstance: () => ({
+                            setInput: () => {},
+                            next: () => 1,
+                            getEventType: () => 0,
+                            getName: () => '',
+                            getAttributeValue: () => null,
+                        }),
+                    },
+                },
+            },
+        },
+        META: { INF: { services: {} } },
     };
     sandbox.require = (modulePath) => {
         if (modulePath === 'axios') return axios;
@@ -415,26 +426,39 @@ function createSpiderSandbox() {
 // ========== 统一加载 ==========
 async function loadSpider(spiderUrl) {
     if (!spiderUrl) throw new Error('未提供 spider 地址');
+    console.log(`[Node] 开始加载 Spider: ${spiderUrl}`);
     let scriptContent = jarCache.get(spiderUrl);
     if (!scriptContent) {
         scriptContent = await fetchSpiderFromJar(spiderUrl);
         jarCache.set(spiderUrl, scriptContent);
+    } else {
+        console.log(`[Node] 使用缓存`);
     }
     let cleanScript = scriptContent.replace(/^\uFEFF/, '').trim();
+    console.log(`[Node] 脚本长度: ${cleanScript.length}`);
     const sandbox = createSpiderSandbox();
     vm.createContext(sandbox);
     try {
-        vm.runInContext(cleanScript, sandbox, { filename: 'spider.js', timeout: 15000 });
+        console.log(`[Node] 尝试直接执行脚本...`);
+        vm.runInContext(cleanScript, sandbox, { filename: 'spider.js', timeout: 30000 });
     } catch (e) {
-        console.log(`[Debug] 脚本执行错误1: ${e.message}`);
+        console.log(`[Node] 直接执行失败: ${e.message}`);
         try {
-            vm.runInContext(`(function(){${cleanScript}})()`, sandbox, { filename: 'spider.js', timeout: 15000 });
+            console.log(`[Node] 尝试包装为函数执行...`);
+            vm.runInContext(`(function(){${cleanScript}})()`, sandbox, { filename: 'spider.js', timeout: 30000 });
         } catch (e2) {
-            console.log(`[Debug] 脚本执行错误2: ${e2.message}`);
-            throw new Error(`脚本执行失败: ${e.message}。预览: ${safePreview(cleanScript, 150)}`);
+            console.log(`[Node] 包装执行也失败: ${e2.message}`);
+            if (cleanScript.includes('XmlPullParserFactory') || cleanScript.includes('META-INF/services')) {
+                throw new Error('此源为纯Java实现，无法在iOS上直接运行。请切换至纯JavaScript源或使用服务器中转。');
+            }
+            throw new Error(`脚本执行失败: ${e.message}。预览: ${safePreview(cleanScript, 200)}`);
         }
     }
-    if (typeof sandbox.__jsEvalReturn === 'function') return sandbox.__jsEvalReturn();
+    if (typeof sandbox.__jsEvalReturn === 'function') {
+        console.log(`[Node] Spider 导出了 __jsEvalReturn 函数`);
+        return sandbox.__jsEvalReturn();
+    }
+    console.log(`[Node] Spider 未导出 __jsEvalReturn，返回沙箱对象`);
     return sandbox;
 }
 
@@ -449,15 +473,14 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const request = JSON.parse(body);
-                console.log(`[Debug] 收到解析请求: action=${request.action}, api=${request.api}, spider=${request.spider}`);
                 const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider } = request;
                 if (url) {
                     parseGeneric(url, headers).then(data => sendSuccess(res, data)).catch(err => sendError(res, `[Generic] ${err.message}`));
                     return;
                 }
-                // 这里放开了！不管是csp_还是远程Jar，都处理！
-                if (api) {
+                if (api && api.startsWith('csp_')) {
                     if (!spider) throw new Error('缺少 spider 地址');
+                    console.log(`[Node] 收到请求: action=${action}, api=${api}, spider=${spider}`);
                     const spiderModule = await loadSpider(spider);
                     const result = await executeSpider(spiderModule, action, key, ext, tid, page, vod_id, wd);
                     sendSuccess(res, result);
@@ -465,8 +488,7 @@ const server = http.createServer(async (req, res) => {
                     sendError(res, '无效的请求参数');
                 }
             } catch (err) {
-                console.log(`[Debug] 全局错误: ${err.message}`);
-                console.log(`[Debug] 错误栈: ${err.stack}`);
+                console.log(`[Node] 请求处理异常: ${err.message}`);
                 sendError(res, `[Parse] ${safePreview(err.message, 500)}`);
             }
         });
@@ -475,14 +497,13 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404); res.end();
 });
 
-server.listen(PORT, '127.0.0.1', () => {
-    console.log(`[Debug] 服务器启动成功，端口: ${PORT}`);
-});
+server.listen(PORT, '127.0.0.1', () => {});
 
 function sendSuccess(res, data) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: true, data })); }
 function sendError(res, error) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: false, error })); }
 
 async function executeSpider(spiderModule, action, key, ext, tid, page, vodId, keyword) {
+    console.log(`[Node] 执行 Spider: action=${action}`);
     if (spiderModule.init) await spiderModule.init({ skey: key, stype: 3, ext });
     let result;
     switch (action) {
@@ -520,10 +541,5 @@ async function parseGeneric(url, headers) {
 }
 
 function getDefaultHeaders() {
-    // TVBox原生的请求头！和安卓TVBox完全一样！
-    return { 
-        'User-Agent': 'okhttp/3.14.9',
-        'Accept': '*/*',
-        'Connection': 'Keep-Alive'
-    };
+    return { 'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1' };
 }
