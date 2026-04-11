@@ -218,9 +218,11 @@ function extractStringsFromDex(dexBuffer) {
     return strings;
 }
 
-// ========== 下载远程 Jar 并提取 Spider JS（智能检测格式） ==========
+// ========== 下载远程 Jar 并提取 Spider JS（智能检测） ==========
 async function fetchSpiderFromJar(spiderUrl) {
     const buffer = await downloadBuffer(spiderUrl);
+    const preview = buffer.slice(0, 200).toString('utf8').replace(/[^\x20-\x7E]/g, '?'); // 可打印字符预览
+
     // 检查是否为ZIP（PK头）
     if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
         const files = unzipBuffer(buffer);
@@ -232,24 +234,58 @@ async function fetchSpiderFromJar(spiderUrl) {
         const spiderCode = strings[0];
         if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
         return spiderCode;
-    } else {
-        // 非ZIP，直接当作文本JavaScript执行
-        const content = buffer.toString('utf8').trim();
-        if (content.length === 0) throw new Error('下载的内容为空');
-        // 简单判断是否为JavaScript（包含function或var等）
-        if (content.includes('function') || content.includes('var ') || content.includes('const ') || content.includes('__jsEvalReturn')) {
-            return content;
+    }
+
+    // 检查是否为裸DEX文件（以dex\n035或dex\n037开头）
+    if (buffer.length >= 8 && buffer.toString('utf8', 0, 3) === 'dex') {
+        const strings = extractStringsFromDex(buffer);
+        if (strings.length === 0) throw new Error('DEX字符串池为空');
+        strings.sort((a, b) => b.length - a.length);
+        const spiderCode = strings[0];
+        if (!spiderCode || spiderCode.length < 100) throw new Error('提取的字符串过短，可能不是JS代码');
+        return spiderCode;
+    }
+
+    // 尝试作为文本解析
+    const content = buffer.toString('utf8').trim();
+    
+    // 检测是否为HTML
+    if (content.includes('<html') || content.includes('<HTML')) {
+        throw new Error(`下载内容为HTML页面，非可执行脚本。预览: ${preview}`);
+    }
+
+    // 检测是否为JSON配置
+    try {
+        const json = JSON.parse(content);
+        if (json.spider) {
+            // 递归下载新的spider
+            return fetchSpiderFromJar(json.spider);
         }
-        // 可能是JSON配置或其他，尝试从中提取
-        try {
-            const json = JSON.parse(content);
-            // 如果JSON中有spider字段，递归处理
-            if (json.spider) return fetchSpiderFromJar(json.spider);
-            throw new Error('下载内容不是有效的JavaScript或ZIP');
-        } catch (e) {
-            throw new Error('下载内容不是ZIP且不是有效的JavaScript');
+        if (json.url) {
+            return fetchSpiderFromJar(json.url);
+        }
+        throw new Error(`JSON配置中未找到spider/url字段。预览: ${preview}`);
+    } catch (e) {
+        if (e.message.includes('JSON')) {
+            // 不是JSON，继续
+        } else {
+            throw e;
         }
     }
+
+    // 检测是否为纯文本URL列表
+    const lines = content.split('\n').filter(l => l.trim().startsWith('http'));
+    if (lines.length > 0) {
+        return fetchSpiderFromJar(lines[0].trim());
+    }
+
+    // 检查是否为纯JavaScript
+    if (content.includes('function') || content.includes('var ') || content.includes('const ') || content.includes('__jsEvalReturn')) {
+        return content;
+    }
+
+    // 无法识别
+    throw new Error(`下载内容无法识别。预览: ${preview}`);
 }
 
 function downloadBuffer(url) {
@@ -266,14 +302,14 @@ function downloadBuffer(url) {
 }
 
 // ========== 创建 Spider 沙箱 ==========
-function createSpiderSandbox(spiderDir) {
+function createSpiderSandbox() {
     const sandbox = {
         axios, qs, crypto, https, fs, Uri, _, request,
         md5, base64Encode, base64Decode, aes, des, rsa, randStr,
         localGet, localSet,
         console: { log: () => {}, error: () => {} },
         setTimeout, clearTimeout, Buffer,
-        __dirname: spiderDir,
+        __dirname: path.join(__dirname, 'open'),
     };
     sandbox.require = (modulePath) => {
         if (modulePath === 'axios') return axios;
@@ -299,65 +335,15 @@ function createSpiderSandbox(spiderDir) {
     return sandbox;
 }
 
-// ========== 智能查找本地 Spider ==========
-function findLocalSpider(apiName, sourceName = '') {
-    const baseDir = path.join(__dirname, 'open');
-    if (!fs.existsSync(baseDir)) return null;
-    const cleanApi = apiName.replace(/^csp_/, '').toLowerCase();
-    const keywords = [cleanApi, sourceName.toLowerCase()].filter(k => k.length > 0);
-    function getAllJsFiles(dir) {
-        let results = [];
-        const items = fs.readdirSync(dir);
-        for (const item of items) {
-            const fullPath = path.join(dir, item);
-            const stat = fs.statSync(fullPath);
-            if (stat.isDirectory()) results = results.concat(getAllJsFiles(fullPath));
-            else if (item.endsWith('.js')) results.push({ path: fullPath, name: item, dir: path.dirname(fullPath) });
-        }
-        return results;
-    }
-    const allFiles = getAllJsFiles(baseDir);
-    if (allFiles.length === 0) return null;
-    const scored = allFiles.map(file => {
-        const fileName = file.name.toLowerCase();
-        const filePath = file.path.toLowerCase();
-        let score = 0;
-        for (const kw of keywords) {
-            if (fileName === kw + '.js') score += 100;
-            else if (fileName.includes(kw)) score += 50;
-            else if (filePath.includes(kw)) score += 30;
-            const chineseMatch = sourceName.match(/[\u4e00-\u9fa5]+/g);
-            if (chineseMatch) for (const ch of chineseMatch) if (fileName.includes(ch)) score += 40;
-        }
-        return { ...file, score };
-    });
-    scored.sort((a, b) => b.score - a.score);
-    if (scored[0] && scored[0].score > 0) return scored[0];
-    return null;
-}
-
-function loadLocalSpider(apiName, sourceName) {
-    const found = findLocalSpider(apiName, sourceName);
-    if (!found) return null;
-    const scriptContent = fs.readFileSync(found.path, 'utf8');
-    const sandbox = createSpiderSandbox(found.dir);
-    vm.createContext(sandbox);
-    vm.runInContext(scriptContent, sandbox, { filename: found.path });
-    if (typeof sandbox.__jsEvalReturn === 'function') return sandbox.__jsEvalReturn();
-    return sandbox;
-}
-
-// ========== 统一加载 ==========
-async function loadSpider(api, spiderUrl, sourceName) {
-    const local = loadLocalSpider(api, sourceName);
-    if (local) return local;
-    if (!spiderUrl) throw new Error(`未找到本地 Spider (${api}) 且未提供 spider 地址`);
+// ========== 统一加载（仅远程） ==========
+async function loadSpider(spiderUrl) {
+    if (!spiderUrl) throw new Error('未提供 spider 地址');
     let scriptContent = jarCache.get(spiderUrl);
     if (!scriptContent) {
         scriptContent = await fetchSpiderFromJar(spiderUrl);
         jarCache.set(spiderUrl, scriptContent);
     }
-    const sandbox = createSpiderSandbox(path.join(__dirname, 'open'));
+    const sandbox = createSpiderSandbox();
     vm.createContext(sandbox);
     vm.runInContext(scriptContent, sandbox, { filename: 'spider.js', timeout: 15000 });
     if (typeof sandbox.__jsEvalReturn === 'function') return sandbox.__jsEvalReturn();
@@ -375,13 +361,14 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const request = JSON.parse(body);
-                const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider, sourceName } = request;
+                const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider } = request;
                 if (url) {
                     parseGeneric(url, headers).then(data => sendSuccess(res, data)).catch(err => sendError(res, `[Generic] ${err.message}`));
                     return;
                 }
                 if (api && api.startsWith('csp_')) {
-                    const spiderModule = await loadSpider(api, spider, sourceName || '');
+                    if (!spider) throw new Error('缺少 spider 地址');
+                    const spiderModule = await loadSpider(spider);
                     const result = await executeSpider(spiderModule, action, key, ext, tid, page, vod_id, wd);
                     sendSuccess(res, result);
                 } else {
