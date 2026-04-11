@@ -29,8 +29,13 @@ targets:
     resources:
       - path: tvbox/Resources/nodejs-project
         copyOriginal: true
-        includes:
-          - "**/*"
+        excludes:
+          - "open/lib"
+          - "open/qjsc"
+          - "open/local"
+          - "open/wrapper"
+          - "open/README.md"
+          - "open/package.json"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
