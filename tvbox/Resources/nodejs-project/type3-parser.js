@@ -446,7 +446,8 @@ const server = http.createServer(async (req, res) => {
                     return;
                 }
 
-                if (api && api.startsWith('csp_')) {
+                // 👇 我只改了这一行！原来只允许csp_，现在所有api都支持！
+                if (api) {
                     const spiderModule = await loadSpider(api, spider);
                     const result = await executeSpider(spiderModule, action, key, ext, tid, page, vod_id, wd);
                     sendSuccess(res, result);
