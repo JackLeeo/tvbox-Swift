@@ -27,8 +27,10 @@ targets:
         excludes:
           - Info.plist
     resources:
-      - path: tvbox/Resources
-        copyOriginal: true      
+      - path: tvbox/Resources/nodejs-project
+        copyOriginal: true
+        includes:
+          - "**/*"
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
