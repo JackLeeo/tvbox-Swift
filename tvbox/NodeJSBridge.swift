@@ -71,6 +71,11 @@ class NodeJSBridge {
             }
             Logger.shared.log("使用脚本路径: \(scriptPath)", level: .info)
 
+            // 设置 NODE_PATH 环境变量为 App 的 Documents 目录（可写）
+            let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? ""
+            setenv("NODE_PATH", documentsPath, 1)
+            Logger.shared.log("NODE_PATH 设置为: \(documentsPath)", level: .info)
+
             let args = ["node", scriptPath]
             var cArgs = args.map { strdup($0) }
             node_start(Int32(args.count), &cArgs)
@@ -100,7 +105,6 @@ class NodeJSBridge {
         }.resume()
     }
 
-    /// 直接发送 JSON 字符串到 Node.js 服务器
     func sendRequest(jsonString: String, completion: @escaping ([String: Any]?, Error?) -> Void) {
         let requestId = UUID().uuidString.prefix(8)
         Logger.shared.log("[\(requestId)] 发送 HTTP 请求到 \(baseURL)/parse", level: .debug)
@@ -181,7 +185,6 @@ class NodeJSBridge {
         }.resume()
     }
 
-    /// 异步版本
     func sendRequest(jsonString: String) async throws -> [String: Any] {
         try await withCheckedThrowingContinuation { continuation in
             sendRequest(jsonString: jsonString) { result, error in
