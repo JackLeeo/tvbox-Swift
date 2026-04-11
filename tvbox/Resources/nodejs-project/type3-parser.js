@@ -10,50 +10,9 @@ const crypto = require('crypto');
 const PORT = 3000;
 const jarCache = new Map();
 
-// ========== 设置可写目录 ==========
+// ========== 可写目录 ==========
 const NODE_PATH = process.env.NODE_PATH || path.join(__dirname, '..', 'Documents');
-const MODULES_PATH = path.join(NODE_PATH, 'node_modules');
 if (!fs.existsSync(NODE_PATH)) fs.mkdirSync(NODE_PATH, { recursive: true });
-
-// ========== 简单的模块加载器（支持 CommonJS） ==========
-function requireModule(moduleName) {
-    const modulePath = path.join(MODULES_PATH, moduleName);
-    if (!fs.existsSync(modulePath)) {
-        throw new Error(`Module not found: ${moduleName}`);
-    }
-    const packageJson = JSON.parse(fs.readFileSync(path.join(modulePath, 'package.json'), 'utf8'));
-    const mainFile = packageJson.main || 'index.js';
-    const mainPath = path.join(modulePath, mainFile);
-    const code = fs.readFileSync(mainPath, 'utf8');
-    const module = { exports: {} };
-    const sandbox = {
-        module,
-        exports: module.exports,
-        require: (name) => {
-            if (name.startsWith('.')) {
-                const resolved = path.resolve(path.dirname(mainPath), name);
-                return requireModule(resolved);
-            }
-            return requireModule(name);
-        },
-        console,
-        Buffer,
-        setTimeout,
-        clearTimeout,
-    };
-    vm.createContext(sandbox);
-    vm.runInContext(code, sandbox, { filename: mainPath });
-    return module.exports;
-}
-
-// 预加载 axios 和 qs（如果已安装）
-let axios, qs;
-try {
-    axios = requireModule('axios');
-    qs = requireModule('qs');
-} catch (e) {
-    console.log('[Node] axios/qs 未安装，部分 Spider 可能无法运行');
-}
 
 // ========== 内置 cat.js 完整模拟 ==========
 const _ = {
@@ -83,7 +42,6 @@ class Uri {
     }
 }
 
-// 加密函数
 function md5(text) {
     return crypto.createHash('md5').update(text, 'utf8').digest('hex');
 }
@@ -135,7 +93,6 @@ function des(mode, encrypt, input, inBase64, key, iv, outBase64) {
 }
 
 function rsa(mode, pub, encrypt, input, inBase64, key, outBase64) {
-    // 简化实现，实际很少用到
     return '';
 }
 
@@ -149,55 +106,104 @@ function randStr(len, withNum = true) {
     return result;
 }
 
-// ========== 请求函数（支持 axios 回退） ==========
+// ========== 模拟 axios ==========
+const axios = {
+    async request(config) {
+        const method = (config.method || 'get').toUpperCase();
+        const url = config.url;
+        const headers = config.headers || {};
+        const data = config.data;
+        const timeout = config.timeout || 15000;
+        const responseType = config.responseType;
+
+        return new Promise((resolve, reject) => {
+            const parsed = URL.parse(url);
+            const client = parsed.protocol === 'https:' ? https : http;
+            const req = client.request(url, { method, headers }, (res) => {
+                const chunks = [];
+                res.on('data', chunk => chunks.push(chunk));
+                res.on('end', () => {
+                    const buffer = Buffer.concat(chunks);
+                    let data;
+                    if (responseType === 'arraybuffer') {
+                        data = buffer;
+                    } else {
+                        data = buffer.toString('utf8');
+                    }
+                    resolve({
+                        status: res.statusCode,
+                        headers: res.headers,
+                        data,
+                    });
+                });
+            });
+            req.on('error', reject);
+            if (data) {
+                if (typeof data === 'object' && !Buffer.isBuffer(data)) {
+                    req.write(JSON.stringify(data));
+                } else {
+                    req.write(data);
+                }
+            }
+            req.end();
+        });
+    },
+    get(url, config) { return this.request({ ...config, method: 'get', url }); },
+    post(url, data, config) { return this.request({ ...config, method: 'post', url, data }); },
+};
+
+// ========== 模拟 qs ==========
+const qs = {
+    stringify(obj, options = {}) {
+        const encode = options.encode !== false;
+        const parts = [];
+        for (const key in obj) {
+            if (Object.prototype.hasOwnProperty.call(obj, key)) {
+                const value = obj[key];
+                const encodedKey = encode ? encodeURIComponent(key) : key;
+                const encodedValue = encode ? encodeURIComponent(value) : value;
+                parts.push(`${encodedKey}=${encodedValue}`);
+            }
+        }
+        return parts.join('&');
+    },
+    parse(str) {
+        const result = {};
+        const parts = str.split('&');
+        for (const part of parts) {
+            const [key, value] = part.split('=');
+            result[decodeURIComponent(key)] = decodeURIComponent(value || '');
+        }
+        return result;
+    },
+};
+
+// ========== 请求函数（Spider 中使用的 req） ==========
 async function request(url, opt = {}) {
     const method = (opt.method || 'get').toUpperCase();
     const headers = opt.headers || {};
     const data = opt.data;
     const timeout = opt.timeout || 15000;
     const returnBuffer = opt.buffer || 0;
+    const postType = opt.postType;
 
-    // 如果有 axios，优先使用
-    if (axios) {
-        try {
-            const resp = await axios({
-                url,
-                method,
-                headers,
-                data,
-                timeout,
-                responseType: returnBuffer ? 'arraybuffer' : 'text',
-                httpsAgent: new https.Agent({ rejectUnauthorized: false }),
-            });
-            let content = resp.data;
-            if (returnBuffer === 1) {
-                return { code: resp.status, headers: resp.headers, content };
-            } else if (returnBuffer === 2) {
-                return { code: resp.status, headers: resp.headers, content: Buffer.from(content).toString('base64') };
-            }
-            return { code: resp.status, headers: resp.headers, content: typeof content === 'string' ? content : JSON.stringify(content) };
-        } catch (e) {
-            return { code: 0, headers: {}, content: '' };
-        }
+    // 处理 form 类型
+    if (postType === 'form' && data) {
+        headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
 
-    // 回退到原生 http/https
-    return new Promise((resolve) => {
-        const parsed = URL.parse(url);
-        const client = parsed.protocol === 'https:' ? https : http;
-        const req = client.request(url, { method, headers }, (res) => {
-            const chunks = [];
-            res.on('data', chunk => chunks.push(chunk));
-            res.on('end', () => {
-                const buffer = Buffer.concat(chunks);
-                let content = returnBuffer ? buffer : buffer.toString('utf8');
-                resolve({ code: res.statusCode, headers: res.headers, content });
-            });
-        });
-        req.on('error', () => resolve({ code: 0, headers: {}, content: '' }));
-        if (data) req.write(data);
-        req.end();
-    });
+    try {
+        const resp = await axios.request({ url, method, headers, data, timeout, responseType: returnBuffer ? 'arraybuffer' : 'text' });
+        let content = resp.data;
+        if (returnBuffer === 1) {
+            return { code: resp.status, headers: resp.headers, content };
+        } else if (returnBuffer === 2) {
+            return { code: resp.status, headers: resp.headers, content: Buffer.from(content).toString('base64') };
+        }
+        return { code: resp.status, headers: resp.headers, content: typeof content === 'string' ? content : JSON.stringify(content) };
+    } catch (e) {
+        return { code: 0, headers: {}, content: '' };
+    }
 }
 
 // ========== 本地存储 ==========
@@ -219,7 +225,7 @@ function localSet(storage, key, value) {
 }
 
 // ========== 创建 Spider 沙箱 ==========
-function createSpiderSandbox(apiName) {
+function createSpiderSandbox(spiderDir) {
     const sandbox = {
         axios,
         qs,
@@ -242,24 +248,42 @@ function createSpiderSandbox(apiName) {
         setTimeout,
         clearTimeout,
         Buffer,
-        __dirname: path.join(__dirname, 'open'),
+        __dirname: spiderDir,
     };
 
     sandbox.require = (modulePath) => {
+        // 内置模块优先
         if (modulePath === 'axios') return axios;
         if (modulePath === 'qs') return qs;
         if (modulePath === 'crypto') return crypto;
         if (modulePath === 'fs') return fs;
         if (modulePath === 'https') return https;
         if (modulePath === 'path') return path;
+        if (modulePath === 'url') return URL;
+        if (modulePath === 'zlib') return zlib;
+
+        // 处理相对路径
         if (modulePath.startsWith('.')) {
             const resolved = path.resolve(sandbox.__dirname, modulePath);
-            if (!fs.existsSync(resolved)) throw new Error(`Cannot find module '${modulePath}'`);
-            const code = fs.readFileSync(resolved, 'utf8');
+            const ext = path.extname(resolved) ? resolved : resolved + '.js';
+            if (!fs.existsSync(ext)) {
+                throw new Error(`Cannot find module '${modulePath}'`);
+            }
+            const code = fs.readFileSync(ext, 'utf8');
             const mod = { exports: {} };
-            const modSandbox = { ...sandbox, module: mod, exports: mod.exports };
+            const modSandbox = {
+                ...sandbox,
+                module: mod,
+                exports: mod.exports,
+                require: (p) => {
+                    if (p.startsWith('.')) {
+                        return sandbox.require(path.resolve(path.dirname(ext), p));
+                    }
+                    return sandbox.require(p);
+                },
+            };
             vm.createContext(modSandbox);
-            vm.runInContext(code, modSandbox, { filename: resolved });
+            vm.runInContext(code, modSandbox, { filename: ext });
             return mod.exports;
         }
         throw new Error(`Cannot find module '${modulePath}'`);
@@ -268,17 +292,40 @@ function createSpiderSandbox(apiName) {
     return sandbox;
 }
 
+// ========== 查找本地 Spider 脚本 ==========
+function findSpiderScript(apiName) {
+    const baseDir = path.join(__dirname, 'open');
+    const scriptName = apiName.replace(/^csp_/, '') + '.js';
+
+    function searchDir(dir) {
+        if (!fs.existsSync(dir)) return null;
+        const items = fs.readdirSync(dir);
+        for (const item of items) {
+            const fullPath = path.join(dir, item);
+            const stat = fs.statSync(fullPath);
+            if (stat.isDirectory()) {
+                const found = searchDir(fullPath);
+                if (found) return found;
+            } else if (item === scriptName) {
+                return { path: fullPath, dir: path.dirname(fullPath) };
+            }
+        }
+        return null;
+    }
+
+    return searchDir(baseDir);
+}
+
 // ========== 加载本地 Spider ==========
 function loadLocalSpider(apiName) {
-    const scriptName = apiName.replace(/^csp_/, '') + '.js';
-    const localPath = path.join(__dirname, 'open', scriptName);
-    if (!fs.existsSync(localPath)) return null;
+    const found = findSpiderScript(apiName);
+    if (!found) return null;
 
-    const scriptContent = fs.readFileSync(localPath, 'utf8');
-    const sandbox = createSpiderSandbox(apiName);
+    const scriptContent = fs.readFileSync(found.path, 'utf8');
+    const sandbox = createSpiderSandbox(found.dir);
 
     vm.createContext(sandbox);
-    vm.runInContext(scriptContent, sandbox, { filename: localPath });
+    vm.runInContext(scriptContent, sandbox, { filename: found.path });
 
     if (typeof sandbox.__jsEvalReturn === 'function') {
         return sandbox.__jsEvalReturn();
@@ -338,10 +385,6 @@ function sendError(res, error) {
 
 async function handleSpiderRequest(api, spider, action, key, ext, tid, page, vodId, keyword) {
     let spiderModule = loadLocalSpider(api);
-    if (!spiderModule && spider) {
-        // 回退到网络下载（略）
-        throw new Error('网络下载暂不支持，请放置本地脚本');
-    }
     if (!spiderModule) {
         throw new Error(`未找到本地 Spider: ${api}`);
     }
