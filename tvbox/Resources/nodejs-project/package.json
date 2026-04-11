@@ -5,6 +5,5 @@
   "main": "type3-parser.js",
   "dependencies": {
     "adm-zip": "^0.5.10",
-    "dex-parser": "^1.0.0"
-  }
+    }
 }
