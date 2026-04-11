@@ -4,7 +4,7 @@
   "description": "Type3 source parser for TVBox",
   "main": "type3-parser.js",
   "dependencies": {
-    "adm-zip": "^0.5.16",
-    "dex-parser": "^0.1.0"
+    "adm-zip": "^0.5.10",
+    "dex-parser": "^1.0.0"
   }
 }
