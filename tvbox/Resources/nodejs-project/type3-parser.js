@@ -2,7 +2,6 @@ const http = require('http');
 const https = require('https');
 const vm = require('vm');
 const URL = require('url');
-const zlib = require('zlib');
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
@@ -178,7 +177,7 @@ const qs = {
     },
 };
 
-// ========== 请求函数（Spider 中使用的 req） ==========
+// ========== 请求函数 ==========
 async function request(url, opt = {}) {
     const method = (opt.method || 'get').toUpperCase();
     const headers = opt.headers || {};
@@ -187,7 +186,6 @@ async function request(url, opt = {}) {
     const returnBuffer = opt.buffer || 0;
     const postType = opt.postType;
 
-    // 处理 form 类型
     if (postType === 'form' && data) {
         headers['Content-Type'] = 'application/x-www-form-urlencoded';
     }
@@ -224,35 +222,127 @@ function localSet(storage, key, value) {
     fs.writeFileSync(filePath, JSON.stringify(data));
 }
 
+// ========== ZIP 解压（纯 JS） ==========
+function unzipBuffer(buffer) {
+    // 查找 EOCD
+    if (buffer.length < 22) throw new Error('文件太小');
+    const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
+    let eocdOffset = -1;
+    for (let i = buffer.length - 22; i >= 0; i--) {
+        if (view.getUint32(i, true) === 0x06054b50) { eocdOffset = i; break; }
+    }
+    if (eocdOffset === -1) throw new Error('不是有效的ZIP文件');
+    
+    const cdOffset = view.getUint32(eocdOffset + 16, true);
+    const totalEntries = view.getUint16(eocdOffset + 10, true);
+    const files = [];
+    let offset = cdOffset;
+    
+    for (let i = 0; i < totalEntries; i++) {
+        if (view.getUint32(offset, true) !== 0x02014b50) break;
+        const compressionMethod = view.getUint16(offset + 10, true);
+        const compressedSize = view.getUint32(offset + 20, true);
+        const fileNameLength = view.getUint16(offset + 28, true);
+        const extraFieldLength = view.getUint16(offset + 30, true);
+        const fileCommentLength = view.getUint16(offset + 32, true);
+        const localHeaderOffset = view.getUint32(offset + 42, true);
+        
+        const fileName = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLength);
+        let localOffset = localHeaderOffset;
+        if (view.getUint32(localOffset, true) !== 0x04034b50) {
+            offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+            continue;
+        }
+        const localFileNameLength = view.getUint16(localOffset + 26, true);
+        const localExtraFieldLength = view.getUint16(localOffset + 28, true);
+        const dataOffset = localOffset + 30 + localFileNameLength + localExtraFieldLength;
+        let fileData = buffer.slice(dataOffset, dataOffset + compressedSize);
+        if (compressionMethod === 8) {
+            const zlib = require('zlib');
+            try { fileData = zlib.inflateRawSync(fileData); } catch (e) { fileData = zlib.inflateSync(fileData); }
+        }
+        files.push({ name: fileName, data: fileData });
+        offset += 46 + fileNameLength + extraFieldLength + fileCommentLength;
+    }
+    return files;
+}
+
+// ========== DEX 解析（纯 JS 提取字符串池） ==========
+function extractStringsFromDex(dexBuffer) {
+    const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
+    
+    // 读取 header
+    const stringIdsOff = view.getUint32(60, true);
+    const stringIdsSize = view.getUint32(56, true);
+    const typeIdsOff = view.getUint32(68, true);
+    
+    const strings = [];
+    for (let i = 0; i < stringIdsSize; i++) {
+        const stringOff = view.getUint32(stringIdsOff + i * 4, true);
+        // MUTF-8 编码，简单处理：跳过前导长度，读取直到 null
+        let pos = stringOff;
+        const len = view.getUint16(pos, true);
+        pos += 2;
+        let str = '';
+        for (let j = 0; j < len; j++) {
+            const code = view.getUint8(pos++);
+            str += String.fromCharCode(code);
+        }
+        strings.push(str);
+    }
+    return strings;
+}
+
+// ========== 下载远程 Jar 并提取 Spider JS ==========
+async function fetchSpiderFromJar(spiderUrl) {
+    // 下载
+    const buffer = await downloadBuffer(spiderUrl);
+    
+    // 解压
+    const files = unzipBuffer(buffer);
+    const dexFile = files.find(f => f.name === 'classes.dex');
+    if (!dexFile) throw new Error('Jar中未找到classes.dex');
+    
+    // 提取字符串
+    const strings = extractStringsFromDex(dexFile.data);
+    if (strings.length === 0) throw new Error('DEX字符串池为空');
+    
+    // 按长度排序，取最长的一个（通常就是 Spider JS）
+    strings.sort((a, b) => b.length - a.length);
+    const spiderCode = strings[0];
+    
+    // 简单验证
+    if (!spiderCode.includes('function') && !spiderCode.includes('var ') && !spiderCode.includes('const ')) {
+        throw new Error('提取的字符串不像JavaScript代码');
+    }
+    return spiderCode;
+}
+
+async function downloadBuffer(url) {
+    return new Promise((resolve, reject) => {
+        const cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
+        const parsed = URL.parse(cleanUrl);
+        const client = parsed.protocol === 'https:' ? https : http;
+        client.get(cleanUrl, { headers: getDefaultHeaders() }, (res) => {
+            const chunks = [];
+            res.on('data', chunk => chunks.push(chunk));
+            res.on('end', () => resolve(Buffer.concat(chunks)));
+        }).on('error', reject);
+    });
+}
+
 // ========== 创建 Spider 沙箱 ==========
 function createSpiderSandbox(spiderDir) {
     const sandbox = {
-        axios,
-        qs,
-        crypto,
-        https,
-        fs,
-        Uri,
-        _,
-        request,
-        md5,
-        base64Encode,
-        base64Decode,
-        aes,
-        des,
-        rsa,
-        randStr,
-        localGet,
-        localSet,
+        axios, qs, crypto, https, fs, Uri, _, request,
+        md5, base64Encode, base64Decode, aes, des, rsa, randStr,
+        localGet, localSet,
         console: { log: () => {}, error: () => {} },
-        setTimeout,
-        clearTimeout,
-        Buffer,
+        setTimeout, clearTimeout, Buffer,
         __dirname: spiderDir,
     };
 
     sandbox.require = (modulePath) => {
-        // 内置模块优先
         if (modulePath === 'axios') return axios;
         if (modulePath === 'qs') return qs;
         if (modulePath === 'crypto') return crypto;
@@ -260,27 +350,17 @@ function createSpiderSandbox(spiderDir) {
         if (modulePath === 'https') return https;
         if (modulePath === 'path') return path;
         if (modulePath === 'url') return URL;
-        if (modulePath === 'zlib') return zlib;
-
-        // 处理相对路径
         if (modulePath.startsWith('.')) {
             const resolved = path.resolve(sandbox.__dirname, modulePath);
             const ext = path.extname(resolved) ? resolved : resolved + '.js';
-            if (!fs.existsSync(ext)) {
-                throw new Error(`Cannot find module '${modulePath}'`);
-            }
+            if (!fs.existsSync(ext)) throw new Error(`Cannot find module '${modulePath}'`);
             const code = fs.readFileSync(ext, 'utf8');
             const mod = { exports: {} };
             const modSandbox = {
                 ...sandbox,
                 module: mod,
                 exports: mod.exports,
-                require: (p) => {
-                    if (p.startsWith('.')) {
-                        return sandbox.require(path.resolve(path.dirname(ext), p));
-                    }
-                    return sandbox.require(p);
-                },
+                require: (p) => sandbox.require(p.startsWith('.') ? path.resolve(path.dirname(ext), p) : p),
             };
             vm.createContext(modSandbox);
             vm.runInContext(code, modSandbox, { filename: ext });
@@ -288,15 +368,13 @@ function createSpiderSandbox(spiderDir) {
         }
         throw new Error(`Cannot find module '${modulePath}'`);
     };
-
     return sandbox;
 }
 
-// ========== 查找本地 Spider 脚本 ==========
+// ========== 查找本地 Spider ==========
 function findSpiderScript(apiName) {
     const baseDir = path.join(__dirname, 'open');
     const scriptName = apiName.replace(/^csp_/, '') + '.js';
-
     function searchDir(dir) {
         if (!fs.existsSync(dir)) return null;
         const items = fs.readdirSync(dir);
@@ -312,24 +390,37 @@ function findSpiderScript(apiName) {
         }
         return null;
     }
-
     return searchDir(baseDir);
 }
 
-// ========== 加载本地 Spider ==========
 function loadLocalSpider(apiName) {
     const found = findSpiderScript(apiName);
     if (!found) return null;
-
     const scriptContent = fs.readFileSync(found.path, 'utf8');
     const sandbox = createSpiderSandbox(found.dir);
-
     vm.createContext(sandbox);
     vm.runInContext(scriptContent, sandbox, { filename: found.path });
+    if (typeof sandbox.__jsEvalReturn === 'function') return sandbox.__jsEvalReturn();
+    return sandbox;
+}
 
-    if (typeof sandbox.__jsEvalReturn === 'function') {
-        return sandbox.__jsEvalReturn();
+// ========== 统一加载 Spider（优先本地，回退远程 Jar） ==========
+async function loadSpider(api, spiderUrl) {
+    // 1. 本地
+    const local = loadLocalSpider(api);
+    if (local) return local;
+    
+    // 2. 远程 Jar
+    if (!spiderUrl) throw new Error(`未找到本地 Spider 且未提供 spider 地址`);
+    let scriptContent = jarCache.get(spiderUrl);
+    if (!scriptContent) {
+        scriptContent = await fetchSpiderFromJar(spiderUrl);
+        jarCache.set(spiderUrl, scriptContent);
     }
+    const sandbox = createSpiderSandbox(path.join(__dirname, 'open'));
+    vm.createContext(sandbox);
+    vm.runInContext(scriptContent, sandbox, { filename: 'spider.js', timeout: 15000 });
+    if (typeof sandbox.__jsEvalReturn === 'function') return sandbox.__jsEvalReturn();
     return sandbox;
 }
 
@@ -356,7 +447,8 @@ const server = http.createServer(async (req, res) => {
                 }
 
                 if (api && api.startsWith('csp_')) {
-                    const result = await handleSpiderRequest(api, spider, action, key, ext, tid, page, vod_id, wd);
+                    const spiderModule = await loadSpider(api, spider);
+                    const result = await executeSpider(spiderModule, action, key, ext, tid, page, vod_id, wd);
                     sendSuccess(res, result);
                 } else {
                     sendError(res, '无效的请求参数');
@@ -383,34 +475,16 @@ function sendError(res, error) {
     res.end(JSON.stringify({ success: false, error }));
 }
 
-async function handleSpiderRequest(api, spider, action, key, ext, tid, page, vodId, keyword) {
-    let spiderModule = loadLocalSpider(api);
-    if (!spiderModule) {
-        throw new Error(`未找到本地 Spider: ${api}`);
-    }
-
-    if (spiderModule.init) {
-        await spiderModule.init({ skey: key, stype: 3, ext });
-    }
-
+async function executeSpider(spiderModule, action, key, ext, tid, page, vodId, keyword) {
+    if (spiderModule.init) await spiderModule.init({ skey: key, stype: 3, ext });
     let result;
     switch (action) {
-        case 'home':
-            result = await spiderModule.home();
-            break;
-        case 'list':
-            result = await spiderModule.category(tid, page, {}, ext);
-            break;
-        case 'detail':
-            result = await spiderModule.detail(vodId);
-            break;
-        case 'search':
-            result = await spiderModule.search(keyword, false, page);
-            break;
-        default:
-            throw new Error(`未知 action: ${action}`);
+        case 'home': result = await spiderModule.home(); break;
+        case 'list': result = await spiderModule.category(tid, page, {}, ext); break;
+        case 'detail': result = await spiderModule.detail(vodId); break;
+        case 'search': result = await spiderModule.search(keyword, false, page); break;
+        default: throw new Error(`未知 action: ${action}`);
     }
-
     if (typeof result === 'string') {
         try { result = JSON.parse(result); } catch (e) {}
     }
@@ -438,4 +512,10 @@ async function parseGeneric(url, headers) {
     vm.createContext(sandbox);
     vm.runInContext(script, sandbox, { filename: 'generic.js', timeout: 10000 });
     return sandbox.result;
+}
+
+function getDefaultHeaders() {
+    return {
+        'User-Agent': 'Mozilla/5.0 (iPhone; CPU iPhone OS 16_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/16.0 Mobile/15E148 Safari/604.1',
+    };
 }
