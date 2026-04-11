@@ -86,21 +86,30 @@ const axios = {
         const method = (config.method || 'get').toUpperCase();
         const url = config.url, headers = config.headers || {}, data = config.data;
         const timeout = config.timeout || 15000, responseType = config.responseType;
+        console.log(`[Debug] axios 请求: ${method} ${url}`);
+        console.log(`[Debug] axios 头: ${JSON.stringify(headers)}`);
         return new Promise((resolve, reject) => {
             const parsed = URL.parse(url);
             const client = parsed.protocol === 'https:' ? https : http;
             const req = client.request(url, { method, headers }, (res) => {
+                console.log(`[Debug] axios 响应状态: ${res.statusCode}`);
+                console.log(`[Debug] axios 响应头: ${JSON.stringify(res.headers)}`);
                 const chunks = [];
                 res.on('data', chunk => chunks.push(chunk));
                 res.on('end', () => {
                     const buffer = Buffer.concat(chunks);
+                    console.log(`[Debug] axios 响应长度: ${buffer.length}`);
+                    console.log(`[Debug] axios 响应前20字节: ${buffer.slice(0,20).toString('hex')}`);
                     let respData;
                     if (responseType === 'arraybuffer') respData = buffer;
                     else respData = buffer.toString('utf8');
                     resolve({ status: res.statusCode, headers: res.headers, data: respData });
                 });
             });
-            req.on('error', reject);
+            req.on('error', (e) => {
+                console.log(`[Debug] axios 错误: ${e.message}`);
+                reject(e);
+            });
             if (data) {
                 if (typeof data === 'object' && !Buffer.isBuffer(data)) req.write(JSON.stringify(data));
                 else req.write(data);
@@ -170,6 +179,7 @@ function localSet(storage, key, value) {
 
 // ========== ZIP 解压 ==========
 function unzipBuffer(buffer) {
+    console.log(`[Debug] 开始解压ZIP，大小: ${buffer.length}`);
     if (buffer.length < 22) throw new Error('文件太小');
     const view = new DataView(buffer.buffer, buffer.byteOffset, buffer.byteLength);
     let eocdOffset = -1;
@@ -177,6 +187,7 @@ function unzipBuffer(buffer) {
     if (eocdOffset === -1) throw new Error('不是有效的ZIP文件');
     const cdOffset = view.getUint32(eocdOffset + 16, true);
     const totalEntries = view.getUint16(eocdOffset + 10, true);
+    console.log(`[Debug] ZIP 条目数: ${totalEntries}`);
     const files = [];
     let offset = cdOffset;
     for (let i = 0; i < totalEntries; i++) {
@@ -190,6 +201,7 @@ function unzipBuffer(buffer) {
         const localHeaderOffset = view.getUint32(offset + 42, true);
         if (offset + 46 + fileNameLength > buffer.length) break;
         const fileName = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLength);
+        console.log(`[Debug] ZIP 找到文件: ${fileName}, 压缩方式: ${compressionMethod}`);
         let localOffset = localHeaderOffset;
         if (localOffset + 30 > buffer.length) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
         if (view.getUint32(localOffset, true) !== 0x04034b50) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
@@ -228,10 +240,12 @@ function isJavaClassName(str) {
 
 // ========== DEX 字符串提取（修正 uleb128） ==========
 function extractStringsFromDex(dexBuffer) {
+    console.log(`[Debug] 开始解析DEX，大小: ${dexBuffer.length}`);
     if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
     const stringIdsSize = view.getUint32(56, true);
     const stringIdsOff = view.getUint32(60, true);
+    console.log(`[Debug] DEX 字符串数量: ${stringIdsSize}`);
     if (stringIdsSize === 0) throw new Error('DEX字符串池为空');
     if (stringIdsOff + stringIdsSize * 4 > dexBuffer.length) throw new Error(`字符串索引区越界`);
     const strings = [];
@@ -258,6 +272,7 @@ function extractStringsFromDex(dexBuffer) {
             strings.push(str);
         }
     }
+    console.log(`[Debug] DEX 过滤后字符串数量: ${strings.length}`);
     return strings;
 }
 
@@ -284,14 +299,21 @@ function selectSpiderCode(strings) {
 
 // ========== 下载远程 Jar（支持重定向和 gzip） ==========
 async function fetchSpiderFromJar(spiderUrl) {
+    console.log(`[Debug] 开始处理Jar源: ${spiderUrl}`);
     let cleanUrl = spiderUrl.split(';')[0].trim();
+    console.log(`[Debug] 清理后的URL: ${cleanUrl}`);
     const buffer = await downloadBuffer(cleanUrl);
+    console.log(`[Debug] 下载完成，buffer大小: ${buffer.length}`);
+    console.log(`[Debug] buffer前4字节: ${buffer.slice(0,4).toString('hex')}`);
     
     // 严格判断ZIP文件：前4个字节必须是 PK\003\004
     if (buffer.length >= 4 && buffer.readUInt32LE(0) === 0x04034b50) {
         const files = unzipBuffer(buffer);
         const dexFile = files.find(f => f.name === 'classes.dex');
-        if (!dexFile) throw new Error('Jar中未找到classes.dex文件，可能下载到了错误的内容');
+        if (!dexFile) {
+            console.log(`[Debug] 没找到classes.dex，找到的文件: ${files.map(f=>f.name).join(', ')}`);
+            throw new Error('Jar中未找到classes.dex文件，可能下载到了错误的内容');
+        }
         
         const strings = extractStringsFromDex(dexFile.data);
         if (strings.length === 0) throw new Error('DEX字符串池为空（过滤后）');
@@ -302,8 +324,9 @@ async function fetchSpiderFromJar(spiderUrl) {
         return spiderCode;
     } else {
         let content = buffer.toString('utf8').trim();
+        console.log(`[Debug] 不是ZIP，内容预览: ${safePreview(content, 500)}`);
         if (content.startsWith('<?xml') || content.includes('<Error>') || content.includes('resource not found')) {
-            throw new Error(`下载到错误页面: ${safePreview(content, 200)}，Jar源服务器拒绝了访问，请检查网络`);
+            throw new Error(`下载到错误页面: ${safePreview(content, 200)}，Jar源服务器拒绝了访问`);
         }
         if (content.includes('function') || content.includes('__jsEvalReturn')) {
             return content;
@@ -327,12 +350,17 @@ function downloadBuffer(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
         if (redirectCount > 5) { reject(new Error('重定向次数过多')); return; }
         const cleanUrl = url.replace(/[\n\r\t]/g, '').trim();
+        console.log(`[Debug] 下载URL: ${cleanUrl}, 重定向次数: ${redirectCount}`);
         const parsed = URL.parse(cleanUrl);
         const client = parsed.protocol === 'https:' ? https : http;
         const headers = getDefaultHeaders();
         headers['Accept-Encoding'] = 'gzip, deflate';
+        console.log(`[Debug] 下载请求头: ${JSON.stringify(headers)}`);
         client.get(cleanUrl, { headers }, (res) => {
+            console.log(`[Debug] 下载响应状态: ${res.statusCode}`);
+            console.log(`[Debug] 下载响应头: ${JSON.stringify(res.headers)}`);
             if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
+                console.log(`[Debug] 重定向到: ${res.headers.location}`);
                 const newUrl = URL.resolve(cleanUrl, res.headers.location);
                 resolve(downloadBuffer(newUrl, redirectCount + 1));
                 return;
@@ -341,7 +369,11 @@ function downloadBuffer(url, redirectCount = 0) {
             const chunks = [];
             const stream = res.headers['content-encoding'] === 'gzip' ? res.pipe(zlib.createGunzip()) : res;
             stream.on('data', chunk => chunks.push(chunk));
-            stream.on('end', () => resolve(Buffer.concat(chunks)));
+            stream.on('end', () => {
+                const buffer = Buffer.concat(chunks);
+                console.log(`[Debug] 下载完成，buffer大小: ${buffer.length}`);
+                resolve(buffer);
+            });
             stream.on('error', reject);
         }).on('error', reject);
     });
@@ -353,7 +385,7 @@ function createSpiderSandbox() {
         axios, qs, crypto, https, fs, Uri, _, request,
         md5, base64Encode, base64Decode, aes, des, rsa, randStr,
         localGet, localSet,
-        console: { log: () => {}, error: () => {} },
+        console: { log: console.log, error: console.error },
         setTimeout, clearTimeout, Buffer,
         __dirname: path.join(__dirname, 'open'),
     };
@@ -394,9 +426,11 @@ async function loadSpider(spiderUrl) {
     try {
         vm.runInContext(cleanScript, sandbox, { filename: 'spider.js', timeout: 15000 });
     } catch (e) {
+        console.log(`[Debug] 脚本执行错误1: ${e.message}`);
         try {
             vm.runInContext(`(function(){${cleanScript}})()`, sandbox, { filename: 'spider.js', timeout: 15000 });
         } catch (e2) {
+            console.log(`[Debug] 脚本执行错误2: ${e2.message}`);
             throw new Error(`脚本执行失败: ${e.message}。预览: ${safePreview(cleanScript, 150)}`);
         }
     }
@@ -415,6 +449,7 @@ const server = http.createServer(async (req, res) => {
         req.on('end', async () => {
             try {
                 const request = JSON.parse(body);
+                console.log(`[Debug] 收到解析请求: action=${request.action}, api=${request.api}, spider=${request.spider}`);
                 const { action, api, key, ext, tid, page, vod_id, wd, url, headers, spider } = request;
                 if (url) {
                     parseGeneric(url, headers).then(data => sendSuccess(res, data)).catch(err => sendError(res, `[Generic] ${err.message}`));
@@ -430,6 +465,8 @@ const server = http.createServer(async (req, res) => {
                     sendError(res, '无效的请求参数');
                 }
             } catch (err) {
+                console.log(`[Debug] 全局错误: ${err.message}`);
+                console.log(`[Debug] 错误栈: ${err.stack}`);
                 sendError(res, `[Parse] ${safePreview(err.message, 500)}`);
             }
         });
@@ -438,7 +475,9 @@ const server = http.createServer(async (req, res) => {
     res.writeHead(404); res.end();
 });
 
-server.listen(PORT, '127.0.0.1', () => {});
+server.listen(PORT, '127.0.0.1', () => {
+    console.log(`[Debug] 服务器启动成功，端口: ${PORT}`);
+});
 
 function sendSuccess(res, data) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: true, data })); }
 function sendError(res, error) { res.writeHead(200, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ success: false, error })); }
@@ -481,7 +520,7 @@ async function parseGeneric(url, headers) {
 }
 
 function getDefaultHeaders() {
-    // TVBox原生的请求头！和安卓TVBox完全一样！Jar源的服务器绝对认这个！
+    // TVBox原生的请求头！和安卓TVBox完全一样！
     return { 
         'User-Agent': 'okhttp/3.14.9',
         'Accept': '*/*',
