@@ -8,6 +8,8 @@ class NodeJSBridge {
     private var isNodeStarted = false
     private let httpSession = URLSession(configuration: .default)
     private let baseURL = "http://127.0.0.1:3000"
+    private var nodeOutputPipe: Pipe?
+    private var nodeErrorPipe: Pipe?
 
     private init() {
         Logger.shared.log("NodeJSBridge 初始化 (HTTP 模式)", level: .info)
@@ -64,6 +66,26 @@ class NodeJSBridge {
         isNodeStarted = true
         Logger.shared.log("准备启动 Node.js 线程", level: .info)
 
+        // 创建管道捕获 stdout 和 stderr
+        nodeOutputPipe = Pipe()
+        nodeErrorPipe = Pipe()
+
+        // 保存原始文件描述符
+        let origStdout = dup(STDOUT_FILENO)
+        let origStderr = dup(STDERR_FILENO)
+
+        // 重定向到管道
+        dup2(nodeOutputPipe!.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
+        dup2(nodeErrorPipe!.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
+
+        // 在后台线程读取管道数据并转发到 Logger
+        DispatchQueue.global().async {
+            self.capturePipeData(pipe: self.nodeOutputPipe!, level: .info, prefix: "[Node] ")
+        }
+        DispatchQueue.global().async {
+            self.capturePipeData(pipe: self.nodeErrorPipe!, level: .error, prefix: "[NodeErr] ")
+        }
+
         Thread.detachNewThread {
             guard let scriptPath = self.findScriptPath() else {
                 Logger.shared.log("❌ 未找到 Node 脚本！请检查 Bundle 资源", level: .error)
@@ -79,10 +101,35 @@ class NodeJSBridge {
             var cArgs = args.map { strdup($0) }
             node_start(Int32(args.count), &cArgs)
             cArgs.forEach { free($0) }
+
+            // 恢复原始文件描述符
+            dup2(origStdout, STDOUT_FILENO)
+            dup2(origStderr, STDERR_FILENO)
+            close(origStdout)
+            close(origStderr)
+
             Logger.shared.log("node_start 已调用", level: .info)
         }
 
         Logger.shared.log("Node 线程已分离", level: .info)
+    }
+
+    private func capturePipeData(pipe: Pipe, level: LogLevel, prefix: String) {
+        let fileHandle = pipe.fileHandleForReading
+        var buffer = Data()
+
+        while true {
+            let data = fileHandle.availableData
+            if data.isEmpty { break }
+            buffer.append(data)
+            if let line = String(data: buffer, encoding: .utf8), line.contains("\n") {
+                let lines = line.components(separatedBy: "\n")
+                for l in lines where !l.isEmpty {
+                    Logger.shared.log("\(prefix)\(l)", level: level)
+                }
+                buffer = Data()
+            }
+        }
     }
 
     private func testServerReady() {
