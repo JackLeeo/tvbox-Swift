@@ -221,12 +221,10 @@ function readUleb128(view, pos) {
     return { result, pos };
 }
 
-// ========== 判断是否为 Java 类名（包括数组） ==========
 function isJavaClassName(str) {
     return (str.startsWith('L') || str.startsWith('[')) && str.includes('/');
 }
 
-// ========== DEX 字符串提取（修正 uleb128） ==========
 function extractStringsFromDex(dexBuffer) {
     if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
@@ -239,24 +237,16 @@ function extractStringsFromDex(dexBuffer) {
         const stringOff = view.getUint32(stringIdsOff + i * 4, true);
         if (stringOff + 4 > dexBuffer.length) continue;
         let pos = stringOff;
-        // 读取 uleb128 长度
         let len;
         try {
             const decoded = readUleb128(view, pos);
             len = decoded.result;
             pos = decoded.pos;
-        } catch (e) {
-            continue;
-        }
+        } catch (e) { continue; }
         if (pos + len > dexBuffer.length) continue;
         let str = '';
-        for (let j = 0; j < len; j++) {
-            str += String.fromCharCode(view.getUint8(pos++));
-        }
-        // 过滤 Java 类名
-        if (!isJavaClassName(str)) {
-            strings.push(str);
-        }
+        for (let j = 0; j < len; j++) str += String.fromCharCode(view.getUint8(pos++));
+        if (!isJavaClassName(str)) strings.push(str);
     }
     return strings;
 }
@@ -282,7 +272,7 @@ function selectSpiderCode(strings) {
     return strings[0];
 }
 
-// ========== 下载远程 Jar（支持重定向和 gzip） ==========
+// ========== 下载远程 Jar ==========
 async function fetchSpiderFromJar(spiderUrl) {
     let cleanUrl = spiderUrl.split(';')[0].trim();
     const buffer = await downloadBuffer(cleanUrl);
@@ -301,9 +291,7 @@ async function fetchSpiderFromJar(spiderUrl) {
         if (content.startsWith('<?xml') || content.includes('<Error>')) {
             throw new Error(`下载到错误页面: ${safePreview(content, 200)}`);
         }
-        if (content.includes('function') || content.includes('__jsEvalReturn')) {
-            return content;
-        }
+        if (content.includes('function') || content.includes('__jsEvalReturn')) return content;
         const decoded = tryDecodeSpider(content);
         if (decoded) return decoded;
         throw new Error(`无法解析 Spider 内容。预览: ${safePreview(content, 150)}`);
@@ -318,7 +306,6 @@ function tryDecodeSpider(content) {
     return null;
 }
 
-// 增强版下载：支持重定向（301/302）和 gzip 解压
 function downloadBuffer(url, redirectCount = 0) {
     return new Promise((resolve, reject) => {
         if (redirectCount > 5) { reject(new Error('重定向次数过多')); return; }
@@ -343,7 +330,7 @@ function downloadBuffer(url, redirectCount = 0) {
     });
 }
 
-// ========== 创建 Spider 沙箱 ==========
+// ========== 创建 Spider 沙箱（包含 Java 模拟） ==========
 function createSpiderSandbox() {
     const sandbox = {
         axios, qs, crypto, https, fs, Uri, _, request,
@@ -352,6 +339,40 @@ function createSpiderSandbox() {
         console: { log: () => {}, error: () => {} },
         setTimeout, clearTimeout, Buffer,
         __dirname: path.join(__dirname, 'open'),
+        // Java 模拟
+        java: {
+            io: {
+                File: class {},
+                IOException: class {},
+            },
+            lang: {
+                String: String,
+                StringBuilder: class { constructor() { this.str = ''; } append(s) { this.str += s; return this; } toString() { return this.str; } },
+                Exception: Error,
+                Throwable: Error,
+                StackTraceElement: class {},
+            },
+            util: {
+                ArrayList: class { constructor() { this.list = []; } add(e) { this.list.push(e); } get(i) { return this.list[i]; } size() { return this.list.length; } },
+                HashMap: class { constructor() { this.map = new Map(); } put(k, v) { this.map.set(k, v); } get(k) { return this.map.get(k); } },
+            },
+        },
+        org: {
+            xmlpull: {
+                v1: {
+                    XmlPullParserFactory: {
+                        newInstance: () => ({
+                            setInput: () => {},
+                            next: () => 1,
+                            getEventType: () => 0,
+                            getName: () => '',
+                            getAttributeValue: () => null,
+                        }),
+                    },
+                },
+            },
+        },
+        META: { INF: { services: {} } },
     };
     sandbox.require = (modulePath) => {
         if (modulePath === 'axios') return axios;
