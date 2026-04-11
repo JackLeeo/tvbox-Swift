@@ -10,11 +10,10 @@ const zlib = require('zlib');
 const PORT = 3000;
 const jarCache = new Map();
 
-// ========== 可写目录 ==========
 const NODE_PATH = process.env.NODE_PATH || path.join(__dirname, '..', 'Documents');
 if (!fs.existsSync(NODE_PATH)) fs.mkdirSync(NODE_PATH, { recursive: true });
 
-// ========== 内置 cat.js 完整模拟 ==========
+// ========== cat.js 模拟 ==========
 const _ = {
     get: (obj, path, defaultValue) => {
         const keys = path.split('.');
@@ -68,7 +67,6 @@ function des(mode, encrypt, input, inBase64, key, iv, outBase64) {
 }
 
 function rsa() { return ''; }
-
 function randStr(len, withNum = true) {
     const chars = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
     const max = withNum ? chars.length - 1 : chars.length - 11;
@@ -77,7 +75,7 @@ function randStr(len, withNum = true) {
     return result;
 }
 
-// ========== 模拟 axios ==========
+// ========== axios 模拟 ==========
 const axios = {
     async request(config) {
         const method = (config.method || 'get').toUpperCase();
@@ -109,14 +107,13 @@ const axios = {
     post(url, data, config) { return this.request({ ...config, method: 'post', url, data }); },
 };
 
-// ========== 模拟 qs ==========
+// ========== qs 模拟 ==========
 const qs = {
     stringify(obj, options = {}) {
         const encode = options.encode !== false;
         const parts = [];
         for (const key in obj) {
             if (Object.prototype.hasOwnProperty.call(obj, key)) {
-                const value = obj[key];
                 parts.push(`${encode ? encodeURIComponent(key) : key}=${encode ? encodeURIComponent(value) : value}`);
             }
         }
@@ -177,6 +174,7 @@ function unzipBuffer(buffer) {
     const files = [];
     let offset = cdOffset;
     for (let i = 0; i < totalEntries; i++) {
+        if (offset + 46 > buffer.length) break;
         if (view.getUint32(offset, true) !== 0x02014b50) break;
         const compressionMethod = view.getUint16(offset + 10, true);
         const compressedSize = view.getUint32(offset + 20, true);
@@ -184,12 +182,15 @@ function unzipBuffer(buffer) {
         const extraFieldLength = view.getUint16(offset + 30, true);
         const fileCommentLength = view.getUint16(offset + 32, true);
         const localHeaderOffset = view.getUint32(offset + 42, true);
+        if (offset + 46 + fileNameLength > buffer.length) break;
         const fileName = buffer.toString('utf8', offset + 46, offset + 46 + fileNameLength);
         let localOffset = localHeaderOffset;
+        if (localOffset + 30 > buffer.length) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
         if (view.getUint32(localOffset, true) !== 0x04034b50) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
         const localFileNameLength = view.getUint16(localOffset + 26, true);
         const localExtraFieldLength = view.getUint16(localOffset + 28, true);
         const dataOffset = localOffset + 30 + localFileNameLength + localExtraFieldLength;
+        if (dataOffset + compressedSize > buffer.length) { offset += 46 + fileNameLength + extraFieldLength + fileCommentLength; continue; }
         let fileData = buffer.slice(dataOffset, dataOffset + compressedSize);
         if (compressionMethod === 8) {
             try { fileData = zlib.inflateRawSync(fileData); } catch (e) { fileData = zlib.inflateSync(fileData); }
@@ -200,17 +201,22 @@ function unzipBuffer(buffer) {
     return files;
 }
 
-// ========== DEX 字符串提取 ==========
+// ========== DEX 字符串提取（增强边界检查） ==========
 function extractStringsFromDex(dexBuffer) {
+    if (dexBuffer.length < 112) throw new Error(`DEX文件太小: ${dexBuffer.length} bytes`);
     const view = new DataView(dexBuffer.buffer, dexBuffer.byteOffset, dexBuffer.byteLength);
     const stringIdsSize = view.getUint32(56, true);
     const stringIdsOff = view.getUint32(60, true);
+    if (stringIdsSize === 0) throw new Error('DEX字符串池为空');
+    if (stringIdsOff + stringIdsSize * 4 > dexBuffer.length) throw new Error(`字符串索引区越界: off=${stringIdsOff}, size=${stringIdsSize}, max=${dexBuffer.length}`);
     const strings = [];
     for (let i = 0; i < stringIdsSize; i++) {
         const stringOff = view.getUint32(stringIdsOff + i * 4, true);
+        if (stringOff + 4 > dexBuffer.length) continue;
         let pos = stringOff;
         const len = view.getUint16(pos, true);
         pos += 2;
+        if (pos + len > dexBuffer.length) continue;
         let str = '';
         for (let j = 0; j < len; j++) str += String.fromCharCode(view.getUint8(pos++));
         strings.push(str);
@@ -220,18 +226,15 @@ function extractStringsFromDex(dexBuffer) {
 
 // ========== 下载远程 Jar 并提取 Spider JS ==========
 async function fetchSpiderFromJar(spiderUrl) {
-    // 清洗 URL：移除 ;md5;... 后缀
     let cleanUrl = spiderUrl.split(';')[0].trim();
-    console.log(`[Node] 原始 spider: ${spiderUrl}`);
     console.log(`[Node] 清洗后 spider: ${cleanUrl}`);
-    
     const buffer = await downloadBuffer(cleanUrl);
-    
-    // 检查是否为ZIP
+    console.log(`[Node] 下载完成，大小: ${buffer.length} bytes`);
     if (buffer.length >= 2 && buffer[0] === 0x50 && buffer[1] === 0x4B) {
         const files = unzipBuffer(buffer);
         const dexFile = files.find(f => f.name === 'classes.dex');
         if (!dexFile) throw new Error('Jar中未找到classes.dex');
+        console.log(`[Node] classes.dex 大小: ${dexFile.data.length} bytes`);
         const strings = extractStringsFromDex(dexFile.data);
         if (strings.length === 0) throw new Error('DEX字符串池为空');
         strings.sort((a, b) => b.length - a.length);
@@ -240,14 +243,8 @@ async function fetchSpiderFromJar(spiderUrl) {
         return spiderCode;
     } else {
         const content = buffer.toString('utf8').trim();
-        if (content.length === 0) throw new Error('下载的内容为空');
-        // 检查是否为错误页面（XML/HTML）
-        if (content.startsWith('<?xml') || content.startsWith('<!DOCTYPE') || content.includes('<Error>')) {
-            throw new Error(`下载到错误页面: ${content.slice(0, 200)}`);
-        }
-        if (content.includes('function') || content.includes('var ') || content.includes('const ') || content.includes('__jsEvalReturn')) {
-            return content;
-        }
+        if (content.startsWith('<?xml') || content.includes('<Error>')) throw new Error(`下载到错误页面: ${content.slice(0, 200)}`);
+        if (content.includes('function') || content.includes('var ') || content.includes('__jsEvalReturn')) return content;
         throw new Error(`下载内容无法识别。预览: ${content.slice(0, 200)}`);
     }
 }
@@ -258,10 +255,7 @@ function downloadBuffer(url) {
         const parsed = URL.parse(cleanUrl);
         const client = parsed.protocol === 'https:' ? https : http;
         client.get(cleanUrl, { headers: getDefaultHeaders() }, (res) => {
-            if (res.statusCode !== 200) {
-                reject(new Error(`HTTP ${res.statusCode}`));
-                return;
-            }
+            if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
             const chunks = [];
             res.on('data', chunk => chunks.push(chunk));
             res.on('end', () => resolve(Buffer.concat(chunks)));
@@ -286,7 +280,6 @@ function createSpiderSandbox() {
         if (modulePath === 'fs') return fs;
         if (modulePath === 'https') return https;
         if (modulePath === 'path') return path;
-        if (modulePath === 'url') return URL;
         if (modulePath.startsWith('.')) {
             const resolved = path.resolve(sandbox.__dirname, modulePath);
             const ext = path.extname(resolved) ? resolved : resolved + '.js';
@@ -369,16 +362,9 @@ async function executeSpider(spiderModule, action, key, ext, tid, page, vodId, k
 }
 
 function normalizeResponse(data, action) {
-    if (action === 'home') {
-        if (data.class || data.list) return data;
-        if (Array.isArray(data)) return { class: [], list: data };
-    } else if (action === 'list' || action === 'search') {
-        if (data.list) return data;
-        if (Array.isArray(data)) return { list: data };
-    } else if (action === 'detail') {
-        if (data.list) return data;
-        if (data.vod_id) return { list: [data] };
-    }
+    if (action === 'home') { if (data.class || data.list) return data; if (Array.isArray(data)) return { class: [], list: data }; }
+    else if (action === 'list' || action === 'search') { if (data.list) return data; if (Array.isArray(data)) return { list: data }; }
+    else if (action === 'detail') { if (data.list) return data; if (data.vod_id) return { list: [data] }; }
     return data;
 }
 
