@@ -39,13 +39,19 @@ class SearchViewModel: ObservableObject {
         // 搜索一旦触发就先落历史，保持行为与移动端常见搜索体验一致。
         addToHistory(trimmed)
         
-        // 走多源并发搜索，返回聚合后的影片列表。
-        let videos = await sourceService.searchAll(keyword: trimmed)
-        guard requestId == latestSearchRequestId else { return }
-        self.results = videos
-        
-        if videos.isEmpty {
-            errorMessage = "未找到相关内容"
+        do {
+            // 走多源并发搜索，返回聚合后的影片列表。
+            // 这里要加 try，因为 searchAll 是 throws 方法
+            let videos = try await sourceService.searchAll(keyword: trimmed)
+            guard requestId == latestSearchRequestId else { return }
+            self.results = videos
+            
+            if videos.isEmpty {
+                errorMessage = "未找到相关内容"
+            }
+        } catch {
+            guard requestId == latestSearchRequestId else { return }
+            errorMessage = error.localizedDescription
         }
         
         isSearching = false
