@@ -1,37 +1,35 @@
 import Foundation
 import GCDWebServer
-import NodeMobile  // 必须导入这个！
 
 class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
     
     @Published var nodePort: Int?
     private var webServer: GCDWebServer?
-    private var nodeHandle: UnsafeMutableRawPointer?
+    private var nodeThread: Thread?
     
     private override init() {
         super.init()
     }
     
     func start() {
-        // 启动原生HTTP服务，用于和Node通信
+        // 1. 启动原生 HTTP 服务，用于和 Node 双向通信
         startNativeServer()
         
-        // 启动Node.js运行时
-        startNodeRuntime()
+        // 2. 启动 Node.js 线程
+        startNodeThread()
     }
     
     private func startNativeServer() {
         webServer = GCDWebServer()
         
-        // GCDWebServer 的正确 addHandler 用法
         webServer?.addHandler(
             forMethod: "POST",
             path: "/message",
             request: GCDWebServerRequest.self,
             processBlock: { [weak self] request in
-                // 处理Node发来的消息
-                if let body = request.body as Data?,
+                // 处理 Node 发来的消息
+                if let body = request.data,
                    let message = String(data: body, encoding: .utf8) {
                     self?.handleNodeMessage(message)
                 }
@@ -40,10 +38,9 @@ class NodeJSBridge: NSObject {
             }
         )
         
-        // 启动服务，找一个可用的端口
         do {
             try webServer?.start(options: [
-                GCDWebServerOption_Port: 0, // 自动找端口
+                GCDWebServerOption_Port: 0,
                 GCDWebServerOption_BindToLocalhost: true
             ])
             
@@ -55,70 +52,38 @@ class NodeJSBridge: NSObject {
         }
     }
     
-    private func startNodeRuntime() {
-        // 获取Node脚本的路径
+    private func startNodeThread() {
+        // 获取 Node 脚本路径
         guard let nodeScriptPath = Bundle.main.path(forResource: "index", ofType: "js", inDirectory: "asset/js") else {
             Logger.shared.log("找不到Node脚本文件", level: .error)
             return
         }
         
-        // NodeMobile 的正确用法
-        let args = [nodeScriptPath]
+        // Node.js 的参数
+        let args = [
+            "node",
+            nodeScriptPath,
+            "--native-port", "\(webServer?.port ?? 0)"
+        ]
         
-        // 把 Swift 的 String 数组转成 C 的 char* 数组
-        withUnsafeCStringArray(args) { cArgs in
-            nodeHandle = nodeMobileStart(cArgs, Int32(args.count)) { message in
-                // Node发来的消息回调
-                if let message = message {
-                    let str = String(cString: message)
-                    DispatchQueue.main.async {
-                        self.handleNodeMessage(str)
-                    }
-                }
+        // 启动 Node.js 线程
+        nodeThread = Thread {
+            // 调用 node_start 函数启动 Node.js
+            let cArgs = args.map { $0.withCString { $0 } }
+            withUnsafeBufferPointer(to: cArgs) { buffer in
+                node_start(Int32(args.count), buffer.baseAddress)
             }
         }
         
-        // 给Node发送run指令，加载源
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) { [weak self] in
-            guard let self = self, let port = self.webServer?.port else { return }
-            
-            // 读取用户的网盘配置
-            let diskConfig = self.loadDiskConfig()
-            
-            // 发送run指令
-            let runMessage: [String: Any] = [
-                "action": "run",
-                "nativeServerPort": port,
-                "path": nodeScriptPath,
-                "diskConfig": [
-                    "aliToken": diskConfig.aliToken,
-                    "quarkCookie": diskConfig.quarkCookie,
-                    "pan115Cookie": diskConfig.pan115Cookie,
-                    "tianyiToken": diskConfig.tianyiToken,
-                    "alistUrl": diskConfig.alistUrl,
-                    "alistToken": diskConfig.alistToken
-                ]
-            ]
-            
-            self.sendMessageToNode(runMessage)
-        }
+        nodeThread?.start()
     }
     
-    // 辅助方法：把 Swift String 数组转成 C 字符串数组
-    private func withUnsafeCStringArray(_ strings: [String], body: ([UnsafePointer<Int8>?]) throws -> Void) rethrows {
-        try strings.withUnsafeBufferPointer { strBuffer in
-            var cStrings: [UnsafePointer<Int8>?] = []
-            for string in strings {
-                try string.withCString { cStr in
-                    cStrings.append(cStr)
-                    try body(cStrings)
-                }
-            }
-        }
-    }
+    // 声明 node_start 函数，这个所有版本都有！
+    @_silgen_name("node_start")
+    func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafePointer<Int8>?>) -> Int32
     
     private func handleNodeMessage(_ message: String) {
-        // 解析Node发来的JSON消息
+        // 解析 Node 发来的消息
         guard let data = message.data(using: .utf8),
               let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return
@@ -142,21 +107,25 @@ class NodeJSBridge: NSObject {
     }
     
     private func sendMessageToNode(_ message: [String: Any]) {
+        // 直接发 HTTP 请求给 Node 的 HTTP 服务！
+        guard let port = nodePort else { return }
+        
         do {
             let data = try JSONSerialization.data(withJSONObject: message)
-            if let str = String(data: data, encoding: .utf8) {
-                str.withCString { cStr in
-                    if let nodeHandle = nodeHandle {
-                        nodeMobileSendMessage(nodeHandle, cStr)
-                    }
-                }
-            }
+            
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/message")!)
+            request.httpMethod = "POST"
+            request.httpBody = data
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            
+            let task = URLSession.shared.dataTask(with: request)
+            task.resume()
         } catch {
             Logger.shared.log("发送消息给Node失败: \(error)", level: .error)
         }
     }
     
-    /// 向Node服务发送请求，转发API调用
+    /// 向 Node 服务发送请求
     func requestNodeAPI(path: String, body: [String: Any]) async throws -> Any {
         guard let port = nodePort else {
             throw NSError(domain: "NodeJSBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "Node服务未启动"])
@@ -181,33 +150,41 @@ class NodeJSBridge: NSObject {
         return try JSONSerialization.jsonObject(with: data)
     }
     
-    // MARK: - 动态加载远程源
+    // MARK: - 动态加载源
     func loadRemoteSource(path: String) {
-        guard let port = webServer?.port else { return }
-        
-        // 读取用户的网盘配置
-        let diskConfig = loadDiskConfig()
-        
-        // 发送run指令，加载远程源
-        let runMessage: [String: Any] = [
+        // 给 Node 发送 run 指令，通过 HTTP
+        sendMessageToNode([
             "action": "run",
-            "nativeServerPort": port,
-            "path": path,
-            "diskConfig": [
-                "aliToken": diskConfig.aliToken,
-                "quarkCookie": diskConfig.quarkCookie,
-                "pan115Cookie": diskConfig.pan115Cookie,
-                "tianyiToken": diskConfig.tianyiToken,
-                "alistUrl": diskConfig.alistUrl,
-                "alistToken": diskConfig.alistToken
-            ]
-        ]
+            "path": path
+        ])
         
-        sendMessageToNode(runMessage)
         Logger.shared.log("已加载远程Node源，路径: \(path)", level: .info)
     }
     
     // MARK: - 网盘配置
+    func saveDiskConfig(_ config: DiskConfig) {
+        do {
+            // 保存配置到本地
+            let data = try JSONEncoder().encode(config)
+            UserDefaults.standard.set(data, forKey: "DiskConfig")
+            
+            // 把配置传给 Node，通过 HTTP
+            sendMessageToNode([
+                "action": "run",
+                "diskConfig": [
+                    "aliToken": config.aliToken,
+                    "quarkCookie": config.quarkCookie,
+                    "pan115Cookie": config.pan115Cookie,
+                    "tianyiToken": config.tianyiToken,
+                    "alistUrl": config.alistUrl,
+                    "alistToken": config.alistToken
+                ]
+            ])
+        } catch {
+            Logger.shared.log("保存网盘配置失败: \(error)", level: .error)
+        }
+    }
+    
     func loadDiskConfig() -> DiskConfig {
         if let data = UserDefaults.standard.data(forKey: "DiskConfig") {
             do {
@@ -217,33 +194,6 @@ class NodeJSBridge: NSObject {
             }
         }
         return DiskConfig()
-    }
-    
-    func saveDiskConfig(_ config: DiskConfig) {
-        do {
-            let data = try JSONEncoder().encode(config)
-            UserDefaults.standard.set(data, forKey: "DiskConfig")
-            
-            // 重新加载源，让新配置生效
-            if let port = webServer?.port, let nodePath = Bundle.main.path(forResource: "index", ofType: "js", inDirectory: "asset/js") {
-                let runMessage: [String: Any] = [
-                    "action": "run",
-                    "nativeServerPort": port,
-                    "path": nodePath,
-                    "diskConfig": [
-                        "aliToken": config.aliToken,
-                        "quarkCookie": config.quarkCookie,
-                        "pan115Cookie": config.pan115Cookie,
-                        "tianyiToken": config.tianyiToken,
-                        "alistUrl": config.alistUrl,
-                        "alistToken": config.alistToken
-                    ]
-                ]
-                sendMessageToNode(runMessage)
-            }
-        } catch {
-            Logger.shared.log("保存网盘配置失败: \(error)", level: .error)
-        }
     }
 }
 
