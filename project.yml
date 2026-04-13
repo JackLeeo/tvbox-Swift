@@ -1,108 +1,51 @@
 name: tvbox
 options:
-  bundleIdPrefix: com.tvbox
-  xcodeVersion: "16.2"
-  groupSortPosition: top
-  minimumXcodeGenVersion: "2.35"
-settings:
-  base:
-    SWIFT_VERSION: "5.10"
-    DEVELOPMENT_TEAM: ""
-    CODE_SIGN_STYLE: Automatic
-packages:
-  VLCKitSPM:
-    url: https://github.com/tylerjonesio/vlckit-spm
-    from: 3.6.0
-  GCDWebServer:
-    url: https://github.com/yene/GCDWebServer
-    from: 3.5.0
-  ZIPFoundation:
-    url: https://github.com/weichsel/ZIPFoundation
-    from: 0.9.16
+  xcodegen:
+    useBaseInternationalization: true
 targets:
   tvbox:
     type: application
     platform: iOS
-    deploymentTarget: "16.0"
-    dependencies:
-      - package: VLCKitSPM
-        product: VLCKitSPM
-      - package: GCDWebServer
-      - package: ZIPFoundation
-      - framework: Libraries/nodejs-mobile/NodeMobile.xcframework
+    deploymentTarget:
+      iOS: 16.0
     sources:
-      - path: tvbox
-        excludes:
-          - Info.plist
+      - tvbox
     resources:
-      - path: tvbox/Resources/nodejs-project
-        copyOriginal: true
-        excludes:
-          - "open/lib"
-          - "open/qjsc"
-          - "open/local"
-          - "open/wrapper"
-          - "open/README.md"
-          - "open/package.json"
-      - path: tvbox/Resources/asset/js
-        copyOriginal: true
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
-        INFOPLIST_FILE: tvbox/Info.plist
-        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
-        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
-        INFOPLIST_KEY_UILaunchScreen_Generation: YES
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
-        GENERATE_INFOPLIST_FILE: YES
-        CURRENT_PROJECT_VERSION: "1"
-        MARKETING_VERSION: "1.0.3"
-        PRODUCT_NAME: TVBox
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        SWIFT_EMIT_LOC_STRINGS: YES
-        SUPPORTS_MACCATALYST: YES
-        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
-        ENABLE_BITCODE: NO
-        HEADER_SEARCH_PATHS: $(inherited)
-        FRAMEWORK_SEARCH_PATHS: $(inherited) $(SRCROOT)/Libraries/nodejs-mobile
-        OTHER_LDFLAGS:
-          - -lc++
-          - -framework NodeMobile
-          - $(inherited)
-        MACH_O_TYPE: mh_execute
-      configs:
-        Debug:
-          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
-        Release:
-          SWIFT_OPTIMIZATION_LEVEL: "-O"
-  tvbox-macOS:
-    type: application
-    platform: macOS
-    deploymentTarget: "14.0"
+      - tvbox/Assets.xcassets
+      - tvbox/Resources/nodejs-project
     dependencies:
-      - package: VLCKitSPM
-        product: VLCKitSPM
-    sources:
-      - path: tvbox
-        excludes:
-          - Info.plist
+      - package: https://github.com/CodeEagle/VLCKit-SPM
+        version: 3.6.0
+      - package: https://github.com/Alamofire/Alamofire
+        version: 5.8.1
+      - package: https://github.com/swiftwebui/GCDWebServer
+        version: 3.5.0
+      - package: https://github.com/weichsel/ZIPFoundation
+        version: 0.9.16
     settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app.macos
-        INFOPLIST_FILE: tvbox/Info.plist
-        GENERATE_INFOPLIST_FILE: YES
-        CURRENT_PROJECT_VERSION: "1"
-        MARKETING_VERSION: "1.0.3"
-        PRODUCT_NAME: TVBox
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
-        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
-        SWIFT_EMIT_LOC_STRINGS: YES
-        CODE_SIGN_IDENTITY: "-"
-        CODE_SIGN_ENTITLEMENTS: ""
-      configs:
-        Debug:
-          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
-        Release:
-          SWIFT_OPTIMIZATION_LEVEL: "-O"
+      FRAMEWORK_SEARCH_PATHS:
+        - $(inherited)
+        - $(SRCROOT)/Libraries/nodejs-mobile
+      OTHER_LDFLAGS:
+        - $(inherited)
+        - -framework
+        - NodeMobile
+      SWIFT_INCLUDE_PATHS:
+        - $(inherited)
+        - $(SRCROOT)/Libraries/nodejs-mobile
+    preBuildScripts:
+      - name: Check NodeMobile
+        script: |
+          if [ ! -d "$SRCROOT/Libraries/nodejs-mobile/NodeMobile.xcframework" ]; then
+            echo "Downloading NodeMobile framework..."
+            curl -L https://github.com/janeasystems/nodejs-mobile/releases/download/v18.18.0/nodejs-mobile-framework-universal.tar.gz -o nodejs-mobile.tar.gz
+            tar -xzf nodejs-mobile.tar.gz
+            mv NodeMobile.xcframework "$SRCROOT/Libraries/nodejs-mobile/"
+            rm nodejs-mobile.tar.gz
+          fi
+packages:
+  dependencies:
+    VLCKit-SPM: https://github.com/CodeEagle/VLCKit-SPM
+    Alamofire: https://github.com/Alamofire/Alamofire
+    GCDWebServer: https://github.com/swiftwebui/GCDWebServer
+    ZIPFoundation: https://github.com/weichsel/ZIPFoundation
