@@ -43,6 +43,6 @@ targets:
         SWIFT_OPTIMIZATION_LEVEL: "-Owholemodule"
         SWIFT_OBJC_BRIDGING_HEADER: tvbox/tvbox-Bridging-Header.h
         OTHER_LDFLAGS: -ObjC
-        FRAMEWORK_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile
-        HEADER_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile/include
+        FRAMEWORK_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile/NodeMobile.xcframework
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile/NodeMobile.xcframework/ios-arm64/NodeMobile.framework/Headers
         INFOPLIST_FILE: tvbox/Info.plist
