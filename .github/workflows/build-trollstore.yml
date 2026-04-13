@@ -249,7 +249,7 @@ jobs:
         run: |
           echo "=== 清理构建目录 ==="
           xcodebuild clean -project tvbox.xcodeproj -scheme tvbox -destination 'generic/platform=iOS' || echo "清理完成"
-          
+          git config --global url."https://${{ secrets.GITHUB_TOKEN }}@github.com/".insteadOf "https://github.com/"       
           echo "=== 开始构建应用 ==="
           set +o pipefail
           xcodebuild build \
