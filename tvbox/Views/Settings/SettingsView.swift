@@ -114,6 +114,18 @@ struct SettingsView: View {
                         } label: {
                             SettingsRow(icon: "heart", title: "我的收藏", value: "", action: nil)
                         }
+                        Divider().background(Color.white.opacity(0.1))
+                        NavigationLink {
+                            DiskConfigView()
+                        } label: {
+                            SettingsRow(icon: "externaldrive", title: "网盘配置", value: "", action: nil)
+                        }
+                        Divider().background(Color.white.opacity(0.1))
+                        NavigationLink {
+                            AddNodeSourceView()
+                        } label: {
+                            SettingsRow(icon: "link.badge.plus", title: "添加Node源", value: "", action: nil)
+                        }
                     }
                     
                     // 缓存
