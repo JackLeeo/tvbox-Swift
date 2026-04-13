@@ -24,16 +24,18 @@ class NodeJSBridge: NSObject {
     private func startNativeServer() {
         webServer = GCDWebServer()
         
-        // 使用正确的 GCDWebServer API
         webServer?.addHandler(
             forMethod: "POST",
             path: "/message",
             request: GCDWebServerDataRequest.self,
             processBlock: { [weak self] request in
-                // 将 request 转换为 GCDWebServerDataRequest
                 guard let self = self,
-                      let dataRequest = request as? GCDWebServerDataRequest,
-                      let body = dataRequest.data,
+                      let dataRequest = request as? GCDWebServerDataRequest else {
+                    return GCDWebServerResponse(statusCode: 400)
+                }
+                
+                let body = dataRequest.data
+                guard body.count > 0,
                       let message = String(data: body, encoding: .utf8) else {
                     return GCDWebServerResponse(statusCode: 400)
                 }
