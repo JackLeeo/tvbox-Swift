@@ -1,65 +1,42 @@
 import SwiftUI
 
 struct AddNodeSourceView: View {
-    @Environment(\.dismiss) var dismiss
     @State private var sourceUrl = ""
     @State private var sourceName = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        NavigationStack {
-            Form {
+        Form {
+            Section {
+                TextField("源名称", text: $sourceName)
+                TextField("源地址", text: $sourceUrl)
+                    .autocorrectionDisabled()
+                    .autocapitalization(.none)
+            }
+            
+            if let error = errorMessage {
                 Section {
-                    TextField("源名称", text: $sourceName)
-                        .placeholder(when: sourceName.isEmpty) {
-                            Text("请输入源名称")
-                        }
-                    
-                    TextField("源地址", text: $sourceUrl)
-                        .placeholder(when: sourceUrl.isEmpty) {
-                            Text("支持HTTP地址、Gitee/GitHub私有地址")
-                        }
-                        .autocorrectionDisabled()
-                        .autocapitalization(.none)
-                } header: {
-                    Text("远程Node源")
-                } footer: {
-                    Text("例如：https://xxx.com/source.zip 或者 gitee://token@gitee.com/user/repo/branch/path")
-                }
-                
-                if let error = errorMessage {
-                    Section {
-                        Text(error)
-                            .foregroundColor(.red)
-                    }
-                }
-                
-                Section {
-                    Button {
-                        Task {
-                            await addSource()
-                        }
-                    } label: {
-                        if isLoading {
-                            ProgressView()
-                                .frame(maxWidth: .infinity)
-                        } else {
-                            Text("添加源")
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-                    .disabled(isLoading || sourceUrl.isEmpty || sourceName.isEmpty)
+                    Text(error)
+                        .foregroundColor(.red)
                 }
             }
-            .navigationTitle("添加Node源")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") {
-                        dismiss()
+            
+            Section {
+                Button("添加源") {
+                    Task {
+                        await addSource()
                     }
                 }
+                .disabled(isLoading || sourceName.isEmpty || sourceUrl.isEmpty)
+            }
+        }
+        .navigationTitle("添加Node源")
+        .navigationBarTitleDisplayMode(.inline)
+        .overlay {
+            if isLoading {
+                ProgressView("正在下载源...")
             }
         }
     }
@@ -71,7 +48,7 @@ struct AddNodeSourceView: View {
         do {
             // 解析地址
             guard let (url, type) = SourceService.shared.parseNodeSourceUrl(sourceUrl) else {
-                errorMessage = "无效的源地址格式"
+                errorMessage = "无效的源地址"
                 isLoading = false
                 return
             }
@@ -79,15 +56,20 @@ struct AddNodeSourceView: View {
             // 下载源
             let localPath = try await SourceService.shared.downloadRemoteNodeSource(url: url, sourceName: sourceName)
             
-            // 保存源
+            // 创建源Bean
             let newSource = SourceBean(
                 id: UUID().uuidString,
                 name: sourceName,
-                url: sourceUrl,
+                key: "node_\(sourceName)",
+                type: 3,
+                api: "node://\(sourceName)",
+                search: 1,
+                group: "Node源",
                 localPath: localPath,
-                type: type
+                sourceType: type
             )
             
+            // 保存源
             SourceService.shared.saveSource(newSource)
             
             // 加载源
@@ -95,7 +77,7 @@ struct AddNodeSourceView: View {
             
             dismiss()
         } catch {
-            errorMessage = "添加失败: \(error.localizedDescription)"
+            errorMessage = "下载失败: \(error.localizedDescription)"
         }
         
         isLoading = false
