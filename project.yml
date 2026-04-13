@@ -44,8 +44,15 @@ targets:
             rm nodejs-mobile.tar.gz
           fi
 packages:
-  dependencies:
-    VLCKit-SPM: https://github.com/CodeEagle/VLCKit-SPM
-    Alamofire: https://github.com/Alamofire/Alamofire
-    GCDWebServer: https://github.com/swiftwebui/GCDWebServer
-    ZIPFoundation: https://github.com/weichsel/ZIPFoundation
+  VLCKit-SPM:
+    url: https://github.com/CodeEagle/VLCKit-SPM
+    version: 3.6.0
+  Alamofire:
+    url: https://github.com/Alamofire/Alamofire
+    version: 5.8.1
+  GCDWebServer:
+    url: https://github.com/swiftwebui/GCDWebServer
+    version: 3.5.0
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation
+    version: 0.9.16
