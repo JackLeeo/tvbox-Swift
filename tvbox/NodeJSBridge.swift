@@ -2,6 +2,10 @@ import Foundation
 import GCDWebServer
 import Combine
 
+// 声明 node_start 函数 - 必须是全局的！
+@_cdecl("node_start")
+func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
+
 class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
     
@@ -74,13 +78,13 @@ class NodeJSBridge: NSObject {
         ]
         
         // 启动 Node.js 线程
-        nodeThread = Thread { [weak self] in
+        nodeThread = Thread {
             // 使用 strdup 简化内存管理
             var argv: [UnsafeMutablePointer<Int8>?] = args.map { strdup($0) }
             argv.append(nil)  // 以 NULL 结尾
             
-            // 修复：在闭包中调用方法需要显式使用 self
-            _ = self?.node_start(Int32(args.count), &argv)
+            // 调用全局的 node_start 函数
+            _ = node_start(Int32(args.count), &argv)
             
             // 释放内存
             for ptr in argv {
@@ -92,10 +96,6 @@ class NodeJSBridge: NSObject {
         
         nodeThread?.start()
     }
-    
-    // 声明 node_start 函数
-    @_silgen_name("node_start")
-    func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
     
     private func handleNodeMessage(_ message: String) {
         // 解析 Node 发来的消息
