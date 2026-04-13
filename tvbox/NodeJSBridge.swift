@@ -94,7 +94,7 @@ class NodeJSBridge: NSObject {
     }
     
     // 声明 node_start 函数
-    @_silgen_name("_node_start")
+    @_silgen_name("node_start")
     func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
     
     private func handleNodeMessage(_ message: String) {
