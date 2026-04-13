@@ -13,6 +13,12 @@ packages:
   VLCKitSPM:
     url: https://github.com/tylerjonesio/vlckit-spm
     from: 3.6.0
+  GCDWebServer:
+    url: https://github.com/swiftwebui/GCDWebServer
+    from: 3.5.0
+  ZIPFoundation:
+    url: https://github.com/weichsel/ZIPFoundation
+    from: 0.9.16
 targets:
   tvbox:
     type: application
@@ -21,6 +27,8 @@ targets:
     dependencies:
       - package: VLCKitSPM
         product: VLCKitSPM
+      - package: GCDWebServer
+      - package: ZIPFoundation
       - framework: Libraries/nodejs-mobile/NodeMobile.xcframework
     sources:
       - path: tvbox
@@ -36,6 +44,8 @@ targets:
           - "open/wrapper"
           - "open/README.md"
           - "open/package.json"
+      - path: tvbox/Resources/asset/js
+        copyOriginal: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
