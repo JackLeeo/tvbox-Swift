@@ -9,13 +9,7 @@ options:
   generateEmptyDirectories: true
   carthageBuildPath: Carthage
   carthageUseXCFrameworks: true
-  preGenCommand: |
-    if [ ! -d "Libraries/nodejs-mobile" ]; then
-      mkdir -p Libraries/nodejs-mobile
-      wget https://github.com/janeasystems/nodejs-mobile/releases/download/v18.18.0/nodejs-mobile-framework-universal.tar.gz
-      tar -xzf nodejs-mobile-framework-universal.tar.gz -C Libraries/nodejs-mobile
-      rm nodejs-mobile.tar.gz
-    fi
+
 packages:
   VLCKit-SPM:
     url: https://github.com/tylerjonesio/vlckit-spm
