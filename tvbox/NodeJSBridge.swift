@@ -29,15 +29,17 @@ class NodeJSBridge: NSObject {
     private func startNativeServer() {
         nativeServer = GCDWebServer()
         
-        // Objective-C 版本的 GCDWebServer 正确的 API
-        // 第三个参数是 requestClass，不是 request！
+        // 正确的异步版本的 addHandler！
+        // 参数标签是 asyncProcessBlock，不是 processBlock！
+        // 而且 closure 有两个参数：request 和 completion！
         nativeServer?.addHandler(
             forMethod: "POST",
             path: "/message",
-            requestClass: GCDWebServerRequest.self,
-            processBlock: { [weak self] request in
+            request: GCDWebServerRequest.self,
+            asyncProcessBlock: { [weak self] request, completion in
                 guard let self = self else {
-                    return GCDWebServerResponse(statusCode: 500)
+                    completion(GCDWebServerResponse(statusCode: 500))
+                    return
                 }
                 
                 do {
@@ -45,10 +47,10 @@ class NodeJSBridge: NSObject {
                     if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                         self.handleNodeMessage(json)
                     }
-                    return GCDWebServerResponse(statusCode: 200)
+                    completion(GCDWebServerResponse(statusCode: 200))
                 } catch {
                     Logger.shared.log("处理 Node 消息失败: \(error)", level: .error)
-                    return GCDWebServerResponse(statusCode: 500)
+                    completion(GCDWebServerResponse(statusCode: 500))
                 }
             }
         )
