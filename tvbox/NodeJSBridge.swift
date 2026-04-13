@@ -79,8 +79,8 @@ class NodeJSBridge: NSObject {
             var argv: [UnsafeMutablePointer<Int8>?] = args.map { strdup($0) }
             argv.append(nil)  // 以 NULL 结尾
             
-            // 调用带有下划线前缀的 node_start
-            _ = self?._node_start(Int32(args.count), &argv)
+            // 修复：在闭包中调用方法需要显式使用 self
+            _ = self?.node_start(Int32(args.count), &argv)
             
             // 释放内存
             for ptr in argv {
@@ -93,9 +93,9 @@ class NodeJSBridge: NSObject {
         nodeThread?.start()
     }
     
-    // 修复：使用带有下划线前缀的 C 函数符号
+    // 声明 node_start 函数
     @_silgen_name("_node_start")
-    func _node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
+    func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
     
     private func handleNodeMessage(_ message: String) {
         // 解析 Node 发来的消息
@@ -128,13 +128,8 @@ class NodeJSBridge: NSObject {
         do {
             let data = try JSONSerialization.data(withJSONObject: message)
             
-            // 构建完整的 URL
-            guard let url = URL(string: "http://127.0.0.1:\(port)/message") else {
-                Logger.shared.log("URL构建失败", level: .error)
-                return
-            }
-            
-            var request = URLRequest(url: url)
+            // 修复URL：添加协议和主机
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/message")!)
             request.httpMethod = "POST"
             request.httpBody = data
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -153,12 +148,8 @@ class NodeJSBridge: NSObject {
                          userInfo: [NSLocalizedDescriptionKey: "Node服务未启动"])
         }
         
-        // 构建完整的 URL
-        guard let url = URL(string: "http://127.0.0.1:\(port)\(path)") else {
-            throw NSError(domain: "NodeJSBridge", code: -2, 
-                         userInfo: [NSLocalizedDescriptionKey: "URL构建失败"])
-        }
-        
+        // 修复URL：添加协议和主机
+        let url = URL(string: "http://127.0.0.1:\(port)\(path)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
