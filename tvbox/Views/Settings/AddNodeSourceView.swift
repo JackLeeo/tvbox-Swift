@@ -1,6 +1,5 @@
 import SwiftUI
 import ZIPFoundation
-
 struct AddNodeSourceView: View {
     @State private var sourceUrl = ""
     @State private var sourceName = ""
@@ -72,7 +71,7 @@ struct AddNodeSourceView: View {
                     if !existingSources.isEmpty {
                         SectionCard(title: "已添加的源") {
                             VStack(spacing: 0) {
-                                ForEach(existingSources, id: \.name) { source in
+                                ForEach(existingSources, id: \.id) { source in
                                     HStack {
                                         VStack(alignment: .leading, spacing: 4) {
                                             Text(source.name)
@@ -106,7 +105,7 @@ struct AddNodeSourceView: View {
                                     }
                                     .padding(.vertical, 12)
                                     
-                                    if source.name != existingSources.last?.name {
+                                    if source.id != existingSources.last?.id {
                                         Divider().background(Color.white.opacity(0.1))
                                     }
                                 }
@@ -150,41 +149,17 @@ struct AddNodeSourceView: View {
         
         do {
             // 下载源文件
-            let (data, _) = try await URLSession.shared.data(from: url)
-            
-            // 获取 Documents 目录
-            let documentsDir = try FileManager.default.url(for: .documentDirectory, in: .userDomainMask, appropriateFor: nil, create: true)
-            let sourceDir = documentsDir.appendingPathComponent("node_sources/\(sourceName)")
-            
-            // 如果目录已存在，先删除
-            if FileManager.default.fileExists(atPath: sourceDir.path) {
-                try FileManager.default.removeItem(at: sourceDir)
-            }
-            
-            // 创建目录
-            try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
-            
-            // 如果是 zip 文件，解压
-            if url.pathExtension == "zip" {
-                let tempZip = try FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString + ".zip")
-                try data.write(to: tempZip)
-                try FileManager.default.unzipItem(at: tempZip, to: sourceDir)
-                try FileManager.default.removeItem(at: tempZip)
-            } else {
-                // 普通 js 文件
-                let fileURL = sourceDir.appendingPathComponent("index.js")
-                try data.write(to: fileURL)
-            }
+            let localPath = try await SourceService.shared.downloadRemoteNodeSource(url: url, sourceName: sourceName)
             
             // 保存源信息
             try await SourceService.shared.saveRemoteSource(
                 name: sourceName,
                 url: sourceUrl,
-                localPath: sourceDir.path
+                localPath: localPath
             )
             
             // 加载这个源
-            NodeJSBridge.shared.loadRemoteSource(path: sourceDir.path)
+            NodeJSBridge.shared.loadRemoteSource(path: localPath)
             
             // 刷新列表
             existingSources = SourceService.shared.getRemoteSources()
@@ -217,69 +192,15 @@ struct AddNodeSourceView: View {
         
         // 从保存的列表中删除
         var sources = SourceService.shared.getRemoteSources()
-        sources.removeAll { $0.name == source.name }
+        sources.removeAll { $0.id == source.id }
         
         // 保存
-        do {
-            let data = try JSONEncoder().encode(sources)
-            UserDefaults.standard.set(data, forKey: "RemoteSources")
-        } catch {
-            Logger.shared.log("保存源列表失败: \(error)", level: .error)
-        }
+        SourceService.shared.saveRemoteSources(sources)
         
         // 刷新列表
         existingSources = sources
         
         toastMessage = "已删除源: \(source.name)"
         showToast = true
-    }
-}
-
-// Placeholder 扩展
-extension View {
-    func placeholder<Content: View>(when shouldShow: Bool, alignment: Alignment = .leading, @ViewBuilder placeholder: () -> Content) -> some View {
-        ZStack(alignment: alignment) {
-            placeholder().opacity(shouldShow ? 1 : 0)
-            self
-        }
-    }
-}
-
-// Toast 扩展
-struct ToastModifier: ViewModifier {
-    @Binding var isPresented: Bool
-    let message: String
-    
-    func body(content: Content) -> some View {
-        ZStack {
-            content
-            
-            if isPresented {
-                VStack {
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.8))
-                        .cornerRadius(8)
-                    
-                    Spacer()
-                }
-                .padding(.top, 60)
-                .transition(.opacity)
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        isPresented = false
-                    }
-                }
-            }
-        }
-    }
-}
-
-extension View {
-    func toast(isPresented: Binding<Bool>, message: String) -> some View {
-        self.modifier(ToastModifier(isPresented: isPresented, message: message))
     }
 }
