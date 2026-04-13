@@ -95,7 +95,56 @@ class SourceService {
         return sourceDir.path
     }
     
-    // MARK: - 单个源搜索
+    // MARK: - 首页分类接口
+    func getSort(sourceBean: SourceBean) async throws -> [MovieSort] {
+        // 调用Node的/home接口，获取分类配置
+        let body: [String: Any] = [:]
+        
+        let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/home", body: body)
+        
+        // 解析返回的分类数据
+        if let dict = result as? [String: Any],
+           let classList = dict["class"] as? [[String: Any]] {
+            
+            // 把字典转换成MovieSort
+            let jsonData = try JSONSerialization.data(withJSONObject: classList)
+            let sorts = try JSONDecoder().decode([MovieSort].self, from: jsonData)
+            
+            return sorts
+        }
+        
+        return []
+    }
+    
+    // MARK: - 分类列表接口
+    func getList(sourceBean: SourceBean, sortData: MovieSort, page: Int) async throws -> [Movie.Video] {
+        // 调用Node的/category接口，获取分类影片列表
+        let body: [String: Any] = [
+            "id": sortData.typeId,
+            "page": page
+        ]
+        
+        let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/category", body: body)
+        
+        // 解析返回的影片列表
+        if let dict = result as? [String: Any],
+           let list = dict["list"] as? [[String: Any]] {
+            
+            let jsonData = try JSONSerialization.data(withJSONObject: list)
+            let videos = try JSONDecoder().decode([Movie.Video].self, from: jsonData)
+            
+            // 给每个video设置sourceKey
+            return videos.map { video in
+                var newVideo = video
+                newVideo.sourceKey = sourceBean.key
+                return newVideo
+            }
+        }
+        
+        return []
+    }
+    
+    // MARK: - 搜索方法
     func search(sourceBean: SourceBean, keyword: String, page: Int = 1) async throws -> [Movie.Video] {
         // 调用Node的搜索接口
         let body: [String: Any] = [
@@ -106,7 +155,7 @@ class SourceService {
         // 请求Node的API
         let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/search", body: body)
         
-        // 解析返回的数据
+        // 解析返回的数据，Node返回的是标准的CatVod格式
         if let dict = result as? [String: Any],
            let list = dict["list"] as? [[String: Any]] {
             
@@ -125,7 +174,7 @@ class SourceService {
         return []
     }
     
-    // MARK: - 多源搜索
+    /// 多源搜索，遍历所有源并行搜索，合并结果
     func searchAll(keyword: String) async throws -> [Movie.Video] {
         let allSources = await getAllSources()
         var allVideos: [Movie.Video] = []
@@ -178,13 +227,11 @@ class SourceService {
         return savedSources
     }
     
-    // MARK: - 获取所有源
+    // MARK: - 获取所有源（包含内置和已保存的）
     func getAllSources() async -> [SourceBean] {
-        // 获取内置源
+        // 这里要加await，因为ApiConfig.shared.sourceBeanList是async属性
         let builtInSources = await ApiConfig.shared.sourceBeanList
-        // 获取已保存的远程源
         let remoteSources = getSavedSources()
-        // 合并
         return builtInSources + remoteSources
     }
 }
