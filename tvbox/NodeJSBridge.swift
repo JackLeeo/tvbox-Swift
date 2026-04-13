@@ -1,247 +1,205 @@
 import Foundation
+import NodeMobile
+import GCDWebServer
 
-@_silgen_name("node_start")
-func node_start(_ argc: Int32, _ argv: UnsafeMutablePointer<UnsafeMutablePointer<Int8>?>?)
-
-class NodeJSBridge {
+class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
-    private var isNodeStarted = false
-    private let httpSession = URLSession(configuration: .default)
-    private let baseURL = "http://127.0.0.1:3000"
-    private var nodeOutputPipe: Pipe?
-    private var nodeErrorPipe: Pipe?
-
-    private init() {
-        Logger.shared.log("NodeJSBridge 初始化 (HTTP 模式)", level: .info)
-        listAllScriptsInBundle()
-        startNodeInBackground()
-        DispatchQueue.global().asyncAfter(deadline: .now() + 2.5) {
-            self.testServerReady()
-        }
+    
+    private var nodePort: UInt16?
+    private var nativeServer: GCDWebServer?
+    private var nodeThread: Thread?
+    
+    private var diskConfig: DiskConfig = DiskConfig()
+    
+    override init() {
+        super.init()
+        loadDiskConfig()
     }
-
-    private func listAllScriptsInBundle() {
-        Logger.shared.log("扫描 Bundle 中的脚本文件...", level: .debug)
-        guard let resourcePath = Bundle.main.resourcePath else {
-            Logger.shared.log("无法获取 Bundle 资源路径", level: .warning)
-            return
-        }
-        let enumerator = FileManager.default.enumerator(atPath: resourcePath)
-        var found = false
-        while let file = enumerator?.nextObject() as? String {
-            if file.hasSuffix(".js") || file.contains("type3") {
-                Logger.shared.log("发现文件: \(file)", level: .info)
-                found = true
-            }
-        }
-        if !found {
-            Logger.shared.log("未找到任何 .js 文件", level: .warning)
-        }
+    
+    func start() {
+        // 启动原生本地服务
+        startNativeServer()
+        
+        // 启动Node.js线程
+        nodeThread = Thread(target: self, selector: #selector(startNode), object: nil)
+        nodeThread?.start()
     }
-
-    private func findScriptPath() -> String? {
-        if let path = Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: "nodejs-project") {
-            Logger.shared.log("路径1 命中: \(path)", level: .info)
-            return path
-        }
-        if let path = Bundle.main.path(forResource: "type3-parser", ofType: "js", inDirectory: nil) {
-            Logger.shared.log("路径2 命中: \(path)", level: .info)
-            return path
-        }
-        if let resourcePath = Bundle.main.resourcePath,
-           let enumerator = FileManager.default.enumerator(atPath: resourcePath) {
-            while let file = enumerator.nextObject() as? String {
-                if file.hasSuffix("type3-parser.js") {
-                    let fullPath = (resourcePath as NSString).appendingPathComponent(file)
-                    Logger.shared.log("路径3 命中: \(fullPath)", level: .info)
-                    return fullPath
+    
+    private func startNativeServer() {
+        nativeServer = GCDWebServer()
+        
+        // 添加Node消息处理接口
+        nativeServer?.addPOSTHandler(forPath: "/message", processBlock: { request, response, completion in
+            // 读取请求体
+            if let data = request.body as? Data {
+                do {
+                    let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+                    self.handleNodeMessage(json)
+                } catch {
+                    Logger.shared.log("解析Node消息失败: \(error)", level: .error)
                 }
             }
-        }
-        return nil
-    }
-
-    private func startNodeInBackground() {
-        guard !isNodeStarted else { return }
-        isNodeStarted = true
-        Logger.shared.log("准备启动 Node.js 线程", level: .info)
-
-        // 创建管道捕获 stdout 和 stderr
-        nodeOutputPipe = Pipe()
-        nodeErrorPipe = Pipe()
-
-        // 保存原始文件描述符
-        let origStdout = dup(STDOUT_FILENO)
-        let origStderr = dup(STDERR_FILENO)
-
-        // 重定向到管道
-        dup2(nodeOutputPipe!.fileHandleForWriting.fileDescriptor, STDOUT_FILENO)
-        dup2(nodeErrorPipe!.fileHandleForWriting.fileDescriptor, STDERR_FILENO)
-
-        // 在后台线程读取管道数据并转发到 Logger
-        DispatchQueue.global().async {
-            self.capturePipeData(pipe: self.nodeOutputPipe!, level: .info, prefix: "[Node] ")
-        }
-        DispatchQueue.global().async {
-            self.capturePipeData(pipe: self.nodeErrorPipe!, level: .error, prefix: "[NodeErr] ")
-        }
-
-        Thread.detachNewThread {
-            guard let scriptPath = self.findScriptPath() else {
-                Logger.shared.log("❌ 未找到 Node 脚本！请检查 Bundle 资源", level: .error)
-                return
+            
+            completion(GCDWebServerResponse(statusCode: 200))
+        })
+        
+        // 启动服务，随机端口
+        do {
+            try nativeServer?.start(options: [
+                GCDWebServerOption_Port: 0,
+                GCDWebServerOption_BindToLocalhost: true
+            ])
+            
+            if let port = nativeServer?.port {
+                Logger.shared.log("原生服务已启动，端口: \(port)", level: .info)
             }
-            Logger.shared.log("使用脚本路径: \(scriptPath)", level: .info)
-
-            let documentsPath = NSSearchPathForDirectoriesInDomains(.documentDirectory, .userDomainMask, true).first ?? ""
-            setenv("NODE_PATH", documentsPath, 1)
-            Logger.shared.log("NODE_PATH 设置为: \(documentsPath)", level: .info)
-
-            let args = ["node", scriptPath]
-            var cArgs = args.map { strdup($0) }
-            node_start(Int32(args.count), &cArgs)
-            cArgs.forEach { free($0) }
-
-            // 恢复原始文件描述符
-            dup2(origStdout, STDOUT_FILENO)
-            dup2(origStderr, STDERR_FILENO)
-            close(origStdout)
-            close(origStderr)
-
-            Logger.shared.log("node_start 已调用", level: .info)
-        }
-
-        Logger.shared.log("Node 线程已分离", level: .info)
-    }
-
-    private func capturePipeData(pipe: Pipe, level: LogLevel, prefix: String) {
-        let fileHandle = pipe.fileHandleForReading
-        var buffer = Data()
-
-        while true {
-            let data = fileHandle.availableData
-            if data.isEmpty { break }
-            buffer.append(data)
-            if let line = String(data: buffer, encoding: .utf8), line.contains("\n") {
-                let lines = line.components(separatedBy: "\n")
-                for l in lines where !l.isEmpty {
-                    Logger.shared.log("\(prefix)\(l)", level: level)
-                }
-                buffer = Data()
-            }
+        } catch {
+            Logger.shared.log("启动原生服务失败: \(error)", level: .error)
         }
     }
-
-    private func testServerReady() {
-        Logger.shared.log("测试 HTTP 服务器是否就绪...", level: .debug)
-        var request = URLRequest(url: URL(string: "\(baseURL)/health")!)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 3
-
-        httpSession.dataTask(with: request) { data, response, error in
-            if let error = error {
-                Logger.shared.log("健康检查失败: \(error.localizedDescription)", level: .error)
-                return
-            }
-            if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 {
-                Logger.shared.log("✅ HTTP 服务器已就绪", level: .info)
-            } else {
-                Logger.shared.log("健康检查响应异常: \(response?.description ?? "")", level: .warning)
-            }
-        }.resume()
-    }
-
-    func sendRequest(jsonString: String, completion: @escaping ([String: Any]?, Error?) -> Void) {
-        let requestId = UUID().uuidString.prefix(8)
-        Logger.shared.log("[\(requestId)] 发送 HTTP 请求到 \(baseURL)/parse", level: .debug)
-
-        guard let url = URL(string: "\(baseURL)/parse") else {
-            completion(nil, NSError(domain: "NodeJSBridge", code: -1))
+    
+    @objc private func startNode() {
+        // 准备Node.js的启动参数
+        guard let jsPath = Bundle.main.path(forResource: "index", ofType: "js", inDirectory: "asset/js") else {
+            Logger.shared.log("找不到Node.js脚本", level: .error)
             return
         }
-
+        
+        // 启动Node.js
+        NodeRunner.run(jsPath) { [weak self] message in
+            // 处理Node发来的消息
+            self?.handleNodeMessageFromRunner(message)
+        }
+    }
+    
+    private func handleNodeMessage(_ message: [String: Any]?) {
+        guard let message = message else { return }
+        
+        if let action = message["action"] as? String {
+            switch action {
+            case "ready":
+                // Node环境就绪，发送native端口
+                if let port = nativeServer?.port {
+                    sendMessageToNode([
+                        "action": "nativeServerPort",
+                        "port": port
+                    ])
+                    
+                    // 加载内置源
+                    if let path = Bundle.main.path(forResource: "asset/js", ofType: nil) {
+                        loadSource(path: path)
+                    }
+                }
+                
+            case "port":
+                // Node服务端口
+                if let port = message["port"] as? UInt16 {
+                    self.nodePort = port
+                    Logger.shared.log("Node服务已启动，端口: \(port)", level: .info)
+                }
+                
+            default:
+                break
+            }
+        }
+    }
+    
+    private func handleNodeMessageFromRunner(_ message: String) {
+        // 处理NodeRunner发来的消息
+        do {
+            let data = message.data(using: .utf8)!
+            let json = try JSONSerialization.jsonObject(with: data) as? [String: Any]
+            handleNodeMessage(json)
+        } catch {
+            Logger.shared.log("解析NodeRunner消息失败: \(error)", level: .error)
+        }
+    }
+    
+    func sendMessageToNode(_ message: [String: Any]) {
+        do {
+            let data = try JSONSerialization.data(withJSONObject: message)
+            let str = String(data: data, encoding: .utf8)!
+            NodeRunner.sendData(str)
+        } catch {
+            Logger.shared.log("发送消息到Node失败: \(error)", level: .error)
+        }
+    }
+    
+    func loadSource(path: String) {
+        // 加载源，注入配置
+        var config: [String: Any] = [:]
+        config["aliToken"] = diskConfig.aliToken
+        config["quarkCookie"] = diskConfig.quarkCookie
+        config["pan115Cookie"] = diskConfig.pan115Cookie
+        config["tianyiToken"] = diskConfig.tianyiToken
+        config["alistUrl"] = diskConfig.alistUrl
+        config["alistToken"] = diskConfig.alistToken
+        
+        sendMessageToNode([
+            "action": "run",
+            "path": path,
+            "config": config
+        ])
+    }
+    
+    func loadRemoteSource(path: String) {
+        // 加载远程源
+        loadSource(path: path)
+    }
+    
+    // MARK: - 网盘配置
+    func loadDiskConfig() {
+        if let data = UserDefaults.standard.data(forKey: "DiskConfig") {
+            do {
+                diskConfig = try JSONDecoder().decode(DiskConfig.self, from: data)
+            } catch {
+                Logger.shared.log("加载网盘配置失败: \(error)", level: .error)
+            }
+        }
+    }
+    
+    func saveDiskConfig(_ config: DiskConfig) {
+        diskConfig = config
+        do {
+            let data = try JSONEncoder().encode(config)
+            UserDefaults.standard.set(data, forKey: "DiskConfig")
+        } catch {
+            Logger.shared.log("保存网盘配置失败: \(error)", level: .error)
+        }
+    }
+    
+    func getDiskConfig() -> DiskConfig {
+        return diskConfig
+    }
+    
+    // MARK: - 请求转发
+    func requestNodeAPI(path: String, body: [String: Any]) async throws -> Any {
+        guard let port = nodePort else {
+            throw NSError(domain: "NodeJSBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "Node服务未启动"])
+        }
+        
+        let url = URL(string: "http://127.0.0.1:\(port)\(path)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
-        request.httpBody = jsonString.data(using: .utf8)
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.timeoutInterval = 15
-
-        httpSession.dataTask(with: request) { data, response, error in
-            if let error = error {
-                Logger.shared.log("[\(requestId)] 网络错误: \(error.localizedDescription)", level: .error)
-                completion(nil, error)
-                return
-            }
-
-            guard let data = data else {
-                Logger.shared.log("[\(requestId)] 响应数据为空", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -3))
-                return
-            }
-
-            let rawResponse = String(data: data, encoding: .utf8) ?? "无法解码"
-            Logger.shared.log("[\(requestId)] 原始响应: \(rawResponse)", level: .debug)
-
-            guard let jsonObject = try? JSONSerialization.jsonObject(with: data) else {
-                Logger.shared.log("[\(requestId)] 无法解析为 JSON 对象", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -3))
-                return
-            }
-
-            guard let result = jsonObject as? [String: Any] else {
-                Logger.shared.log("[\(requestId)] JSON 对象不是字典", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -3))
-                return
-            }
-
-            let success: Bool
-            if let boolSuccess = result["success"] as? Bool {
-                success = boolSuccess
-            } else if let intSuccess = result["success"] as? Int {
-                success = intSuccess != 0
-            } else {
-                Logger.shared.log("[\(requestId)] success 字段缺失或类型无效", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -1))
-                return
-            }
-
-            guard success else {
-                let errorMsg = result["error"] as? String ?? "解析失败"
-                Logger.shared.log("[\(requestId)] Node 错误: \(errorMsg)", level: .error)
-                completion(nil, NSError(domain: "NodeJSBridge", code: -1,
-                                        userInfo: [NSLocalizedDescriptionKey: errorMsg]))
-                return
-            }
-
-            if let dataDict = result["data"] as? [String: Any] {
-                Logger.shared.log("[\(requestId)] 解析成功 (data 是字典)", level: .info)
-                completion(dataDict, nil)
-            } else if let dataArray = result["data"] as? [[String: Any]] {
-                Logger.shared.log("[\(requestId)] data 是数组，包装为字典", level: .debug)
-                completion(["list": dataArray], nil)
-            } else {
-                if result["class"] != nil || result["list"] != nil {
-                    Logger.shared.log("[\(requestId)] 响应无 data 包装，直接使用整个 result", level: .debug)
-                    completion(result, nil)
-                } else {
-                    Logger.shared.log("[\(requestId)] data 字段缺失且 result 无有效数据", level: .error)
-                    completion(nil, NSError(domain: "NodeJSBridge", code: -1))
-                }
-            }
-        }.resume()
-    }
-
-    func sendRequest(jsonString: String) async throws -> [String: Any] {
-        try await withCheckedThrowingContinuation { continuation in
-            sendRequest(jsonString: jsonString) { result, error in
-                if let error = error {
-                    continuation.resume(throwing: error)
-                } else if let result = result {
-                    continuation.resume(returning: result)
-                } else {
-                    continuation.resume(throwing: NSError(domain: "NodeJSBridge", code: -1))
-                }
-            }
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            throw NSError(domain: "NodeJSBridge", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Node请求失败"])
         }
+        
+        return try JSONSerialization.jsonObject(with: data)
     }
+}
+
+// 网盘配置模型
+struct DiskConfig: Codable {
+    var aliToken: String = ""
+    var quarkCookie: String = ""
+    var pan115Cookie: String = ""
+    var tianyiToken: String = ""
+    var alistUrl: String = ""
+    var alistToken: String = ""
 }
