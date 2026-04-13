@@ -1,7 +1,7 @@
 import Foundation
 import GCDWebServer
 
-// 声明 NodeMobile 框架里的 C 函数，用 @_silgen_name 而不是 @_cdecl
+// 声明 NodeMobile 框架里的 C 函数
 @_silgen_name("node_start")
 func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
 
@@ -30,7 +30,18 @@ class NodeJSBridge: NSObject {
         nativeServer = GCDWebServer()
         
         // 添加消息处理接口，Node 会调用这个接口发送消息
-        nativeServer?.addPOSTHandler(forPath: "/message") { request, response, completion in
+        // 正确的 GCDWebServer API
+        nativeServer?.addHandler(
+            forMethod: "POST",
+            path: "/message",
+            request: nil,
+            response: nil
+        ) { [weak self] request, response, completion in
+            guard let self = self else {
+                completion(GCDWebServerResponse(statusCode: 500))
+                return
+            }
+            
             do {
                 let data = try Data(contentsOf: request.body)
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
@@ -38,9 +49,9 @@ class NodeJSBridge: NSObject {
                 }
                 completion(GCDWebServerResponse(statusCode: 200))
             } catch {
+                Logger.shared.log("处理 Node 消息失败: \(error)", level: .error)
                 completion(GCDWebServerResponse(statusCode: 500))
             }
-            return nil
         }
         
         // 启动服务，使用随机端口
@@ -95,7 +106,7 @@ class NodeJSBridge: NSObject {
         guard let scriptPath = Bundle.main.path(
             forResource: "index",
             ofType: "js",
-            inDirectory: "nodejs-project"  // 现在指向正确的框架目录
+            inDirectory: "nodejs-project"
         ) else {
             Logger.shared.log("找不到 Node 脚本文件", level: .error)
             return
