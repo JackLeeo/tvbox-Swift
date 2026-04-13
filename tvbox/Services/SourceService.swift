@@ -1,4 +1,23 @@
 import Foundation
+import ZIPFoundation
+
+// MARK: - Remote Source Model
+/// 远程 Node 源模型
+struct RemoteSource: Codable, Identifiable {
+    let id: String
+    let name: String
+    let url: String
+    let localPath: String
+    let createdAt: Date
+    
+    init(id: String = UUID().uuidString, name: String, url: String, localPath: String, createdAt: Date = Date()) {
+        self.id = id
+        self.name = name
+        self.url = url
+        self.localPath = localPath
+        self.createdAt = createdAt
+    }
+}
 
 /// 视频源数据服务 - 对应 Android 版 SourceViewModel.java
 /// 负责从各视频源获取分类、列表、详情和搜索数据
@@ -8,6 +27,130 @@ class SourceService {
     private let network = NetworkManager.shared
     
     private init() {}
+    
+    // MARK: - Remote Node Source
+    
+    /// 解析远程源地址
+    func parseNodeSourceUrl(_ input: String) -> (url: URL, type: String)? {
+        let trimmed = input.trimmingCharacters(in: .whitespacesAndNewlines)
+        
+        // 解析 Gitee 私有仓库地址: gitee://token@gitee.com/user/repo/branch/path
+        if trimmed.starts(with: "gitee://") {
+            let rest = String(trimmed.dropFirst(8))
+            if let atIndex = rest.firstIndex(of: "@") {
+                let token = String(rest[..<atIndex])
+                let path = String(rest[rest.index(after: atIndex)...])
+                
+                // 解析 path: user/repo/branch/path
+                let parts = path.components(separatedBy: "/")
+                if parts.count >= 3 {
+                    let user = parts[0]
+                    let repo = parts[1]
+                    let branch = parts[2]
+                    let restPath = parts.dropFirst(3).joined(separator: "/")
+                    
+                    let apiPath = restPath.isEmpty ? "" : "/\(restPath)"
+                    let urlStr = "https://\(token):x-oauth-basic@gitee.com/\(user)/\(repo)/releases/download/\(branch)\(apiPath)"
+                    
+                    if let url = URL(string: urlStr) {
+                        return (url, "gitee")
+                    }
+                }
+            }
+        }
+        
+        // 解析 GitHub 私有仓库地址: github://token@github.com/user/repo/branch/path
+        if trimmed.starts(with: "github://") {
+            let rest = String(trimmed.dropFirst(9))
+            if let atIndex = rest.firstIndex(of: "@") {
+                let token = String(rest[..<atIndex])
+                let path = String(rest[rest.index(after: atIndex)...])
+                
+                // 解析 path: user/repo/branch/path
+                let parts = path.components(separatedBy: "/")
+                if parts.count >= 3 {
+                    let user = parts[0]
+                    let repo = parts[1]
+                    let branch = parts[2]
+                    let restPath = parts.dropFirst(3).joined(separator: "/")
+                    
+                    let apiPath = restPath.isEmpty ? "" : "/\(restPath)"
+                    let urlStr = "https://\(token)@raw.githubusercontent.com/\(user)/\(repo)/\(branch)\(apiPath)"
+                    
+                    if let url = URL(string: urlStr) {
+                        return (url, "github")
+                    }
+                }
+            }
+        }
+        
+        // 普通 HTTP/HTTPS 地址
+        if trimmed.isValidURL {
+            if let url = URL(string: trimmed) {
+                return (url, "http")
+            }
+        }
+        
+        return nil
+    }
+    
+    /// 下载远程 Node 源
+    func downloadRemoteNodeSource(url: URL, sourceName: String) async throws -> String {
+        // 1. 下载远程文件
+        let (data, _) = try await URLSession.shared.data(from: url)
+        
+        // 2. 获取 Documents 目录
+        let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let sourceDir = documents.appendingPathComponent("sources").appendingPathComponent(sourceName)
+        
+        // 3. 如果是 zip 包，解压
+        if url.pathExtension.lowercased() == "zip" {
+            // 删除旧的
+            try? FileManager.default.removeItem(at: sourceDir)
+            
+            // 解压
+            try FileManager.default.unzipArchive(data: data, to: sourceDir)
+        } else {
+            // 普通文件，直接保存
+            try? FileManager.default.removeItem(at: sourceDir)
+            try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+            
+            let fileURL = sourceDir.appendingPathComponent(url.lastPathComponent)
+            try data.write(to: fileURL)
+        }
+        
+        return sourceDir.path
+    }
+    
+    /// 加载已保存的远程源
+    func loadSavedRemoteSources() -> [RemoteSource] {
+        if let data = UserDefaults.standard.data(forKey: "SavedRemoteSources") {
+            do {
+                return try JSONDecoder().decode([RemoteSource].self, from: data)
+            } catch {
+                Logger.shared.log("加载远程源失败: \(error)", level: .error)
+                return []
+            }
+        }
+        return []
+    }
+    
+    /// 保存远程源
+    func saveRemoteSources(_ sources: [RemoteSource]) {
+        do {
+            let data = try JSONEncoder().encode(sources)
+            UserDefaults.standard.set(data, forKey: "SavedRemoteSources")
+        } catch {
+            Logger.shared.log("保存远程源失败: \(error)", level: .error)
+        }
+    }
+    
+    // MARK: - Node Source API
+    
+    /// 请求 Node 源的 API
+    func requestNodeAPI(path: String, body: [String: Any]) async throws -> Any {
+        return try await NodeJSBridge.shared.requestNodeAPI(path: path, body: body)
+    }
     
     // MARK: - 获取分类列表
     
@@ -395,11 +538,8 @@ class SourceService {
             )
         } else if sourceBean.type == 4 {
             // Type 4: 远程接口
-            let quickValue = sourceBean.isQuickSearchEnabled ? "true" : "false"
             var queryItems: [URLQueryItem] = [
-                URLQueryItem(name: "wd", value: keyword),
-                URLQueryItem(name: "ac", value: "detail"),
-                URLQueryItem(name: "quick", value: quickValue)
+                URLQueryItem(name: "wd", value: keyword)
             ]
             
             // 加载 extend
@@ -419,234 +559,38 @@ class SourceService {
         }
         
         let jsonStr = try await network.getString(from: url)
-        let videos = try parseVideoList(jsonStr, sourceKey: sourceBean.key, type: sourceBean.type)
-        return filterSearchResults(videos, keyword: keyword)
+        return try parseVideoList(jsonStr, sourceKey: sourceKey, type: sourceBean.type)
     }
     
-    /// 多源并发搜索
-    func searchAll(keyword: String) async -> [Movie.Video] {
-        let sources = await ApiConfig.shared.getSearchableSources()
-        
-        return await withTaskGroup(of: [Movie.Video].self) { group in
-            for source in sources {
-                // 跳过没有有效 API 的源（但 type=3 也可以搜索）
-                guard !source.api.isEmpty else { continue }
-                guard source.isHttpApi || source.type == 3 else { continue }
-                
-                group.addTask { [self] in
-                    do {
-                        return try await self.search(sourceBean: source, keyword: keyword)
-                    } catch {
-                        return []
-                    }
-                }
-            }
-            
-            var allResults: [Movie.Video] = []
-            for await results in group {
-                allResults.append(contentsOf: results)
-            }
-            return allResults
-        }
-    }
-    
-    /// 对源返回结果做本地关键词过滤，规避部分接口返回推荐/无关内容。
-    private func filterSearchResults(_ videos: [Movie.Video], keyword: String) -> [Movie.Video] {
-        let tokens = keyword
-            .split(whereSeparator: \.isWhitespace)
-            .map { normalizeSearchText(String($0)) }
-            .filter { !$0.isEmpty }
-        
-        guard !tokens.isEmpty else { return videos }
-        
-        return videos.filter { video in
-            let searchableText = normalizeSearchText([
-                video.name,
-                video.note,
-                video.actor,
-                video.director,
-                video.type,
-                video.area,
-                video.year
-            ].joined(separator: " "))
-            guard !searchableText.isEmpty else { return false }
-            return tokens.allSatisfy { searchableText.contains($0) }
-        }
-    }
-    
-    private func normalizeSearchText(_ text: String) -> String {
-        let folded = text.folding(
-            options: [.caseInsensitive, .diacriticInsensitive, .widthInsensitive],
-            locale: .current
-        )
-        let scalars = folded.unicodeScalars.filter { scalar in
-            !CharacterSet.whitespacesAndNewlines.contains(scalar) &&
-            !CharacterSet.punctuationCharacters.contains(scalar) &&
-            !CharacterSet.symbols.contains(scalar)
-        }
-        return String(String.UnicodeScalarView(scalars)).lowercased()
-    }
-    
-    // MARK: - Extend 解析
-    
-    /// 解析 extend 参数（对应 Android 端 getFixUrl）
-    /// 如果 extend 是 HTTP URL，则下载其内容作为 extend 值
-    /// 如果 extend 是普通字符串，则直接返回
-    private func resolveExtend(_ extend: String) async -> String {
-        guard !extend.isEmpty else { return "" }
-        
-        // 非 HTTP URL 直接返回
-        guard extend.hasPrefix("http://") || extend.hasPrefix("https://") else {
-            return extend
-        }
-        
-        // 从 HTTP URL 加载 extend 内容
-        do {
-            let content = try await network.getString(from: extend)
-            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            // 如果内容过长（>2500），回退到使用原始 URL
-            if trimmed.count > 2500 { return extend }
-            return trimmed
-        } catch {
-            return extend
-        }
-    }
-
-    private func parseXMLDetail(_ xml: String, sourceKey: String) -> VodInfo? {
-        guard let videoBlock = firstMatch(
-            pattern: #"<video[\s\S]*?</video>"#,
-            in: xml
-        ) else {
-            return nil
-        }
-        
-        let vodId = extractXMLTag("id", in: videoBlock)
-        guard !vodId.isEmpty else { return nil }
-        
-        var video = Movie.Video(id: vodId)
-        video.name = extractXMLTag("name", in: videoBlock)
-        video.pic = extractXMLTag("pic", in: videoBlock)
-        video.note = extractXMLTag("note", in: videoBlock)
-        video.year = extractXMLTag("year", in: videoBlock)
-        video.area = extractXMLTag("area", in: videoBlock)
-        video.type = extractXMLTag("type", in: videoBlock)
-        video.director = extractXMLTag("director", in: videoBlock)
-        video.actor = extractXMLTag("actor", in: videoBlock)
-        video.des = extractXMLTag("des", in: videoBlock)
-        video.sourceKey = sourceKey
-        
-        let ddNodes = extractXMLDDNodes(from: videoBlock)
-        let playFrom: String
-        let playUrl: String
-        
-        if ddNodes.isEmpty {
-            playFrom = "默认"
-            playUrl = ""
-        } else {
-            playFrom = ddNodes.map { $0.flag }.joined(separator: "$$$")
-            playUrl = ddNodes.map { $0.url }.joined(separator: "$$$")
-        }
-        
-        return VodInfo.from(video: video, playFrom: playFrom, playUrl: playUrl)
-    }
-    
-    private func extractXMLDDNodes(from block: String) -> [(flag: String, url: String)] {
-        guard let regex = try? NSRegularExpression(
-            pattern: #"<dd([^>]*)>([\s\S]*?)</dd>"#,
-            options: [.caseInsensitive]
-        ) else {
-            return []
-        }
-        
-        let nsRange = NSRange(block.startIndex..<block.endIndex, in: block)
-        let matches = regex.matches(in: block, range: nsRange)
-        var result: [(flag: String, url: String)] = []
-        
-        for (index, match) in matches.enumerated() {
-            guard match.numberOfRanges >= 3 else { continue }
-            guard let attrRange = Range(match.range(at: 1), in: block),
-                  let valueRange = Range(match.range(at: 2), in: block) else {
-                continue
-            }
-            
-            let attrs = String(block[attrRange])
-            let rawUrl = decodeXMLText(String(block[valueRange]))
-            guard !rawUrl.isEmpty else { continue }
-            
-            let flag = firstMatch(
-                pattern: #"flag\s*=\s*["']([^"']+)["']"#,
-                in: attrs,
-                captureGroup: 1
-            ) ?? "线路\(index + 1)"
-            result.append((flag: decodeXMLText(flag), url: rawUrl))
-        }
-        
-        return result
-    }
-    
-    private func extractXMLTag(_ tag: String, in content: String) -> String {
-        let escapedTag = NSRegularExpression.escapedPattern(for: tag)
-        let pattern = "<\(escapedTag)>\\s*([\\s\\S]*?)\\s*</\(escapedTag)>"
-        let value = firstMatch(pattern: pattern, in: content, captureGroup: 1) ?? ""
-        return decodeXMLText(value)
-    }
-    
-    private func firstMatch(pattern: String, in content: String, captureGroup: Int = 0) -> String? {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: [.caseInsensitive]) else {
-            return nil
-        }
-        let range = NSRange(content.startIndex..<content.endIndex, in: content)
-        guard let match = regex.firstMatch(in: content, options: [], range: range),
-              match.numberOfRanges > captureGroup,
-              let subRange = Range(match.range(at: captureGroup), in: content) else {
-            return nil
-        }
-        return String(content[subRange])
-    }
-    
-    private func decodeXMLText(_ raw: String) -> String {
-        var value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
-        if value.hasPrefix("<![CDATA["), value.hasSuffix("]]>"), value.count >= 12 {
-            value.removeFirst(9)
-            value.removeLast(3)
-        }
-        value = value.replacingOccurrences(of: "&amp;", with: "&")
-        value = value.replacingOccurrences(of: "&lt;", with: "<")
-        value = value.replacingOccurrences(of: "&gt;", with: ">")
-        value = value.replacingOccurrences(of: "&quot;", with: "\"")
-        value = value.replacingOccurrences(of: "&#39;", with: "'")
-        return value.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
+    // MARK: - 辅助方法
     
     private func buildURL(base: String, queryItems: [URLQueryItem]) throws -> String {
-        let trimmedBase = base.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard var components = URLComponents(string: trimmedBase) else {
+        guard var components = URLComponents(string: base) else {
             throw SourceError.invalidApiUrl(base)
         }
-        
-        var mergedQueryItems = components.queryItems ?? []
-        mergedQueryItems.append(contentsOf: queryItems)
-        components.queryItems = mergedQueryItems
-        
-        guard let url = components.url else {
-            throw SourceError.invalidApiUrl(base)
-        }
-        return url.absoluteString
+        components.queryItems = queryItems
+        return components.url!.absoluteString
     }
-}
-
-enum SourceError: LocalizedError {
-    case emptyApi
-    case parseError(String)
-    case unsupportedType(String)
-    case invalidApiUrl(String)
     
-    var errorDescription: String? {
-        switch self {
-        case .emptyApi: return "接口地址为空"
-        case .parseError(let msg): return "数据解析错误: \(msg)"
-        case .unsupportedType(let type): return "暂不支持 \(type) 类型的数据源，请切换其他源"
-        case .invalidApiUrl(let url): return "无效的接口地址: \(url)"
+    private func resolveExtend(_ ext: String) async -> String {
+        // 简单的 extend 解析，支持 base64 解码
+        if let data = Data(base64Encoded: ext) {
+            return String(data: data, encoding: .utf8) ?? ext
         }
+        return ext
+    }
+    
+    func getRemoteSources() -> [RemoteSource] {
+        return loadSavedRemoteSources()
+    }
+    
+    func saveRemoteSource(name: String, url: String, localPath: String) async throws {
+        var sources = loadSavedRemoteSources()
+        // 移除同名的
+        sources.removeAll { $0.name == name }
+        // 添加新的
+        sources.append(RemoteSource(name: name, url: url, localPath: localPath))
+        // 保存
+        saveRemoteSources(sources)
     }
 }
