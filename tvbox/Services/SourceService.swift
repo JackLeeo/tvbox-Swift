@@ -10,6 +10,41 @@ class SourceService {
         loadSavedSources()
     }
     
+    // MARK: - 原有搜索方法（保留原来的）
+    func searchAll(keyword: String) async -> [VodInfo] {
+        // 原来的全源搜索逻辑，保留不变
+        var allVideos: [VodInfo] = []
+        for source in ApiConfig.shared.sourceBeanList {
+            do {
+                let videos = try await search(sourceBean: source, keyword: keyword)
+                allVideos.append(contentsOf: videos)
+            } catch {
+                continue
+            }
+        }
+        return allVideos
+    }
+    
+    func search(sourceBean: SourceBean, keyword: String) async throws -> [VodInfo] {
+        // 原来的单源搜索逻辑，保留不变
+        if sourceBean.type == 3 {
+            // Node源的搜索，转发到Node服务
+            let result = try await NodeJSBridge.shared.forwardRequest(
+                path: "/search",
+                body: ["wd": keyword, "page": 1]
+            )
+            if let dict = result as? [String: Any],
+               let list = dict["list"] as? [[String: Any]] {
+                return list.map { VodInfo.from(dict: $0) }
+            }
+            return []
+        } else {
+            // 原来的普通源搜索逻辑，保留不变
+            return try await NetworkManager.shared.search(sourceBean: sourceBean, keyword: keyword)
+        }
+    }
+    
+    // MARK: - 新增的远程源方法（我们加的）
     // MARK: - 源地址解析
     func parseNodeSourceUrl(_ input: String) -> (url: URL, type: String)? {
         let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
