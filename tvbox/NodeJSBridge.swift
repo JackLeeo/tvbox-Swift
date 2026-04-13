@@ -23,12 +23,13 @@ class NodeJSBridge: NSObject {
     private func startNativeServer() {
         webServer = GCDWebServer()
         
+        // 修复：明确指定 request 类型为 GCDWebServerDataRequest，这样才有 data 属性
         webServer?.addHandler(
             forMethod: "POST",
             path: "/message",
-            request: GCDWebServerDataRequest.self,  // 修复：用 DataRequest 才有 data 属性
-            processBlock: { [weak self] request in
-                // 处理 Node 发来的消息
+            request: GCDWebServerDataRequest.self,
+            processBlock: { [weak self] (request: GCDWebServerDataRequest) -> GCDWebServerResponse in
+                // 现在 request 就是 GCDWebServerDataRequest，有 data 属性了！
                 if let body = request.data,
                    let message = String(data: body, encoding: .utf8) {
                     self?.handleNodeMessage(message)
@@ -68,11 +69,31 @@ class NodeJSBridge: NSObject {
         
         // 启动 Node.js 线程
         nodeThread = Thread {
-            // 调用 node_start 函数启动 Node.js
-            let cArgs = args.map { $0.withCString { $0 } }
-            // 修复：用数组的实例方法
-            cArgs.withUnsafeBufferPointer { buffer in
-                node_start(Int32(args.count), buffer.baseAddress)
+            // 修复：正确的创建 argv 数组的方式
+            // 不能用 withCString 存指针，因为那些指针会失效！
+            // 我们需要自己分配内存！
+            
+            var argv: [UnsafeMutablePointer<Int8>?] = []
+            
+            for arg in args {
+                // 为每个参数分配 C 字符串内存
+                let cStr = arg.utf8CString
+                let ptr = UnsafeMutablePointer<Int8>.allocate(capacity: cStr.count)
+                ptr.initialize(from: cStr, count: cStr.count)
+                argv.append(ptr)
+            }
+            
+            // 最后一个必须是 NULL
+            argv.append(nil)
+            
+            // 调用 node_start，强制解包 baseAddress（我们的数组肯定非空）
+            argv.withUnsafeBufferPointer { buffer in
+                _ = node_start(Int32(args.count + 1), buffer.baseAddress!)
+            }
+            
+            // 释放内存，避免泄漏
+            for ptr in argv {
+                ptr?.deallocate()
             }
         }
         
@@ -81,7 +102,7 @@ class NodeJSBridge: NSObject {
     
     // 声明 node_start 函数，这个所有版本都有！
     @_silgen_name("node_start")
-    func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafePointer<Int8>?>) -> Int32
+    func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
     
     private func handleNodeMessage(_ message: String) {
         // 解析 Node 发来的消息
