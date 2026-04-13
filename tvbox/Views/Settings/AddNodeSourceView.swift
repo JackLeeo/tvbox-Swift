@@ -1,77 +1,103 @@
-
 import SwiftUI
 
 struct AddNodeSourceView: View {
-    @State private var sourceUrl: String = ""
-    @State private var sourceName: String = ""
+    @Environment(\.dismiss) var dismiss
+    @State private var sourceUrl = ""
+    @State private var sourceName = ""
     @State private var isLoading = false
-    @State private var showSuccess = false
-    @State private var errorMsg: String?
+    @State private var errorMessage: String?
     
     var body: some View {
-        Form {
-            Section(header: Text("远程Node源信息")) {
-                TextField("源名称", text: $sourceName)
-                TextField("源地址", text: $sourceUrl)
-                    .autocorrectionDisabled()
-                    .autocapitalization(.none)
-                Text("支持普通HTTP地址、Gitee私有仓库地址、GitHub私有仓库地址")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Section {
-                Button("添加源") {
-                    Task {
-                        await addSource()
+        NavigationStack {
+            Form {
+                Section {
+                    TextField("源名称", text: $sourceName)
+                        .placeholder(when: sourceName.isEmpty) {
+                            Text("请输入源名称")
+                        }
+                    
+                    TextField("源地址", text: $sourceUrl)
+                        .placeholder(when: sourceUrl.isEmpty) {
+                            Text("支持HTTP地址、Gitee/GitHub私有地址")
+                        }
+                        .autocorrectionDisabled()
+                        .autocapitalization(.none)
+                } header: {
+                    Text("远程Node源")
+                } footer: {
+                    Text("例如：https://xxx.com/source.zip 或者 gitee://token@gitee.com/user/repo/branch/path")
+                }
+                
+                if let error = errorMessage {
+                    Section {
+                        Text(error)
+                            .foregroundColor(.red)
                     }
                 }
-                .disabled(isLoading)
-            }
-            if let errorMsg = errorMsg {
+                
                 Section {
-                    Text(errorMsg)
-                        .foregroundColor(.red)
+                    Button {
+                        Task {
+                            await addSource()
+                        }
+                    } label: {
+                        if isLoading {
+                            ProgressView()
+                                .frame(maxWidth: .infinity)
+                        } else {
+                            Text("添加源")
+                                .frame(maxWidth: .infinity)
+                        }
+                    }
+                    .disabled(isLoading || sourceUrl.isEmpty || sourceName.isEmpty)
                 }
             }
-        }
-        .navigationTitle("添加Node源")
-        .alert("添加成功", isPresented: $showSuccess) {
-            Button("确定", role: .cancel) {}
+            .navigationTitle("添加Node源")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("取消") {
+                        dismiss()
+                    }
+                }
+            }
         }
     }
     
     private func addSource() async {
         isLoading = true
-        errorMsg = nil
+        errorMessage = nil
+        
         do {
-            // 1. 解析地址
+            // 解析地址
             guard let (url, type) = SourceService.shared.parseNodeSourceUrl(sourceUrl) else {
-                errorMsg = "无效的源地址"
+                errorMessage = "无效的源地址格式"
                 isLoading = false
                 return
             }
-            // 2. 下载源
+            
+            // 下载源
             let localPath = try await SourceService.shared.downloadRemoteNodeSource(url: url, sourceName: sourceName)
-            // 3. 创建源模型
-            let source = SourceBean(
+            
+            // 保存源
+            let newSource = SourceBean(
                 id: UUID().uuidString,
                 name: sourceName,
-                api: "",
-                key: "node_\(sourceName)",
-                type: 5, // Node源的type
-                ext: nil
+                url: sourceUrl,
+                localPath: localPath,
+                type: type
             )
-            var newSource = source
-            newSource.localPath = localPath
-            // 4. 保存源
+            
             SourceService.shared.saveSource(newSource)
-            // 5. 加载源
+            
+            // 加载源
             NodeJSBridge.shared.loadRemoteSource(path: localPath)
             
-            showSuccess = true
+            dismiss()
         } catch {
-            errorMsg = "添加失败: \(error.localizedDescription)"
+            errorMessage = "添加失败: \(error.localizedDescription)"
         }
+        
         isLoading = false
     }
 }
