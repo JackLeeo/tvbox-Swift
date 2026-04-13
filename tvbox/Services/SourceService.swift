@@ -96,19 +96,33 @@ class SourceService {
     }
     
     // MARK: - 首页分类接口
-    func getSort(sourceBean: SourceBean) async throws -> [MovieSort] {
+    func getSort(sourceBean: SourceBean) async throws -> [MovieSort.SortData] {
         // 调用Node的/home接口，获取分类配置
         let body: [String: Any] = [:]
         
         let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/home", body: body)
         
         // 解析返回的分类数据
+        // Node 返回的格式是: { class: [{ type_id: "1", type_name: "电影" }, ...] }
         if let dict = result as? [String: Any],
            let classList = dict["class"] as? [[String: Any]] {
             
-            // 把字典转换成MovieSort
-            let jsonData = try JSONSerialization.data(withJSONObject: classList)
-            let sorts = try JSONDecoder().decode([MovieSort].self, from: jsonData)
+            // 把字典转换成 MovieSort.SortData
+            // Node 的字段是 type_id 和 type_name，我们需要映射到 SortData 的 id 和 name
+            var mappedClassList: [[String: Any]] = []
+            for item in classList {
+                var mapped = item
+                if let typeId = item["type_id"] as? String {
+                    mapped["id"] = typeId
+                }
+                if let typeName = item["type_name"] as? String {
+                    mapped["name"] = typeName
+                }
+                mappedClassList.append(mapped)
+            }
+            
+            let jsonData = try JSONSerialization.data(withJSONObject: mappedClassList)
+            let sorts = try JSONDecoder().decode([MovieSort.SortData].self, from: jsonData)
             
             return sorts
         }
@@ -117,10 +131,11 @@ class SourceService {
     }
     
     // MARK: - 分类列表接口
-    func getList(sourceBean: SourceBean, sortData: MovieSort, page: Int) async throws -> [Movie.Video] {
+    func getList(sourceBean: SourceBean, sortData: MovieSort.SortData, page: Int) async throws -> [Movie.Video] {
         // 调用Node的/category接口，获取分类影片列表
+        // SortData 的 id 字段就是我们要传的 type_id
         let body: [String: Any] = [
-            "id": sortData.typeId,
+            "id": sortData.id,  // 这里用 sortData.id，不是 typeId！
             "page": page
         ]
         
