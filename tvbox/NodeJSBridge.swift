@@ -1,10 +1,8 @@
 import Foundation
 import GCDWebServer
-
 // 声明 NodeMobile 框架里的 C 函数
 @_silgen_name("node_start")
 func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
-
 class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
     
@@ -132,7 +130,7 @@ class NodeJSBridge: NSObject {
     
     private func loadDefaultSource() {
         // 加载默认的内置源
-        if let sourcePath = Bundle.main.path(forResource: nil, ofType: nil, inDirectory: "asset/js") {
+        if let sourcePath = Bundle.main.path(forResource: nil, ofType: nil, inDirectory: "nodejs-project") {
             // 读取用户的网盘配置
             let diskConfig = DiskConfig.load()
             
@@ -195,7 +193,6 @@ class NodeJSBridge: NSObject {
         return try JSONSerialization.jsonObject(with: data)
     }
 }
-
 // 网盘配置模型
 struct DiskConfig: Codable {
     var aliToken: String = ""
