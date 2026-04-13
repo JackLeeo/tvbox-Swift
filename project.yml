@@ -19,7 +19,7 @@ packages:
     version: 5.8.1
   GCDWebServer:
     url: https://github.com/yene/GCDWebServer
-    version: 3.5.0
+    version: 3.5.7
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation
     version: 0.9.16
