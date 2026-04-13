@@ -1,10 +1,8 @@
 import SwiftUI
 import ImageIO
-
 #if os(macOS)
 import AppKit
 #endif
-
 /// 配置键定义 - 对应 Android 版 HawkConfig.java
 struct HawkConfig {
     static let API_URL = "api_url"
@@ -29,7 +27,6 @@ struct HawkConfig {
     static let HISTORY_NUM = "history_num"
     static let SEARCH_HISTORY = "search_history"
 }
-
 /// 通用 Swift 扩展
 extension String {
     /// 移除 HTML 标签
@@ -44,7 +41,6 @@ extension String {
         return url.scheme == "http" || url.scheme == "https"
     }
 }
-
 extension Date {
     /// 格式化日期显示
     var displayString: String {
@@ -68,7 +64,6 @@ extension Date {
         return formatter.string(from: self)
     }
 }
-
 extension Int {
     /// 播放时长格式化
     var durationString: String {
@@ -81,16 +76,13 @@ extension Int {
         return String(format: "%02d:%02d", minutes, seconds)
     }
 }
-
 extension Double {
     /// 播放时长格式化
     var durationString: String {
         Int(self).durationString
     }
 }
-
 // MARK: - Design System (Merged from DesignSystem.swift)
-
 struct AppTheme {
     static let primaryGradient = LinearGradient(
         colors: [
@@ -112,7 +104,6 @@ struct AppTheme {
     static let cardRadius: CGFloat = 16
     static let glassRadius: CGFloat = 20
 }
-
 extension Color {
     init(hex: String) {
         let hex = hex.trimmingCharacters(in: CharacterSet.alphanumerics.inverted)
@@ -121,11 +112,11 @@ extension Color {
         let a, r, g, b: UInt64
         switch hex.count {
         case 3: // RGB (12-bit)
-            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int & 0xF) * 17)
+            (a, r, g, b) = (255, (int >> 8) * 17, (int >> 4 & 0xF) * 17, (int >> 4 & 0xF) * 17)
         case 6: // RGB (24-bit)
-            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int & 0xFF)
+            (a, r, g, b) = (255, int >> 16, int >> 8 & 0xFF, int >> 8)
         case 8: // ARGB (32-bit)
-            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int & 0xFF)
+            (a, r, g, b) = (int >> 24, int >> 16 & 0xFF, int >> 8 & 0xFF, int >> 8)
         default:
             (a, r, g, b) = (1, 1, 1, 0)
         }
@@ -134,11 +125,10 @@ extension Color {
             red: Double(r) / 255,
             green: Double(g) / 255,
             blue: Double(b) / 255,
-            opacity: Double(a) / 255
+            opacity: Double(a)
         )
     }
 }
-
 // 玻璃拟态基础组件
 struct GlassBackground: ViewModifier {
     var cornerRadius: CGFloat = AppTheme.glassRadius
@@ -158,7 +148,6 @@ struct GlassBackground: ViewModifier {
             .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
     }
 }
-
 #if os(macOS)
 struct VisualEffectView: NSViewRepresentable {
     func makeNSView(context: Context) -> NSVisualEffectView {
@@ -171,15 +160,57 @@ struct VisualEffectView: NSViewRepresentable {
     func updateNSView(_ nsView: NSVisualEffectView, context: Context) {}
 }
 #endif
-
 extension View {
     func glassCard(cornerRadius: CGFloat = AppTheme.glassRadius) -> some View {
         self.modifier(GlassBackground(cornerRadius: cornerRadius))
     }
+    
+    // MARK: - Placeholder for TextEditor
+    func placeholder<Content: View>(when shouldShow: Bool, alignment: Alignment = .leading, @ViewBuilder placeholder: () -> Content) -> some View {
+        ZStack(alignment: alignment) {
+            placeholder().opacity(shouldShow ? 1 : 0)
+            self
+        }
+    }
+    
+    // MARK: - Toast
+    func toast(isPresented: Binding<Bool>, message: String) -> some View {
+        self.modifier(ToastModifier(isPresented: isPresented, message: message))
+    }
 }
-
+// MARK: - Toast Modifier
+struct ToastModifier: ViewModifier {
+    @Binding var isPresented: Bool
+    let message: String
+    
+    func body(content: Content) -> some View {
+        ZStack {
+            content
+            
+            if isPresented {
+                VStack {
+                    Text(message)
+                        .font(.subheadline)
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                        .background(Color.black.opacity(0.8))
+                        .cornerRadius(8)
+                    
+                    Spacer()
+                }
+                .padding(.top, 60)
+                .transition(.opacity)
+                .onAppear {
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                        isPresented = false
+                    }
+                }
+            }
+        }
+    }
+}
 // MARK: - Image URL
-
 extension URL {
     /// 统一解析海报 URL，处理协议缺失和已知防盗链域名
     static func posterURL(from raw: String) -> URL? {
@@ -206,9 +237,7 @@ extension URL {
         return originalURL
     }
 }
-
 // MARK: - Cached Async Image
-
 /// 自定义异步图片加载组件
 /// AsyncImage 不支持自定义 header，许多图片服务器需要 Referer/User-Agent 才能正常返回图片
 /// 此组件通过自定义 URLSession 发起请求，解决海报永远加载不出来的问题
@@ -225,7 +254,7 @@ struct CachedAsyncImage<Content: View, Placeholder: View>: View {
     init(
         url: URL?,
         @ViewBuilder content: @escaping (Image) -> Content,
-        @ViewBuilder placeholder: @escaping () -> Placeholder
+        @ViewBuilder placeholder: () -> Placeholder
     ) {
         self.url = url
         self.content = content
@@ -283,7 +312,6 @@ struct CachedAsyncImage<Content: View, Placeholder: View>: View {
         }
     }
 }
-
 // MARK: - Platform Image Type
 #if os(macOS)
 typealias PlatformImage = NSImage
@@ -291,9 +319,7 @@ typealias PlatformImage = NSImage
 import UIKit
 typealias PlatformImage = UIImage
 #endif
-
 // MARK: - Image Loader
-
 /// 使用自定义 URLSession 加载图片，支持自定义请求头
 @MainActor
 final class ImageLoader {
@@ -395,7 +421,7 @@ final class ImageLoader {
         let options: [CFString: Any] = [
             kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true,
-            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(maxPixelSize.rounded(.up))),
+            kCGImageSourceThumbnailMaxPixelSize: max(1, Int(maxPixelSize.rounded(.up)))
             kCGImageSourceShouldCacheImmediately: true
         ]
         
@@ -410,14 +436,11 @@ final class ImageLoader {
         return PlatformImage(data: data)
     }
 }
-
 enum ImageLoadError: Error {
     case httpError(Int)
     case invalidData
 }
-
 // MARK: - Image Memory Cache
-
 /// 简单的内存缓存，避免重复下载
 @MainActor
 final class ImageCache {
@@ -442,7 +465,6 @@ final class ImageCache {
         cache.removeAllObjects()
     }
 }
-
 #if os(macOS)
 extension NSImage {
     var memoryCost: Int {
@@ -462,9 +484,7 @@ extension UIImage {
     }
 }
 #endif
-
 // MARK: - Selection Modal
-
 /// 通用选择对话框 - 重新设计的玻璃拟态样式
 struct SelectionModal<Item: Identifiable & Equatable>: View {
     let title: String
@@ -505,138 +525,71 @@ struct SelectionModal<Item: Identifiable & Equatable>: View {
                             .blur(radius: 20)
                             .opacity(0.4)
                         
-                        // 主图标
                         Image(systemName: icon)
-                            .font(.system(size: 26, weight: .bold))
+                            .font(.title)
                             .foregroundColor(.white)
-                            .frame(width: 64, height: 64)
-                            .background(
-                                RoundedRectangle(cornerRadius: 18)
-                                    .fill(Color.white.opacity(0.12))
-                                    .overlay(
-                                        RoundedRectangle(cornerRadius: 18)
-                                            .stroke(Color.white.opacity(0.2), lineWidth: 0.5)
-                                    )
-                            )
-                            .shadow(color: Color.black.opacity(0.25), radius: 8, x: 0, y: 4)
                     }
-                    .padding(.top, 28)
                     
                     Text(title)
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.headline)
                         .foregroundColor(.white)
                 }
-                .padding(.bottom, 24)
+                .padding(.top, 24)
+                .padding(.bottom, 16)
                 
-                // 选项列表
-                ScrollView(showsIndicators: false) {
-                    VStack(spacing: 8) {
-                        ForEach(items) { item in
-                            Button {
-                                withAnimation(.easeInOut(duration: 0.1)) {
-                                    onSelect(item)
-                                }
-                            } label: {
-                                HStack(spacing: 16) {
-                                    Text(itemTitle(item))
-                                        .font(.system(size: 15, weight: item == selectedItem ? .semibold : .medium))
-                                        .foregroundColor(item == selectedItem ? .white : .white.opacity(0.7))
-                                    
-                                    Spacer()
-                                    
-                                    if item == selectedItem {
-                                        Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.orange)
-                                            .font(.system(size: 18))
-                                            .shadow(color: Color.orange.opacity(0.4), radius: 4)
-                                    } else {
-                                        Circle()
-                                            .strokeBorder(Color.white.opacity(0.15), lineWidth: 1.5)
-                                            .frame(width: 18, height: 18)
-                                    }
-                                }
-                                .padding(.horizontal, 18)
-                                .padding(.vertical, 14)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .fill(selectionBackground(item: item))
-                                )
-                                .overlay(
-                                    RoundedRectangle(cornerRadius: 14)
-                                        .stroke(selectionStroke(item: item), lineWidth: 1)
-                                )
+                // 列表
+                VStack(spacing: 0) {
+                    ForEach(items) { item in
+                        Button {
+                            onSelect(item)
+                        } label: {
+                            Text(itemTitle(item))
+                                .font(.subheadline)
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .onHover { hover in
+                            if hover {
+                                hoverItemId = item.id
+                            } else {
+                                hoverItemId = nil
                             }
-                            .buttonStyle(.plain)
-                            .onHover { isHovering in
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    hoverItemId = isHovering ? item.id : nil
-                                }
-                            }
-                            .animation(.spring(response: 0.2, dampingFraction: 0.7), value: hoverItemId)
+                        }
+                        .background(
+                            hoverItemId == item.id ? Color.white.opacity(0.1) : Color.clear
+                        )
+                        
+                        if item.id != items.last?.id {
+                            Divider().background(Color.white.opacity(0.1))
                         }
                     }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 16)
                 }
-                .frame(maxHeight: 320)
-                
-                Divider()
-                    .background(Color.white.opacity(0.1))
-                    .padding(.horizontal, 24)
-                
-                // 取消按钮
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        animateIn = false
-                    }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
-                        onCancel()
-                    }
-                } label: {
-                    Text("取消")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.5))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 16)
-                }
-                .buttonStyle(.plain)
-                .contentShape(Rectangle())
+                .padding(.bottom, 16)
             }
-            .frame(width: 300)
-            .glassCard(cornerRadius: 28)
+            .glassCard()
+            .padding(.horizontal, 32)
+            .padding(.vertical, 32)
             .scaleEffect(animateIn ? 1 : 0.9)
             .opacity(animateIn ? 1 : 0)
-            .shadow(color: Color.black.opacity(0.5), radius: 40, x: 0, y: 20)
-        }
-        .onAppear {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.75)) {
-                animateIn = true
+            .onAppear {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    animateIn = true
+                }
             }
         }
     }
-    
-    private func selectionBackground(item: Item) -> Color {
-        if item == selectedItem {
-            return Color.orange.opacity(0.2)
-        } else if item.id == hoverItemId {
-            return Color.white.opacity(0.1)
-        } else {
-            return Color.white.opacity(0.04)
-        }
-    }
-    
-    private func selectionStroke(item: Item) -> Color {
-        if item == selectedItem {
-            return Color.orange.opacity(0.6)
-        } else if item.id == hoverItemId {
-            return Color.white.opacity(0.2)
-        } else {
-            return Color.clear
+}
+extension NetworkError {
+    var isNetworkConnectionError: Bool {
+        switch self {
+        case .noConnection, .timeout:
+            return true
+        default:
+            return false
         }
     }
 }
-
-// 模拟扩展
-extension Int: @retroactive Identifiable {
-    public var id: Int { self }
-}
+#endif
