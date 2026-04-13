@@ -120,12 +120,3 @@ class SourceService {
         return savedSources
     }
 }
-
-// 源模型
-struct SourceBean: Codable, Identifiable {
-    let id: String
-    let name: String
-    let url: String
-    let localPath: String
-    let type: String
-}
