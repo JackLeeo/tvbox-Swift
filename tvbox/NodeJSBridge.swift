@@ -23,18 +23,21 @@ class NodeJSBridge: NSObject {
     private func startNativeServer() {
         webServer = GCDWebServer()
         
-        // 修复：明确指定 request 类型为 GCDWebServerDataRequest，这样才有 data 属性
+        // 修复：GCDWebServer 的 processBlock 签名是固定的，我们在内部强转
         webServer?.addHandler(
             forMethod: "POST",
             path: "/message",
             request: GCDWebServerDataRequest.self,
-            processBlock: { [weak self] (request: GCDWebServerDataRequest) -> GCDWebServerResponse in
-                // 现在 request 就是 GCDWebServerDataRequest，有 data 属性了！
-                if let body = request.data,
-                   let message = String(data: body, encoding: .utf8) {
-                    self?.handleNodeMessage(message)
+            processBlock: { [weak self] request in
+                // 修复：强转成 GCDWebServerDataRequest，这样才有 data 属性
+                guard let self = self,
+                      let dataRequest = request as? GCDWebServerDataRequest,
+                      let body = dataRequest.data,
+                      let message = String(data: body, encoding: .utf8) else {
+                    return GCDWebServerResponse(statusCode: 400)
                 }
                 
+                self.handleNodeMessage(message)
                 return GCDWebServerResponse(statusCode: 200)
             }
         )
@@ -70,16 +73,15 @@ class NodeJSBridge: NSObject {
         // 启动 Node.js 线程
         nodeThread = Thread {
             // 修复：正确的创建 argv 数组的方式
-            // 不能用 withCString 存指针，因为那些指针会失效！
-            // 我们需要自己分配内存！
-            
             var argv: [UnsafeMutablePointer<Int8>?] = []
             
             for arg in args {
-                // 为每个参数分配 C 字符串内存
                 let cStr = arg.utf8CString
                 let ptr = UnsafeMutablePointer<Int8>.allocate(capacity: cStr.count)
-                ptr.initialize(from: cStr, count: cStr.count)
+                // 修复：用 withUnsafeBytes 获取原始指针
+                cStr.withUnsafeBytes { buffer in
+                    ptr.initialize(from: buffer.baseAddress!, count: cStr.count)
+                }
                 argv.append(ptr)
             }
             
