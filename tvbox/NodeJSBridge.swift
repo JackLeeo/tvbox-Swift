@@ -74,13 +74,13 @@ class NodeJSBridge: NSObject {
         ]
         
         // 启动 Node.js 线程
-        nodeThread = Thread {
+        nodeThread = Thread { [weak self] in
             // 使用 strdup 简化内存管理
             var argv: [UnsafeMutablePointer<Int8>?] = args.map { strdup($0) }
             argv.append(nil)  // 以 NULL 结尾
             
-            // 调用 node_start
-            _ = node_start(Int32(args.count), &argv)
+            // 修复：在闭包中调用方法需要显式使用 self
+            _ = self?.node_start(Int32(args.count), &argv)
             
             // 释放内存
             for ptr in argv {
