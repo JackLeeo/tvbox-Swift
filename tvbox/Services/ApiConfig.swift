@@ -582,29 +582,36 @@ class ApiConfig: ObservableObject {
             var sources: [SourceBean] = []
             if let sites = config.sites {
                 for site in sites {
+                    // 适配新的 SourceBean 结构
+                    let beanId = UUID().uuidString
+                    let beanKey = site.key ?? UUID().uuidString
+                    let beanName = site.name ?? "未命名"
+                    let beanType = site.type?.value ?? 1
+                    let beanApi = site.api ?? ""
+                    let beanSearch = site.searchable?.value
+                    
                     let bean = SourceBean(
-                        key: site.key ?? UUID().uuidString,
-                        name: site.name ?? "未命名",
-                        api: site.api ?? "",
-                        searchable: site.searchable?.value ?? 1,
-                        filterable: site.filterable?.value ?? 1,
-                        quickSearch: site.quickSearch?.value ?? 0,
-                        playerType: site.playerType?.value ?? 0,
-                        type: site.type?.value ?? 1,
-                        ext: site.ext?.stringValue
+                        id: beanId,
+                        name: beanName,
+                        key: beanKey,
+                        type: beanType,
+                        api: beanApi,
+                        search: beanSearch,
+                        group: nil
                     )
                     sources.append(bean)
                 }
             }
             self.sourceBeanList = sources
             
-            // 设置默认主页源：优先选择 Swift 支持的源
+            // 设置默认主页源
             if let saved = UserDefaults.standard.string(forKey: HawkConfig.HOME_API),
                let found = sources.first(where: { $0.key == saved }) {
                 self.homeSourceBean = found
             } else {
                 // 优先选择支持的源（type 0/1/4），跳过 type=3 (JAR)
-                self.homeSourceBean = sources.first(where: { $0.isSupportedInSwift }) ?? sources.first
+                // 新的 SourceBean 没有 isSupportedInSwift 属性，我们直接判断 type
+                self.homeSourceBean = sources.first(where: { $0.type != 3 }) ?? sources.first
             }
             
             // 解析解析器列表
@@ -643,7 +650,24 @@ class ApiConfig: ObservableObject {
         }
     }
     
-    /// 解析直播列表
+    /// 获取可搜索的源列表
+    func getSearchableSources() -> [SourceBean] {
+        // 新的 SourceBean 用 search 字段来判断是否可搜索
+        sourceBeanList.filter { $0.search ?? 1 == 1 }
+    }
+    
+    /// 获取指定 key 的源
+    func getSource(key: String) -> SourceBean? {
+        sourceBeanList.first(where: { $0.key == key })
+    }
+    
+    /// 设置主页源
+    func setHomeSource(_ source: SourceBean) {
+        self.homeSourceBean = source
+        UserDefaults.standard.set(source.key, forKey: HawkConfig.HOME_API)
+    }
+    
+    // MARK: - 直播相关代码
     private func parseLives(
         _ lives: [AppConfigData.LiveConfig],
         apiUrl: String,
@@ -705,7 +729,6 @@ class ApiConfig: ObservableObject {
         return sortedGroups(from: mergedGroups)
     }
     
-    /// 解析 m3u / txt 格式的直播内容
     private func parseLiveContent(_ content: String) -> [LiveChannelGroup] {
         var groups: [String: LiveChannelGroup] = [:]
         var currentGroupName = "默认"
@@ -919,22 +942,6 @@ class ApiConfig: ObservableObject {
             || lowercased.hasPrefix("https://")
             || lowercased.hasPrefix("rtmp://")
             || lowercased.hasPrefix("rtsp://")
-    }
-    
-    /// 获取指定 key 的源
-    func getSource(key: String) -> SourceBean? {
-        sourceBeanList.first(where: { $0.key == key })
-    }
-    
-    /// 获取可搜索的源列表
-    func getSearchableSources() -> [SourceBean] {
-        sourceBeanList.filter { $0.isSearchable }
-    }
-    
-    /// 设置主页源
-    func setHomeSource(_ source: SourceBean) {
-        self.homeSourceBean = source
-        UserDefaults.standard.set(source.key, forKey: HawkConfig.HOME_API)
     }
 }
 
