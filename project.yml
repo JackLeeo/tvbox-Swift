@@ -18,13 +18,13 @@ options:
     fi
 packages:
   VLCKit-SPM:
-    url: https://github.com/CodeEagle/VLCKit-SPM
+    url: https://github.com/tylerjonesio/vlckit-spm
     version: 3.6.0
   Alamofire:
     url: https://github.com/Alamofire/Alamofire
     version: 5.8.1
   GCDWebServer:
-    url: https://github.com/swiftwebui/GCDWebServer
+    url: https://github.com/yene/GCDWebServer
     version: 3.5.0
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation
