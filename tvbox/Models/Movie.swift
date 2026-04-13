@@ -1,102 +1,160 @@
 import Foundation
+import ZIPFoundation
 
-/// 电影/视频数据模型 - 对应 Android 版 Movie.java
-struct Movie: Codable {
-    /// 列表数据主体。
-    var videoList: [Video] = []
-    /// 总页数。
-    var pagecount: Int = 0
-    /// 当前页码。
-    var page: Int = 0
-    /// 总条数。
-    var total: Int = 0
-    /// 每页条数。
-    var limit: Int = 0
+class SourceService {
+    static let shared = SourceService()
     
-    /// 单个视频条目
-    struct Video: Codable, Identifiable, Hashable {
-        /// 视频唯一 ID（接口可能返回 Int 或 String，见自定义解码）。
-        var id: String
-        /// 片名。
-        var name: String = ""
-        /// 海报地址。
-        var pic: String = ""
-        /// 备注（如“更新至第20集”）。
-        var note: String = ""
-        /// 年份。
-        var year: String = ""
-        /// 地区。
-        var area: String = ""
-        /// 类型/分类名。
-        var type: String = ""
-        /// 导演。
-        var director: String = ""
-        /// 演员。
-        var actor: String = ""
-        /// 简介。
-        var des: String = ""
-        /// 来源站点 key，用于跨源隔离收藏与历史。
-        var sourceKey: String = ""
-        /// 分类 ID。
-        var tid: String = ""
-        /// 最后更新时间。
-        var last: String = ""
-        /// 播放来源信息（部分接口会复用该字段）。
-        var dt: String = ""
+    private var savedSources: [SourceBean] = []
+    
+    init() {
+        loadSavedSources()
+    }
+    
+    // MARK: - 源地址解析
+    func parseNodeSourceUrl(_ input: String) -> (url: URL, type: String)? {
+        let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
         
-        init(id: String = UUID().uuidString, name: String = "", pic: String = "",
-             note: String = "", sourceKey: String = "") {
-            self.id = id
-            self.name = name
-            self.pic = pic
-            self.note = note
-            self.sourceKey = sourceKey
-        }
-        
-        enum CodingKeys: String, CodingKey {
-            case id = "vod_id"
-            case name = "vod_name"
-            case pic = "vod_pic"
-            case note = "vod_remarks"
-            case year = "vod_year"
-            case area = "vod_area"
-            case type = "type_name"
-            case director = "vod_director"
-            case actor = "vod_actor"
-            case des = "vod_content"
-            case tid = "type_id"
-            case last = "vod_time"
-            case dt = "vod_play_from"
-            case sourceKey
-        }
-        
-        /// 自定义解码以兼容多源字段类型差异（如 `vod_id` / `type_id` 可能是 Int 或 String）。
-        init(from decoder: Decoder) throws {
-            let container = try decoder.container(keyedBy: CodingKeys.self)
-            // 支持 String 或 Int 类型的 id
-            if let intId = try? container.decode(Int.self, forKey: .id) {
-                self.id = String(intId)
-            } else {
-                self.id = (try? container.decode(String.self, forKey: .id)) ?? UUID().uuidString
-            }
-            self.name = (try? container.decode(String.self, forKey: .name)) ?? ""
-            self.pic = (try? container.decode(String.self, forKey: .pic)) ?? ""
-            self.note = (try? container.decode(String.self, forKey: .note)) ?? ""
-            self.year = (try? container.decode(String.self, forKey: .year)) ?? ""
-            self.area = (try? container.decode(String.self, forKey: .area)) ?? ""
-            self.type = (try? container.decode(String.self, forKey: .type)) ?? ""
-            self.director = (try? container.decode(String.self, forKey: .director)) ?? ""
-            self.actor = (try? container.decode(String.self, forKey: .actor)) ?? ""
-            self.des = (try? container.decode(String.self, forKey: .des)) ?? ""
-            self.tid = {
-                if let intTid = try? container.decode(Int.self, forKey: .tid) {
-                    return String(intTid)
+        // 解析Gitee私有地址
+        if input.starts(with: "gitee://") {
+            let rest = String(input.dropFirst(8))
+            if let atIndex = rest.firstIndex(of: "@") {
+                let token = String(rest[..<atIndex])
+                let path = String(rest[atIndex...].dropFirst())
+                
+                // 解析路径: user/repo/branch/path
+                let parts = path.components(separatedBy: "/")
+                if parts.count >= 3 {
+                    let user = parts[0]
+                    let repo = parts[1]
+                    let branch = parts[2]
+                    let filePath = parts.dropFirst(3).joined(separator: "/")
+                    
+                    let url = URL(string: "https://\(token)@gitee.com/\(user)/\(repo)/raw/\(branch)/\(filePath)")!
+                    return (url, "gitee")
                 }
-                return (try? container.decode(String.self, forKey: .tid)) ?? ""
-            }()
-            self.last = (try? container.decode(String.self, forKey: .last)) ?? ""
-            self.dt = (try? container.decode(String.self, forKey: .dt)) ?? ""
-            self.sourceKey = (try? container.decode(String.self, forKey: .sourceKey)) ?? ""
+            }
         }
+        
+        // 解析GitHub私有地址
+        if input.starts(with: "github://") {
+            let rest = String(input.dropFirst(9))
+            if let atIndex = rest.firstIndex(of: "@") {
+                let token = String(rest[..<atIndex])
+                let path = String(rest[atIndex...].dropFirst())
+                
+                let parts = path.components(separatedBy: "/")
+                if parts.count >= 3 {
+                    let user = parts[0]
+                    let repo = parts[1]
+                    let branch = parts[2]
+                    let filePath = parts.dropFirst(3).joined(separator: "/")
+                    
+                    let url = URL(string: "https://\(token)@raw.githubusercontent.com/\(user)/\(repo)/\(branch)/\(filePath)")!
+                    return (url, "github")
+                }
+            }
+        }
+        
+        // 普通HTTP地址
+        if let url = URL(string: input), url.scheme == "http" || url.scheme == "https" {
+            return (url, "http")
+        }
+        
+        return nil
+    }
+    
+    // MARK: - 远程源下载
+    func downloadRemoteNodeSource(url: URL, sourceName: String) async throws -> String {
+        // 下载文件
+        let (data, _) = try await URLSession.shared.data(from: url)
+        
+        // 保存到Documents目录
+        let docsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let sourceDir = docsDir.appendingPathComponent("sources/\(sourceName)")
+        
+        // 如果目录已存在，先删除
+        if FileManager.default.fileExists(atPath: sourceDir.path) {
+            try FileManager.default.removeItem(at: sourceDir)
+        }
+        
+        // 创建目录
+        try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
+        
+        // 解压zip包
+        if url.pathExtension == "zip" {
+            let tempZip = try FileManager.default.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: sourceDir, create: true).appendingPathComponent("temp.zip")
+            try data.write(to: tempZip)
+            
+            try FileManager.default.unzipItem(at: tempZip, to: sourceDir)
+            try FileManager.default.removeItem(at: tempZip)
+        } else {
+            // 直接保存文件
+            try data.write(to: sourceDir.appendingPathComponent(url.lastPathComponent))
+        }
+        
+        return sourceDir.path
+    }
+    
+    // MARK: - Node源搜索方法
+    func search(sourceBean: SourceBean, keyword: String, page: Int = 1) async throws -> [Movie.Video] {
+        // 调用Node的搜索接口
+        let body: [String: Any] = [
+            "wd": keyword,
+            "page": page
+        ]
+        
+        // 请求Node的API
+        let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/search", body: body)
+        
+        // 解析返回的数据，Node返回的是标准的CatVod格式
+        if let dict = result as? [String: Any],
+           let list = dict["list"] as? [[String: Any]] {
+            
+            // 把字典转换成JSON数据，然后用Movie.Video的解码器来解码
+            let jsonData = try JSONSerialization.data(withJSONObject: list)
+            let videos = try JSONDecoder().decode([Movie.Video].self, from: jsonData)
+            
+            // 给每个video设置sourceKey
+            return videos.map { video in
+                var newVideo = video
+                newVideo.sourceKey = sourceBean.key
+                return newVideo
+            }
+        }
+        
+        return []
+    }
+    
+    // MARK: - 源的持久化
+    private func loadSavedSources() {
+        if let data = UserDefaults.standard.data(forKey: "SavedSources") {
+            do {
+                savedSources = try JSONDecoder().decode([SourceBean].self, from: data)
+            } catch {
+                Logger.shared.log("加载保存的源失败: \(error)", level: .error)
+            }
+        }
+    }
+    
+    func saveSource(_ source: SourceBean) {
+        savedSources.append(source)
+        do {
+            let data = try JSONEncoder().encode(savedSources)
+            UserDefaults.standard.set(data, forKey: "SavedSources")
+        } catch {
+            Logger.shared.log("保存源失败: \(error)", level: .error)
+        }
+    }
+    
+    func getSavedSources() -> [SourceBean] {
+        return savedSources
+    }
+    
+    // MARK: - 获取所有源（包含内置和已保存的）
+    func getAllSources() async -> [SourceBean] {
+        // 这里要加await，因为ApiConfig.shared.sourceBeanList是async属性
+        let builtInSources = await ApiConfig.shared.sourceBeanList
+        let remoteSources = getSavedSources()
+        return builtInSources + remoteSources
     }
 }
