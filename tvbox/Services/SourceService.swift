@@ -10,9 +10,7 @@ class SourceService {
         loadSavedSources()
     }
     
-    // MARK: - 远程源相关方法（我们之前加的）
-    
-    /// 解析Node源地址
+    // MARK: - 源地址解析
     func parseNodeSourceUrl(_ input: String) -> (url: URL, type: String)? {
         let input = input.trimmingCharacters(in: .whitespacesAndNewlines)
         
@@ -65,7 +63,7 @@ class SourceService {
         return nil
     }
     
-    /// 下载远程Node源
+    // MARK: - 远程源下载
     func downloadRemoteNodeSource(url: URL, sourceName: String) async throws -> String {
         // 下载文件
         let (data, _) = try await URLSession.shared.data(from: url)
@@ -97,18 +95,37 @@ class SourceService {
         return sourceDir.path
     }
     
-    /// 保存源到本地
-    func saveSource(_ source: SourceBean) {
-        savedSources.append(source)
-        do {
-            let data = try JSONEncoder().encode(savedSources)
-            UserDefaults.standard.set(data, forKey: "SavedSources")
-        } catch {
-            Logger.shared.log("保存源失败: \(error)", level: .error)
+    // MARK: - Node源搜索方法
+    func search(sourceBean: SourceBean, keyword: String, page: Int = 1) async throws -> [Movie.Video] {
+        // 调用Node的搜索接口
+        let body: [String: Any] = [
+            "wd": keyword,
+            "page": page
+        ]
+        
+        // 请求Node的API
+        let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/search", body: body)
+        
+        // 解析返回的数据，Node返回的是标准的CatVod格式
+        if let dict = result as? [String: Any],
+           let list = dict["list"] as? [[String: Any]] {
+            
+            // 把字典转换成JSON数据，然后用Movie.Video的解码器来解码
+            let jsonData = try JSONSerialization.data(withJSONObject: list)
+            let videos = try JSONDecoder().decode([Movie.Video].self, from: jsonData)
+            
+            // 给每个video设置sourceKey
+            return videos.map { video in
+                var newVideo = video
+                newVideo.sourceKey = sourceBean.key
+                return newVideo
+            }
         }
+        
+        return []
     }
     
-    /// 加载保存的源
+    // MARK: - 源的持久化
     private func loadSavedSources() {
         if let data = UserDefaults.standard.data(forKey: "SavedSources") {
             do {
@@ -119,78 +136,25 @@ class SourceService {
         }
     }
     
-    /// 获取保存的源
+    func saveSource(_ source: SourceBean) {
+        savedSources.append(source)
+        do {
+            let data = try JSONEncoder().encode(savedSources)
+            UserDefaults.standard.set(data, forKey: "SavedSources")
+        } catch {
+            Logger.shared.log("保存源失败: \(error)", level: .error)
+        }
+    }
+    
     func getSavedSources() -> [SourceBean] {
         return savedSources
     }
     
-    // MARK: - 搜索相关方法（修复后的，适配用户的类型）
-    
-    /// 全源搜索
-    func searchAll(keyword: String) async throws -> [Movie.Video] {
-        var allResults: [Movie.Video] = []
-        
-        // 遍历所有源进行搜索
-        for source in ApiConfig.shared.sourceBeanList {
-            do {
-                let results = try await search(sourceBean: source, keyword: keyword)
-                allResults.append(contentsOf: results)
-            } catch {
-                Logger.shared.log("搜索源 \(source.name) 失败: \(error)", level: .error)
-                // 某个源搜索失败不影响其他源
-                continue
-            }
-        }
-        
-        return allResults
-    }
-    
-    /// 单个源搜索
-    func search(sourceBean: sourceBean, keyword: String, page: Int = 1) async throws -> [Movie.Video] {
-        // 判断是不是Node源
-        if sourceBean.type == 3 { // Node源类型
-            // 调用Node源的搜索接口
-            let body: [String: Any] = [
-                "wd": keyword,
-                "page": page
-            ]
-            
-            // 调用Node的API
-            let response = try await NodeJSBridge.shared.requestNodeAPI(path: "/search", body: body)
-            
-            // 解析返回的数据
-            if let responseDict = response as? [String: Any],
-               let list = responseDict["list"] as? [[String: Any]] {
-                
-                // 把字典转换成Movie.Video
-                var videos: [Movie.Video] = []
-                for dict in list {
-                    // 把字典转成JSON数据，然后用Movie.Video的解码器解码
-                    // 因为Movie.Video已经有自定义的解码逻辑，正好适配Node源的字段
-                    let jsonData = try JSONSerialization.data(withJSONObject: dict)
-                    if let video = try? JSONDecoder().decode(Movie.Video.self, from: jsonData) {
-                        // 设置sourceKey
-                        var videoWithSource = video
-                        videoWithSource.sourceKey = sourceBean.key
-                        videos.append(videoWithSource)
-                    }
-                }
-                
-                return videos
-            }
-            
-            return []
-        } else {
-            // 普通源，调用原来的NetworkManager的搜索方法
-            // 这里用用户原来的NetworkManager的方法
-            return try await NetworkManager.shared.search(sourceBean: sourceBean, keyword: keyword, page: page)
-        }
-    }
-    
-    // MARK: - Node源请求处理
-    
-    /// 请求Node源的API
-    func requestNodeAPI(path: String, body: [String: Any]) async throws -> Any {
-        return try await NodeJSBridge.shared.requestNodeAPI(path: path, body: body)
+    // MARK: - 获取所有源（包含内置和已保存的）
+    func getAllSources() async -> [SourceBean] {
+        // 这里要加await，因为ApiConfig.shared.sourceBeanList是async属性
+        let builtInSources = await ApiConfig.shared.sourceBeanList
+        let remoteSources = getSavedSources()
+        return builtInSources + remoteSources
     }
 }
