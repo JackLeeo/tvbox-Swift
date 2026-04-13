@@ -1,6 +1,6 @@
 import Foundation
 import GCDWebServer
-import NodeMobile
+import NodeMobile  // 必须导入这个！
 
 class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
@@ -24,11 +24,12 @@ class NodeJSBridge: NSObject {
     private func startNativeServer() {
         webServer = GCDWebServer()
         
-        // 添加消息处理接口，Node会给这里发消息
+        // GCDWebServer 的正确 addHandler 用法
         webServer?.addHandler(
             forMethod: "POST",
             path: "/message",
-            request: { [weak self] request in
+            request: GCDWebServerRequest.self,
+            processBlock: { [weak self] request in
                 // 处理Node发来的消息
                 if let body = request.body as Data?,
                    let message = String(data: body, encoding: .utf8) {
@@ -61,9 +62,11 @@ class NodeJSBridge: NSObject {
             return
         }
         
-        // 启动Node.js
+        // NodeMobile 的正确用法
         let args = [nodeScriptPath]
-        args.withCStringArray { cArgs in
+        
+        // 把 Swift 的 String 数组转成 C 的 char* 数组
+        withUnsafeCStringArray(args) { cArgs in
             nodeHandle = nodeMobileStart(cArgs, Int32(args.count)) { message in
                 // Node发来的消息回调
                 if let message = message {
@@ -98,6 +101,19 @@ class NodeJSBridge: NSObject {
             ]
             
             self.sendMessageToNode(runMessage)
+        }
+    }
+    
+    // 辅助方法：把 Swift String 数组转成 C 字符串数组
+    private func withUnsafeCStringArray(_ strings: [String], body: ([UnsafePointer<Int8>?]) throws -> Void) rethrows {
+        try strings.withUnsafeBufferPointer { strBuffer in
+            var cStrings: [UnsafePointer<Int8>?] = []
+            for string in strings {
+                try string.withCString { cStr in
+                    cStrings.append(cStr)
+                    try body(cStrings)
+                }
+            }
         }
     }
     
