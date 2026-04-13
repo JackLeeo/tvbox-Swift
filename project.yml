@@ -16,7 +16,7 @@ packages:
     version: 3.6.0
   Alamofire:
     url: https://github.com/Alamofire/Alamofire
-    version: 5.8.1
+    version: 5.11.2
   GCDWebServer:
     url: https://github.com/yene/GCDWebServer
     version: 3.5.7
