@@ -23,7 +23,7 @@ struct tvboxApp: App {
                 ContentView()
                     .environmentObject(appState)
                     .environmentObject(networkMonitor)
-                    .environmentObject(AppConfig.shared)
+                    .environmentObject(ApiConfig.shared) // 这里改对了，是ApiConfig，不是AppConfig
                 
                 // 调试悬浮窗（始终可交互）
                 DebugOverlay()
