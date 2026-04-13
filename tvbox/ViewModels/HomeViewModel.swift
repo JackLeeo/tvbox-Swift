@@ -39,15 +39,21 @@ class HomeViewModel: ObservableObject {
         errorMessage = nil
         
         do {
-            let result = try await sourceService.getSort(sourceBean: source)
+            // Node 源的 getSort 直接返回 [MovieSort.SortData] 数组
+            let sorts = try await sourceService.getSort(sourceBean: source)
             
             // 插入本地"推荐"分类，保持 UI 与 Android 版本习惯一致。
             var allSorts = [MovieSort.SortData.home()]
-            allSorts.append(contentsOf: result.sorts)
+            allSorts.append(contentsOf: sorts)
             
             self.sorts = allSorts
-            self.homeVideos = result.homeVideos
             lastLoadFailedDueToNetwork = false
+            
+            // Node 源没有 homeVideos，所以我们加载第一个分类的列表作为首页
+            if let firstSort = sorts.first {
+                let videos = try await sourceService.getList(sourceBean: source, sortData: firstSort, page: 1)
+                self.homeVideos = videos
+            }
             
             if selectedSort == nil {
                 selectedSort = allSorts.first
