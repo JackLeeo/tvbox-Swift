@@ -26,7 +26,7 @@ class NodeJSBridge: NSObject {
         webServer?.addHandler(
             forMethod: "POST",
             path: "/message",
-            request: GCDWebServerRequest.self,
+            request: GCDWebServerDataRequest.self,  // 修复：用 DataRequest 才有 data 属性
             processBlock: { [weak self] request in
                 // 处理 Node 发来的消息
                 if let body = request.data,
@@ -70,7 +70,8 @@ class NodeJSBridge: NSObject {
         nodeThread = Thread {
             // 调用 node_start 函数启动 Node.js
             let cArgs = args.map { $0.withCString { $0 } }
-            withUnsafeBufferPointer(to: cArgs) { buffer in
+            // 修复：用数组的实例方法
+            cArgs.withUnsafeBufferPointer { buffer in
                 node_start(Int32(args.count), buffer.baseAddress)
             }
         }
