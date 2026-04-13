@@ -29,17 +29,11 @@ class NodeJSBridge: NSObject {
     private func startNativeServer() {
         nativeServer = GCDWebServer()
         
-        // 添加消息处理接口，Node 会调用这个接口发送消息
-        // 正确的 GCDWebServer API
-        nativeServer?.addHandler(
-            forMethod: "POST",
-            path: "/message",
-            request: nil,
-            response: nil
-        ) { [weak self] request, response, completion in
+        // Swift 版本的 GCDWebServer API
+        // 正确的 POST handler 方法
+        nativeServer?.addPOSTHandler(forPath: "/message") { [weak self] request in
             guard let self = self else {
-                completion(GCDWebServerResponse(statusCode: 500))
-                return
+                return GCDWebServerResponse(statusCode: 500)
             }
             
             do {
@@ -47,10 +41,10 @@ class NodeJSBridge: NSObject {
                 if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
                     self.handleNodeMessage(json)
                 }
-                completion(GCDWebServerResponse(statusCode: 200))
+                return GCDWebServerResponse(statusCode: 200)
             } catch {
                 Logger.shared.log("处理 Node 消息失败: \(error)", level: .error)
-                completion(GCDWebServerResponse(statusCode: 500))
+                return GCDWebServerResponse(statusCode: 500)
             }
         }
         
