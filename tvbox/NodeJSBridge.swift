@@ -1,5 +1,6 @@
 import Foundation
 import GCDWebServer
+import Combine
 
 class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
@@ -23,13 +24,13 @@ class NodeJSBridge: NSObject {
     private func startNativeServer() {
         webServer = GCDWebServer()
         
-        // 修复：GCDWebServer 的 processBlock 签名是固定的，我们在内部强转
+        // 使用正确的 GCDWebServer API
         webServer?.addHandler(
             forMethod: "POST",
             path: "/message",
             request: GCDWebServerDataRequest.self,
             processBlock: { [weak self] request in
-                // 修复：强转成 GCDWebServerDataRequest，这样才有 data 属性
+                // 将 request 转换为 GCDWebServerDataRequest
                 guard let self = self,
                       let dataRequest = request as? GCDWebServerDataRequest,
                       let body = dataRequest.data,
@@ -72,37 +73,25 @@ class NodeJSBridge: NSObject {
         
         // 启动 Node.js 线程
         nodeThread = Thread {
-            // 修复：正确的创建 argv 数组的方式
-            var argv: [UnsafeMutablePointer<Int8>?] = []
+            // 使用 strdup 简化内存管理
+            var argv: [UnsafeMutablePointer<Int8>?] = args.map { strdup($0) }
+            argv.append(nil)  // 以 NULL 结尾
             
-            for arg in args {
-                let cStr = arg.utf8CString
-                let ptr = UnsafeMutablePointer<Int8>.allocate(capacity: cStr.count)
-                // 修复：用 withUnsafeBytes 获取原始指针
-                cStr.withUnsafeBytes { buffer in
-                    ptr.initialize(from: buffer.baseAddress!, count: cStr.count)
-                }
-                argv.append(ptr)
-            }
+            // 调用 node_start
+            _ = node_start(Int32(args.count), &argv)
             
-            // 最后一个必须是 NULL
-            argv.append(nil)
-            
-            // 调用 node_start，强制解包 baseAddress（我们的数组肯定非空）
-            argv.withUnsafeBufferPointer { buffer in
-                _ = node_start(Int32(args.count + 1), buffer.baseAddress!)
-            }
-            
-            // 释放内存，避免泄漏
+            // 释放内存
             for ptr in argv {
-                ptr?.deallocate()
+                if let ptr = ptr {
+                    free(ptr)
+                }
             }
         }
         
         nodeThread?.start()
     }
     
-    // 声明 node_start 函数，这个所有版本都有！
+    // 声明 node_start 函数
     @_silgen_name("node_start")
     func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
     
@@ -137,6 +126,7 @@ class NodeJSBridge: NSObject {
         do {
             let data = try JSONSerialization.data(withJSONObject: message)
             
+            // 修复URL：添加协议和主机
             var request = URLRequest(url: URL(string: "http://127.0.0.1:\(port)/message")!)
             request.httpMethod = "POST"
             request.httpBody = data
@@ -152,10 +142,11 @@ class NodeJSBridge: NSObject {
     /// 向 Node 服务发送请求
     func requestNodeAPI(path: String, body: [String: Any]) async throws -> Any {
         guard let port = nodePort else {
-            throw NSError(domain: "NodeJSBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "Node服务未启动"])
+            throw NSError(domain: "NodeJSBridge", code: -1, 
+                         userInfo: [NSLocalizedDescriptionKey: "Node服务未启动"])
         }
         
-        // 构建请求
+        // 修复URL：添加协议和主机
         let url = URL(string: "http://127.0.0.1:\(port)\(path)")!
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
@@ -167,7 +158,8 @@ class NodeJSBridge: NSObject {
         
         // 检查响应
         if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-            throw NSError(domain: "NodeJSBridge", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Node服务请求失败"])
+            throw NSError(domain: "NodeJSBridge", code: httpResponse.statusCode, 
+                         userInfo: [NSLocalizedDescriptionKey: "Node服务请求失败"])
         }
         
         // 解析返回的JSON
