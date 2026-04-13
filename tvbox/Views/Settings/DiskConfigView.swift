@@ -1,5 +1,4 @@
 import SwiftUI
-
 struct DiskConfigView: View {
     @State private var config = DiskConfig.load()
     @State private var showToast = false
@@ -166,54 +165,5 @@ struct DiskConfigView: View {
         
         toastMessage = "配置已保存"
         showToast = true
-    }
-}
-
-// Placeholder 扩展
-extension View {
-    func placeholder<Content: View>(when shouldShow: Bool, alignment: Alignment = .leading, @ViewBuilder placeholder: () -> Content) -> some View {
-        ZStack(alignment: alignment) {
-            placeholder().opacity(shouldShow ? 1 : 0)
-            self
-        }
-    }
-}
-
-// Toast 扩展
-struct ToastModifier: ViewModifier {
-    @Binding var isPresented: Bool
-    let message: String
-    
-    func body(content: Content) -> some View {
-        ZStack {
-            content
-            
-            if isPresented {
-                VStack {
-                    Text(message)
-                        .font(.subheadline)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.black.opacity(0.8))
-                        .cornerRadius(8)
-                    
-                    Spacer()
-                }
-                .padding(.top, 60)
-                .transition(.opacity)
-                .onAppear {
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
-                        isPresented = false
-                    }
-                }
-            }
-        }
-    }
-}
-
-extension View {
-    func toast(isPresented: Binding<Bool>, message: String) -> some View {
-        self.modifier(ToastModifier(isPresented: isPresented, message: message))
     }
 }
