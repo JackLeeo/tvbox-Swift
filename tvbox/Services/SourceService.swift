@@ -21,7 +21,6 @@ class SourceService {
                 let token = String(rest[..<atIndex])
                 let path = String(rest[atIndex...].dropFirst())
                 
-                // 解析路径: user/repo/branch/path
                 let parts = path.components(separatedBy: "/")
                 if parts.count >= 3 {
                     let user = parts[0]
@@ -157,6 +156,33 @@ class SourceService {
         }
         
         return []
+    }
+    
+    // MARK: - 详情接口
+    func getDetail(sourceBean: SourceBean, vodId: String) async throws -> VodInfo? {
+        // 调用Node的/detail接口，获取影片详情
+        let body: [String: Any] = [
+            "id": vodId
+        ]
+        
+        let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/detail", body: body)
+        
+        // 解析返回的详情数据
+        if let dict = result as? [String: Any],
+           let list = dict["list"] as? [[String: Any]],
+           !list.isEmpty {
+            
+            // 取第一个item
+            let firstItem = list[0]
+            let jsonData = try JSONSerialization.data(withJSONObject: firstItem)
+            var vodInfo = try JSONDecoder().decode(VodInfo.self, from: jsonData)
+            
+            // 设置sourceKey
+            vodInfo.sourceKey = sourceBean.key
+            return vodInfo
+        }
+        
+        return nil
     }
     
     // MARK: - 搜索方法
