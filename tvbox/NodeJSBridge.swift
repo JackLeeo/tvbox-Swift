@@ -132,7 +132,7 @@ class NodeJSBridge: NSObject {
     
     private func loadDefaultSource() {
         // 加载默认的内置源
-        if let sourcePath = Bundle.main.path(forResource: nil, ofType: nil, inDirectory: "nodejs-project") {
+        if let sourcePath = Bundle.main.path(forResource: nil, ofType: nil, inDirectory: "asset/js") {
             // 读取用户的网盘配置
             let diskConfig = DiskConfig.load()
             
