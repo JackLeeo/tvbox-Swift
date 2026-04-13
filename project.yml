@@ -11,7 +11,7 @@ options:
   carthageUseXCFrameworks: true
 
 packages:
-  VLCKit-SPM:
+  VLCKitSPM:
     url: https://github.com/tylerjonesio/vlckit-spm
     version: 3.6.0
   Alamofire:
@@ -33,7 +33,7 @@ targets:
       - tvbox/Resources
       - tvbox/Resources/nodejs-project
     dependencies:
-      - package: VLCKit-SPM
+      - package: VLCKitSPM
       - package: Alamofire
       - package: GCDWebServer
       - package: ZIPFoundation
