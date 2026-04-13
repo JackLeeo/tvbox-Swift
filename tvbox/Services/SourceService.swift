@@ -95,7 +95,7 @@ class SourceService {
         return sourceDir.path
     }
     
-    // MARK: - Node源搜索方法
+    // MARK: - 单个源搜索
     func search(sourceBean: SourceBean, keyword: String, page: Int = 1) async throws -> [Movie.Video] {
         // 调用Node的搜索接口
         let body: [String: Any] = [
@@ -106,7 +106,7 @@ class SourceService {
         // 请求Node的API
         let result = try await NodeJSBridge.shared.requestNodeAPI(path: "/search", body: body)
         
-        // 解析返回的数据，Node返回的是标准的CatVod格式
+        // 解析返回的数据
         if let dict = result as? [String: Any],
            let list = dict["list"] as? [[String: Any]] {
             
@@ -123,6 +123,34 @@ class SourceService {
         }
         
         return []
+    }
+    
+    // MARK: - 多源搜索
+    func searchAll(keyword: String) async throws -> [Movie.Video] {
+        let allSources = await getAllSources()
+        var allVideos: [Movie.Video] = []
+        
+        // 并行搜索所有源
+        try await withThrowingTaskGroup(of: [Movie.Video].self) { group in
+            for source in allSources {
+                group.addTask {
+                    do {
+                        // 对每个源执行搜索
+                        return try await self.search(sourceBean: source, keyword: keyword)
+                    } catch {
+                        Logger.shared.log("源 \(source.name) 搜索失败: \(error)", level: .error)
+                        return []
+                    }
+                }
+            }
+            
+            // 收集所有结果
+            for try await videos in group {
+                allVideos.append(contentsOf: videos)
+            }
+        }
+        
+        return allVideos
     }
     
     // MARK: - 源的持久化
@@ -150,11 +178,13 @@ class SourceService {
         return savedSources
     }
     
-    // MARK: - 获取所有源（包含内置和已保存的）
+    // MARK: - 获取所有源
     func getAllSources() async -> [SourceBean] {
-        // 这里要加await，因为ApiConfig.shared.sourceBeanList是async属性
+        // 获取内置源
         let builtInSources = await ApiConfig.shared.sourceBeanList
+        // 获取已保存的远程源
         let remoteSources = getSavedSources()
+        // 合并
         return builtInSources + remoteSources
     }
 }
