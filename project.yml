@@ -1,48 +1,21 @@
 name: tvbox
 options:
-  xcodegen:
-    useBaseInternationalization: true
-targets:
-  tvbox:
-    type: application
-    platform: iOS
-    deploymentTarget:
-      iOS: 16.0
-    sources:
-      - tvbox
-    resources:
-      - tvbox/Assets.xcassets
-      - tvbox/Resources/nodejs-project
-    dependencies:
-      - package: https://github.com/CodeEagle/VLCKit-SPM
-        version: 3.6.0
-      - package: https://github.com/Alamofire/Alamofire
-        version: 5.8.1
-      - package: https://github.com/swiftwebui/GCDWebServer
-        version: 3.5.0
-      - package: https://github.com/weichsel/ZIPFoundation
-        version: 0.9.16
-    settings:
-      FRAMEWORK_SEARCH_PATHS:
-        - $(inherited)
-        - $(SRCROOT)/Libraries/nodejs-mobile
-      OTHER_LDFLAGS:
-        - $(inherited)
-        - -framework
-        - NodeMobile
-      SWIFT_INCLUDE_PATHS:
-        - $(inherited)
-        - $(SRCROOT)/Libraries/nodejs-mobile
-    preBuildScripts:
-      - name: Check NodeMobile
-        script: |
-          if [ ! -d "$SRCROOT/Libraries/nodejs-mobile/NodeMobile.xcframework" ]; then
-            echo "Downloading NodeMobile framework..."
-            curl -L https://github.com/janeasystems/nodejs-mobile/releases/download/v18.18.0/nodejs-mobile-framework-universal.tar.gz -o nodejs-mobile.tar.gz
-            tar -xzf nodejs-mobile.tar.gz
-            mv NodeMobile.xcframework "$SRCROOT/Libraries/nodejs-mobile/"
-            rm nodejs-mobile.tar.gz
-          fi
+  xcodeVersion: 14.0
+  deploymentTarget:
+    iOS: 15.0
+  developmentLanguage: zh-Hans
+  useBaseInternationalization: true
+  groupSortPosition: top
+  generateEmptyDirectories: true
+  carthageBuildPath: Carthage
+  carthageUseXCFrameworks: true
+  preGenCommand: |
+    if [ ! -d "Libraries/nodejs-mobile" ]; then
+      mkdir -p Libraries/nodejs-mobile
+      wget https://github.com/janeasystems/nodejs-mobile/releases/download/v18.18.0/nodejs-mobile-framework-universal.tar.gz
+      tar -xzf nodejs-mobile-framework-universal.tar.gz -C Libraries/nodejs-mobile
+      rm nodejs-mobile.tar.gz
+    fi
 packages:
   VLCKit-SPM:
     url: https://github.com/CodeEagle/VLCKit-SPM
@@ -56,3 +29,26 @@ packages:
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation
     version: 0.9.16
+targets:
+  tvbox:
+    type: application
+    platform: iOS
+    sources:
+      - tvbox
+    resources:
+      - tvbox/Resources
+      - tvbox/Resources/nodejs-project
+    dependencies:
+      - package: VLCKit-SPM
+      - package: Alamofire
+      - package: GCDWebServer
+      - package: ZIPFoundation
+    settings:
+      base:
+        SWIFT_VERSION: 5.0
+        SWIFT_OPTIMIZATION_LEVEL: "-Owholemodule"
+        SWIFT_OBJC_BRIDGING_HEADER: tvbox/tvbox-Bridging-Header.h
+        OTHER_LDFLAGS: -ObjC
+        FRAMEWORK_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Libraries/nodejs-mobile/include
+        INFOPLIST_FILE: tvbox/Info.plist
