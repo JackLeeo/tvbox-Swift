@@ -1,186 +1,170 @@
 import Foundation
 import GCDWebServer
-// 声明 NodeMobile 框架里的 C 函数
-@_silgen_name("node_start")
-func node_start(_ argc: Int32, _ argv: UnsafePointer<UnsafeMutablePointer<Int8>?>?) -> Int32
+
 class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
     
-    var nativeServer: GCDWebServer?
-    var nodePort: Int?
-    var isNodeReady = false
+    private var nativeServer: GCDWebServer?
+    private var nodePort: UInt16 = 0
+    private var isNodeRunning = false
+    
+    // 网盘配置
+    private var diskConfig: [String: String] = [:]
     
     private override init() {
         super.init()
+        loadDiskConfig()
     }
     
-    func start() {
-        // 启动原生 HTTP 服务，用于和 Node 通信
-        startNativeServer()
+    // 启动原生 HTTP 服务
+    func startNativeServer() {
+        guard nativeServer == nil else { return }
         
-        // 启动 Node.js 运行时
-        DispatchQueue.global().async {
-            self.startNodeRuntime()
-        }
-    }
-    
-    private func startNativeServer() {
-        nativeServer = GCDWebServer()
+        let server = GCDWebServer()
         
-        // 正确的异步版本的 addHandler！
-        // 参数标签是 asyncProcessBlock，不是 processBlock！
-        // 而且 closure 有两个参数：request 和 completion！
-        nativeServer?.addHandler(
-            forMethod: "POST",
-            path: "/message",
-            request: GCDWebServerRequest.self,
-            asyncProcessBlock: { [weak self] request, completion in
-                guard let self = self else {
-                    completion(GCDWebServerResponse(statusCode: 500))
-                    return
-                }
-                
-                do {
-                    let data = try Data(contentsOf: request.body)
-                    if let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
-                        self.handleNodeMessage(json)
-                    }
-                    completion(GCDWebServerResponse(statusCode: 200))
-                } catch {
-                    Logger.shared.log("处理 Node 消息失败: \(error)", level: .error)
-                    completion(GCDWebServerResponse(statusCode: 500))
-                }
+        // Node -> 原生 的通信接口
+        server.addPOSTHandler(forPath: "/message", asyncProcessBlock: { request, completionBlock in
+            // 处理 Node 发送过来的消息
+            let data = request.bodyData  // 修复：使用正确的 bodyData 属性
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                self.handleNodeMessage(json)
             }
-        )
+            completionBlock(GCDWebServerResponse(statusCode: 200), nil)
+        })
         
-        // 启动服务，使用随机端口
+        // 启动服务
         do {
-            try nativeServer?.start(options: [
+            try server.start(options: [
                 GCDWebServerOption_Port: 0,
                 GCDWebServerOption_BindToLocalhost: true
             ])
-            
-            if let port = nativeServer?.port {
-                Logger.shared.log("原生服务已启动，端口: \(port)", level: .info)
-            }
+            self.nativeServer = server
+            print("✅ 原生 HTTP 服务已启动，端口: \(server.port)")
         } catch {
-            Logger.shared.log("启动原生服务失败: \(error)", level: .error)
+            print("❌ 原生 HTTP 服务启动失败: \(error)")
         }
     }
     
+    // 处理 Node 发送的消息
     private func handleNodeMessage(_ message: [String: Any]) {
-        let action = message["action"] as? String ?? ""
-        
-        switch action {
-        case "ready":
-            // Node 环境已就绪，发送我们的端口给它
-            if let nativePort = nativeServer?.port {
-                sendMessageToNode([
-                    "action": "nativeServerPort",
-                    "port": nativePort
-                ])
-                
-                // 加载默认源
-                loadDefaultSource()
+        if let action = message["action"] as? String {
+            switch action {
+            case "ready":
+                // Node 环境已就绪，发送 run 指令
+                if let port = message["port"] as? UInt16 {
+                    self.nodePort = port
+                    self.loadDefaultSource()
+                }
+            default:
+                break
             }
-            
-        case "nodeServerPort":
-            // Node 告诉我们它的服务端口
-            if let port = message["port"] as? Int {
-                nodePort = port
-                isNodeReady = true
-                Logger.shared.log("Node 服务已就绪，端口: \(port)", level: .info)
-                
-                // 通知 App Node 已就绪
-                NotificationCenter.default.post(name: NSNotification.Name("NodeReady"), object: nil)
-            }
-            
-        default:
-            Logger.shared.log("未知的 Node 消息: \(action)", level: .warning)
         }
     }
     
-    private func startNodeRuntime() {
-        // 获取 Node 脚本的路径
-        guard let scriptPath = Bundle.main.path(
-            forResource: "index",
-            ofType: "js",
-            inDirectory: "nodejs-project"
-        ) else {
-            Logger.shared.log("找不到 Node 脚本文件", level: .error)
+    // 给 Node 发送消息
+    private func sendMessageToNode(_ message: [String: Any]) {
+        guard nodePort > 0 else {
+            print("❌ Node 服务未启动")
             return
         }
         
-        // 准备 Node 的启动参数
+        let url = URL(string: "http://127.0.0.1:\(nodePort)/message")!
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.httpBody = try? JSONSerialization.data(withJSONObject: message)
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        
+        let task = URLSession.shared.dataTask(with: request)
+        task.resume()
+    }
+    
+    // 启动 Node.js 运行时
+    func startNode() {
+        guard !isNodeRunning else { return }
+        
+        startNativeServer()
+        
+        // 获取 Node 脚本路径
+        guard let nodePath = Bundle.main.path(forResource: "nodejs-project/index", ofType: "js", inDirectory: nil) else {
+            print("❌ 找不到 Node 脚本")
+            return
+        }
+        
+        // 准备参数
         let args = [
             "node",
-            scriptPath
+            nodePath,
+            "--native-port", String(nativeServer?.port ?? 0)
         ]
         
-        // 转换为 C 风格的参数
-        let cArgs = args.map { $0.withCString { strdup($0) } }
-        var argv = cArgs + [nil]  // 最后一个必须是 nil
+        // 转换为 C 字符串数组
+        var argv = args.map { strdup($0) }
         
-        // 调用 node_start
-        _ = node_start(Int32(args.count), &argv)
-        
-        // 释放内存
-        cArgs.forEach { free($0) }
-    }
-    
-    private func loadDefaultSource() {
-        // 加载默认的内置源
-        if let sourcePath = Bundle.main.path(forResource: nil, ofType: nil, inDirectory: "nodejs-project") {
-            // 读取用户的网盘配置
-            let diskConfig = DiskConfig.load()
-            
-            sendMessageToNode([
-                "action": "run",
-                "path": sourcePath,
-                "config": diskConfig.toDictionary()
-            ])
+        // 启动 Node
+        DispatchQueue.global().async {
+            _ = node_start(Int32(args.count), &argv)
+            print("Node 进程已退出")
+            self.isNodeRunning = false
         }
+        
+        isNodeRunning = true
+        print("✅ Node.js 运行时已启动")
     }
     
-    func loadRemoteSource(path: String) {
-        // 加载用户下载的远程源
-        let diskConfig = DiskConfig.load()
+    // 加载默认源
+    private func loadDefaultSource() {
+        guard let defaultPath = Bundle.main.path(forResource: "nodejs-project", ofType: nil) else {
+            return
+        }
         
         sendMessageToNode([
             "action": "run",
-            "path": path,
-            "config": diskConfig.toDictionary()
+            "path": defaultPath,
+            "config": diskConfig
         ])
     }
     
-    func sendMessageToNode(_ message: [String: Any]) {
-        guard let nodePort = nodePort else {
-            Logger.shared.log("Node 端口未就绪", level: .warning)
-            return
-        }
-        
-        do {
-            let data = try JSONSerialization.data(withJSONObject: message)
-            
-            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(nodePort)/message")!)
-            request.httpMethod = "POST"
-            request.httpBody = data
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            
-            let task = URLSession.shared.dataTask(with: request) { _, _, error in
-                if let error = error {
-                    Logger.shared.log("发送消息到 Node 失败: \(error)", level: .error)
-                }
-            }
-            task.resume()
-        } catch {
-            Logger.shared.log("序列化消息失败: \(error)", level: .error)
-        }
+    // 加载远程源
+    func loadRemoteSource(path: String) {
+        sendMessageToNode([
+            "action": "run",
+            "path": path,
+            "config": diskConfig
+        ])
     }
     
-    func requestNodeAPI(path: String, body: [String: Any]) async throws -> Any {
-        guard let nodePort = nodePort, isNodeReady else {
-            throw NSError(domain: "NodeBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "Node 服务未就绪"])
+    // 加载网盘配置
+    private func loadDiskConfig() {
+        let defaults = UserDefaults.standard
+        diskConfig = [
+            "aliToken": defaults.string(forKey: "aliToken") ?? "",
+            "quarkCookie": defaults.string(forKey: "quarkCookie") ?? "",
+            "pan115Cookie": defaults.string(forKey: "pan115Cookie") ?? "",
+            "tianyiToken": defaults.string(forKey: "tianyiToken") ?? "",
+            "alistUrl": defaults.string(forKey: "alistUrl") ?? "",
+            "alistToken": defaults.string(forKey: "alistToken") ?? "",
+            "liveUrl": defaults.string(forKey: "liveUrl") ?? ""
+        ]
+    }
+    
+    // 保存网盘配置
+    func saveDiskConfig(_ config: [String: String]) {
+        let defaults = UserDefaults.standard
+        for (key, value) in config {
+            defaults.set(value, forKey: key)
+        }
+        defaults.synchronize()
+        
+        diskConfig = config
+        
+        // 重新加载源，让配置生效
+        loadDefaultSource()
+    }
+    
+    // 代理 Node 源的请求
+    func proxyRequest(path: String, body: [String: Any]) async throws -> Any {
+        guard nodePort > 0 else {
+            throw NSError(domain: "NodeBridge", code: -1, userInfo: [NSLocalizedDescriptionKey: "Node 服务未启动"])
         }
         
         let url = URL(string: "http://127.0.0.1:\(nodePort)\(path)")!
@@ -189,49 +173,12 @@ class NodeJSBridge: NSObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         
-        let (data, _) = try await URLSession.shared.data(for: request)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200 else {
+            throw NSError(domain: "NodeBridge", code: -2, userInfo: [NSLocalizedDescriptionKey: "请求失败"])
+        }
+        
         return try JSONSerialization.jsonObject(with: data)
-    }
-}
-// 网盘配置模型
-struct DiskConfig: Codable {
-    var aliToken: String = ""
-    var quarkCookie: String = ""
-    var pan115Cookie: String = ""
-    var tianyiToken: String = ""
-    var alistUrl: String = ""
-    var alistToken: String = ""
-    var liveUrl: String = ""
-    
-    static func load() -> DiskConfig {
-        guard let data = UserDefaults.standard.data(forKey: "DiskConfig") else {
-            return DiskConfig()
-        }
-        do {
-            return try JSONDecoder().decode(DiskConfig.self, from: data)
-        } catch {
-            return DiskConfig()
-        }
-    }
-    
-    func save() {
-        do {
-            let data = try JSONEncoder().encode(self)
-            UserDefaults.standard.set(data, forKey: "DiskConfig")
-        } catch {
-            Logger.shared.log("保存配置失败: \(error)", level: .error)
-        }
-    }
-    
-    func toDictionary() -> [String: Any] {
-        return [
-            "aliToken": aliToken,
-            "quarkCookie": quarkCookie,
-            "pan115Cookie": pan115Cookie,
-            "tianyiToken": tianyiToken,
-            "alistUrl": alistUrl,
-            "alistToken": alistToken,
-            "liveUrl": liveUrl
-        ]
     }
 }
