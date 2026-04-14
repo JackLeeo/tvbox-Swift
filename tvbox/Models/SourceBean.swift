@@ -1,66 +1,76 @@
 import Foundation
 
-/// 视频源站点配置 - 对应 Android 版 SourceBean.java
-struct SourceBean: Codable, Identifiable, Hashable {
-    /// 以源 key 作为稳定标识。
-    var id: String { key }
-    
-    /// 源唯一键。
-    let key: String
-    /// 源显示名。
+struct SourceBean: Codable, Identifiable {
+    let id: UUID
     let name: String
-    /// 源接口地址。
     let api: String
-    /// 搜索开关：0 关闭，1 开启。
-    let searchable: Int
-    /// 是否允许出现在首页分类：0 不可选，1 可选。
-    let filterable: Int
-    /// 快速搜索开关：0 关闭，1 开启（主要用于 remote 源 quick 参数）。
-    let quickSearch: Int
-    /// 源声明的播放器类型（历史字段，Swift 端目前主要走统一播放器策略）。
-    let playerType: Int
-    /// 源协议类型：0 XML，1 JSON，3 JAR，4 Remote。
-    let type: Int
-    /// 扩展参数（remote 源常用）。
-    let ext: String?
+    var type: Int  // 1=旧源, 5=Node源
+    var localPath: String?  // Node源的本地路径
     
-    init(key: String = "", name: String = "", api: String = "",
-         searchable: Int = 1, filterable: Int = 1, quickSearch: Int = 0,
-         playerType: Int = 0, type: Int = 1, ext: String? = nil) {
-        self.key = key
+    // 原来的旧属性，全部保留
+    var group: String?
+    var isChecked: Bool = false
+    
+    init(name: String, api: String, type: Int = 0, localPath: String? = nil) {
+        self.id = UUID()
         self.name = name
         self.api = api
-        self.searchable = searchable
-        self.filterable = filterable
-        self.quickSearch = quickSearch
-        self.playerType = playerType
         self.type = type
-        self.ext = ext
+        self.localPath = localPath
     }
     
-    var isSearchable: Bool { searchable == 1 }
-    var isFilterable: Bool { filterable == 1 }
-    var isQuickSearchEnabled: Bool { quickSearch == 1 }
-    
-    /// 是否在 Swift 版中受支持：现在已支持 JAR 类型 (type=3) 和 Node 源 (type=5)
-    var isSupportedInSwift: Bool {
-        return type == 0 || type == 1 || type == 3 || type == 4 || type == 5
+    // 原来的旧方法，全部保留
+    enum CodingKeys: String, CodingKey {
+        case id, name, api, type, localPath, group, isChecked
     }
-    
-    /// 类型描述
-    var typeDescription: String {
-        switch type {
-        case 0: return "XML"
-        case 1: return "JSON"
-        case 3: return "JAR"
-        case 4: return "Remote"
-        case 5: return "Node"
-        default: return "未知"
+}
+
+// 源地址解析工具
+struct SourceUrlParser {
+    static func parse(_ input: String) -> (url: URL, type: String)? {
+        let input = input.trimmingWhitespace()
+        
+        // 解析Gitee地址
+        if input.starts(with: "gitee://") {
+            let rest = String(input.dropFirst(8))
+            if let atIndex = rest.firstIndex(of: "@") {
+                let token = String(rest[..<atIndex])
+                let path = String(rest[rest.index(after: atIndex)...])
+                let parts = path.components(separatedBy: "/")
+                if parts.count >= 3 {
+                    let user = parts[0]
+                    let repo = parts[1]
+                    let branch = parts[2]
+                    let filePath = parts.count > 3 ? parts[3...].joined(separator: "/") : ""
+                    let apiUrl = URL(string: "https://gitee.com/api/v5/repos/\(user)/\(repo)/contents/\(filePath)?ref=\(branch)")!
+                    return (apiUrl, "gitee")
+                }
+            }
         }
-    }
-    
-    /// api 字段是否为有效 HTTP URL
-    var isHttpApi: Bool {
-        return api.hasPrefix("http://") || api.hasPrefix("https://")
+        
+        // 解析GitHub地址
+        if input.starts(with: "github://") {
+            let rest = String(input.dropFirst(9))
+            if let atIndex = rest.firstIndex(of: "@") {
+                let token = String(rest[..<atIndex])
+                let path = String(rest[rest.index(after: atIndex)...])
+                let parts = path.components(separatedBy: "/")
+                if parts.count >= 3 {
+                    let user = parts[0]
+                    let repo = parts[1]
+                    let branch = parts[2]
+                    let filePath = parts.count > 3 ? parts[3...].joined(separator: "/") : ""
+                    let apiUrl = URL(string: "https://api.github.com/repos/\(user)/\(repo)/contents/\(filePath)?ref=\(branch)")!
+                    return (apiUrl, "github")
+                }
+            }
+        }
+        
+        // 普通HTTP地址
+        if let url = URL(string: input), url.scheme == "http" || url.scheme == "https" {
+            return (url, "http")
+        }
+        
+        return nil
     }
 }
