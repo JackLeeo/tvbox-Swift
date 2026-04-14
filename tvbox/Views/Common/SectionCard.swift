@@ -13,13 +13,15 @@ struct SectionCard<Content: View>: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(title)
                 .font(.headline)
-                .fontWeight(.semibold)
+                .foregroundColor(.label)
             
             VStack(spacing: 0) {
                 content
             }
-            .background(Color.secondaryBackground)
+            .background(secondaryBackground)
             .cornerRadius(12)
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 8)
     }
 }
