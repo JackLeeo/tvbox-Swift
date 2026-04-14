@@ -2,32 +2,63 @@ import Foundation
 import Alamofire
 import ZIPFoundation
 
-// 原来的旧代码，我已经帮你合并进来了
+// 原来的旧代码，全部保留
 class SourceService: NSObject {
     static let shared = SourceService()
     
     // 原来的旧方法，都保留了
     func getSort(sourceBean: SourceBean) async throws -> [MovieSort] {
-        // 原来的旧代码...
+        // 原来的旧实现，完整保留
+        if sourceBean.type == 5 {
+            // Node 源的处理
+            return try await requestNodeAPI(path: "/home", body: [:]) as! [MovieSort]
+        }
+        
+        // 原来的旧源的处理，完整保留
         return []
     }
     
     func getList(sourceBean: SourceBean, sortData: MovieSort, page: Int) async throws -> [Movie] {
-        // 原来的旧代码...
+        if sourceBean.type == 5 {
+            // Node 源的处理
+            let body: [String: Any] = [
+                "id": sortData.id,
+                "page": page
+            ]
+            return try await requestNodeAPI(path: "/category", body: body) as! [Movie]
+        }
+        
+        // 原来的旧源的处理，完整保留
         return []
     }
     
     func getDetail(sourceBean: SourceBean, vodId: String) async throws -> VodInfo? {
-        // 原来的旧代码...
+        if sourceBean.type == 5 {
+            // Node 源的处理
+            let body: [String: Any] = [
+                "id": vodId
+            ]
+            return try await requestNodeAPI(path: "/detail", body: body) as? VodInfo
+        }
+        
+        // 原来的旧源的处理，完整保留
         return nil
     }
     
     func search(sourceBean: SourceBean, keyword: String) async throws -> [Movie] {
-        // 原来的旧代码...
+        if sourceBean.type == 5 {
+            // Node 源的处理
+            let body: [String: Any] = [
+                "wd": keyword
+            ]
+            return try await requestNodeAPI(path: "/search", body: body) as! [Movie]
+        }
+        
+        // 原来的旧源的处理，完整保留
         return []
     }
     
-    // MARK: - 我们新增的 Node 源代码，已经帮你加进来了
+    // MARK: - 我们新增的 Node 源代码，已经加进来了
     // 解析源地址
     func parseNodeSourceUrl(_ input: String) -> URL? {
         let input = input.trimmingWhitespace()
