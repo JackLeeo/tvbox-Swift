@@ -22,7 +22,7 @@ packages:
     version: 3.5.7
   ZIPFoundation:
     url: https://github.com/weichsel/ZIPFoundation
-    version: 0.9.16
+    version: 0.9.20
 targets:
   tvbox:
     type: application
