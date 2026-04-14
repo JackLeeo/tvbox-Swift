@@ -2,7 +2,7 @@ name: tvbox
 options:
   xcodeVersion: 14.0
   deploymentTarget:
-    iOS: 15.0
+    iOS: 16.0
   developmentLanguage: zh-Hans
   useBaseInternationalization: true
   groupSortPosition: top
