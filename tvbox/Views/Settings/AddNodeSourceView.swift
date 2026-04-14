@@ -1,76 +1,71 @@
 import SwiftUI
 
 struct AddNodeSourceView: View {
-    @State private var sourceName = ""
-    @State private var sourceUrl = ""
+    @State private var sourceUrl: String = ""
+    @State private var sourceName: String = ""
     @State private var isLoading = false
     @State private var showToast = false
     @State private var toastMessage = ""
     
-    @State private var existingSources: [RemoteSource] = []
+    @Environment(\.dismiss) private var dismiss
     
     var body: some View {
-        NavigationStack {
-            Form {
-                Section {
+        Form {
+            SectionCard(title: "添加远程 Node 源") {
+                VStack(spacing: 0) {
                     TextField("源名称", text: $sourceName)
-                    TextField("源地址", text: $sourceUrl)
-                }
-                
-                Section {
-                    Button("添加源") {
-                        addSource()
-                    }
-                    .disabled(isLoading)
-                }
-                
-                if !existingSources.isEmpty {
-                    Section(header: Text("已添加的源")) {
-                        ForEach(existingSources) { source in
-                            HStack {
-                                VStack(alignment: .leading) {
-                                    Text(source.name)
-                                        .font(.body)
-                                    Text(source.url)
-                                        .font(.caption)
-                                        .foregroundColor(.secondaryLabel)
-                                }
-                                
-                                Spacer()
-                                
-                                Button("加载") {
-                                    loadSource(source)
-                                }
-                                .buttonStyle(.bordered)
-                                
-                                Button("删除") {
-                                    deleteSource(source)
-                                }
-                                .buttonStyle(.borderedProminent)
-                                .tint(.red)
-                            }
+                        .padding(12)
+                    
+                    Divider()
+                    
+                    TextEditor(text: $sourceUrl)
+                        .placeholder(when: sourceUrl.isEmpty) {
+                            Text("请输入源地址\n支持: HTTP地址 / Gitee私有仓库 / GitHub私有仓库")
+                                .foregroundColor(.secondaryLabel)
                         }
-                    }
+                        .frame(minHeight: 100)
+                        .padding(12)
                 }
             }
-            .navigationTitle("添加 Node 源")
-            .navigationBarTitleDisplayMode(.large)
-            .toast(isPresented: $showToast, message: toastMessage)
-            .background(Color.background)
-            .onAppear {
-                existingSources = SourceService.shared.getRemoteSources()
+            
+            Section {
+                Button {
+                    addSource()
+                } label: {
+                    if isLoading {
+                        ProgressView()
+                            .frame(maxWidth: .infinity)
+                    } else {
+                        Text("添加源")
+                            .frame(maxWidth: .infinity)
+                            .foregroundColor(.white)
+                            .padding(.vertical, 12)
+                            .background(Color.tint)
+                            .cornerRadius(12)
+                    }
+                }
+                .disabled(isLoading)
             }
         }
+        .navigationTitle("添加 Node 源")
+        .navigationBarTitleDisplayMode(.inline)
+        .toast(isPresented: $showToast, message: toastMessage)
     }
     
     private func addSource() {
-        guard !sourceName.isEmpty, !sourceUrl.isEmpty else {
-            toastMessage = "请填写完整信息"
+        guard sourceName.isNotEmpty() else {
+            toastMessage = "请输入源名称"
             showToast = true
             return
         }
         
-        guard let url = SourceService.shared.parseNodeSourceUrl(sourceUrl) else {
+        guard sourceUrl.isNotEmpty() else {
+            toastMessage = "请输入源地址"
+            showToast = true
+            return
+        }
+        
+        guard let parsed = SourceUrlParser.parse(sourceUrl) else {
             toastMessage = "源地址格式错误"
             showToast = true
             return
@@ -80,43 +75,37 @@ struct AddNodeSourceView: View {
         
         Task {
             do {
-                let localPath = try await SourceService.shared.downloadRemoteNodeSource(url: url, sourceName: sourceName)
+                let localPath = try await SourceService.shared.downloadRemoteSource(
+                    url: parsed.url,
+                    sourceName: sourceName,
+                    type: parsed.type
+                )
                 
-                let source = RemoteSource(name: sourceName, url: sourceUrl, localPath: localPath)
-                SourceService.shared.saveRemoteSource(source)
+                let source = SourceBean(
+                    name: sourceName,
+                    api: sourceUrl,
+                    type: 5,
+                    localPath: localPath
+                )
                 
-                // 加载源
-                NodeJSBridge.shared.loadRemoteSource(path: localPath)
+                SourceService.shared.addRemoteSource(source)
                 
-                DispatchQueue.main.async {
-                    self.isLoading = false
-                    self.toastMessage = "源已添加并加载"
-                    self.showToast = true
-                    self.existingSources = SourceService.shared.getRemoteSources()
-                    self.sourceName = ""
-                    self.sourceUrl = ""
+                await MainActor.run {
+                    isLoading = false
+                    toastMessage = "源添加成功"
+                    showToast = true
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
+                        dismiss()
+                    }
                 }
             } catch {
-                DispatchQueue.main.async {
-                    self.isLoading = false
-                    self.toastMessage = "添加失败: \(error.localizedDescription)"
-                    self.showToast = true
+                await MainActor.run {
+                    isLoading = false
+                    toastMessage = "添加失败: \(error.localizedDescription)"
+                    showToast = true
                 }
             }
         }
-    }
-    
-    private func loadSource(_ source: RemoteSource) {
-        NodeJSBridge.shared.loadRemoteSource(path: source.localPath)
-        toastMessage = "已加载源: \(source.name)"
-        showToast = true
-    }
-    
-    private func deleteSource(_ source: RemoteSource) {
-        SourceService.shared.removeSource(source)
-        try? FileManager.default.removeItem(atPath: source.localPath)
-        existingSources = SourceService.shared.getRemoteSources()
-        toastMessage = "已删除源: \(source.name)"
-        showToast = true
     }
 }
