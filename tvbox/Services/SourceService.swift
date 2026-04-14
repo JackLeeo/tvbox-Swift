@@ -2,255 +2,174 @@ import Foundation
 import Alamofire
 import ZIPFoundation
 
-class SourceService: ObservableObject {
+class SourceService {
     static let shared = SourceService()
     
-    // 保存的远程源
-    @Published var remoteSources: [SourceBean] = []
+    private var currentSource: SourceBean?
+    private var savedSources: [SourceBean] = []
     
-    override init() {
-        super.init()
-        loadRemoteSources()
+    private init() {
+        loadSavedSources()
     }
     
-    // 下载远程源
-    func downloadRemoteSource(url: URL, sourceName: String, type: String) async throws -> String {
-        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
-        let sourceDir = documentsDir.appendingPathComponent("sources/\(sourceName)")
+    // MARK: - 源管理
+    private func loadSavedSources() {
+        if let data = UserDefaults.standard.data(forKey: "SavedSources") {
+            if let sources = try? JSONDecoder().decode([SourceBean].self, from: data) {
+                self.savedSources = sources
+            }
+        }
+    }
+    
+    private func saveSavedSources() {
+        if let data = try? JSONEncoder().encode(savedSources) {
+            UserDefaults.standard.set(data, forKey: "SavedSources")
+        }
+    }
+    
+    func getSavedSources() -> [SourceBean] {
+        return savedSources
+    }
+    
+    func addSource(_ source: SourceBean) {
+        savedSources.append(source)
+        saveSavedSources()
+    }
+    
+    func removeSource(_ source: SourceBean) {
+        savedSources.removeAll { $0.id == source.id }
+        saveSavedSources()
         
-        // 如果已经存在，直接返回
+        // 删除本地文件
+        if let localPath = source.localPath {
+            try? FileManager.default.removeItem(atPath: localPath)
+        }
+    }
+    
+    // MARK: - 远程源下载
+    func downloadRemoteNodeSource(url: URL, sourceName: String) async throws -> SourceBean {
+        // 1. 下载远程的zip包
+        let (data, _) = try await URLSession.shared.data(from: url)
+        
+        // 2. 创建本地目录
+        let documentsDir = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first!
+        let sourceDir = documentsDir.appendingPathComponent("node-sources/\(sourceName)")
+        
+        // 删除已存在的
         if FileManager.default.fileExists(atPath: sourceDir.path) {
-            return sourceDir.path
+            try FileManager.default.removeItem(at: sourceDir)
         }
         
-        // 创建目录
         try FileManager.default.createDirectory(at: sourceDir, withIntermediateDirectories: true)
         
-        if type == "http" {
-            // 普通HTTP下载zip包
-            let (data, _) = try await URLSession.shared.data(from: url)
-            
-            // 保存临时文件
-            let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("temp.zip")
-            try data.write(to: tempFile)
-            
-            // 解压
-            try FileManager.default.unzipItem(at: tempFile, to: sourceDir)
-            
-            // 删除临时文件
-            try? FileManager.default.removeItem(at: tempFile)
-        } else if type == "gitee" || type == "github" {
-            // 私有仓库，下载文件
-            // 这里简化处理，实际会下载整个目录
-            // 你可以扩展这里的逻辑
-        }
+        // 3. 解压
+        let tempFile = FileManager.default.temporaryDirectory.appendingPathComponent("\(UUID().uuidString).zip")
+        try data.write(to: tempFile)
         
-        return sourceDir.path
+        try FileManager.default.unzipItem(at: tempFile, to: sourceDir)
+        
+        try? FileManager.default.removeItem(at: tempFile)
+        
+        // 4. 创建源
+        var source = SourceBean(name: sourceName, url: url.absoluteString, type: 5)
+        source.localPath = sourceDir.path
+        
+        addSource(source)
+        
+        // 5. 加载源
+        NodeJSBridge.shared.loadRemoteSource(path: sourceDir.path)
+        
+        return source
     }
     
-    // 添加远程源
-    func addRemoteSource(_ source: SourceBean) {
-        remoteSources.append(source)
-        saveRemoteSources()
-    }
-    
-    // 删除远程源
-    func removeRemoteSource(_ source: SourceBean) {
-        remoteSources.removeAll { $0.id == source.id }
-        // 删除本地文件
-        if let path = source.localPath {
-            try? FileManager.default.removeItem(atPath: path)
-        }
-        saveRemoteSources()
-    }
-    
-    // 保存远程源
-    private func saveRemoteSources() {
-        if let data = try? JSONEncoder().encode(remoteSources) {
-            UserDefaults.standard.set(data, forKey: "remoteSources")
-        }
-    }
-    
-    // 加载远程源
-    private func loadRemoteSources() {
-        if let data = UserDefaults.standard.data(forKey: "remoteSources") {
-            if let sources = try? JSONDecoder().decode([SourceBean].self, from: data) {
-                self.remoteSources = sources
-            }
-        }
-    }
-    
-    // Node源的请求转发
+    // MARK: - API请求
     func requestNodeAPI(path: String, body: [String: Any]) async throws -> Any {
-        guard NodeJSBridge.shared.nodePort > 0 else {
-            throw SourceError.nodeNotReady
-        }
-        
-        let url = URL(string: "http://127.0.0.1:\(NodeJSBridge.shared.nodePort)\(path)")!
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        
-        let (data, _) = try await URLSession.shared.data(for: request)
-        return try JSONSerialization.jsonObject(with: data)
+        return try await NodeJSBridge.shared.requestNodeAPI(path: path, body: body)
     }
     
-    // 获取分类
-    func getSort(sourceBean: SourceBean) async throws -> [MovieSort] {
-        if sourceBean.type == 5 {
-            // Node源
-            let result = try await requestNodeAPI(path: "/home", body: [:])
-            // 解析返回的数据
-            if let dict = result as? [String: Any],
-               let classes = dict["class"] as? [[String: Any]] {
-                return classes.map { item in
-                    MovieSort(
-                        id: item["type_id"] as? String ?? "",
-                        name: item["type_name"] as? String ?? ""
-                    )
-                }
-            }
-            return []
+    func requestHome(from source: SourceBean) async throws -> Any {
+        if source.isNodeSource {
+            return try await requestNodeAPI(path: "/home", body: [:])
         } else {
-            // 原来的旧源处理，全部保留
-            return try await getOldSort(sourceBean: sourceBean)
+            // 旧的源处理逻辑
+            return try await Type3SourceParser.shared.parseHome(from: source)
         }
     }
     
-    // 获取列表
-    func getList(sourceBean: SourceBean, sortData: MovieSort, page: Int) async throws -> [Movie] {
-        if sourceBean.type == 5 {
-            // Node源
-            let body: [String: Any] = [
-                "id": sortData.id,
-                "page": page
-            ]
-            let result = try await requestNodeAPI(path: "/category", body: body)
-            // 解析返回的数据
-            if let dict = result as? [String: Any],
-               let list = dict["list"] as? [[String: Any]] {
-                return list.map { item in
-                    Movie(
-                        id: item["vod_id"] as? String ?? "",
-                        name: item["vod_name"] as? String ?? "",
-                        cover: item["vod_pic"] as? String ?? "",
-                        year: item["vod_year"] as? String ?? ""
-                    )
-                }
-            }
-            return []
+    func requestCategory(id: String, page: Int, filters: [String: Any], from source: SourceBean) async throws -> Any {
+        if source.isNodeSource {
+            return try await requestNodeAPI(path: "/category", body: [
+                "id": id,
+                "page": page,
+                "filters": filters
+            ])
         } else {
-            // 原来的旧源处理，全部保留
-            return try await getOldList(sourceBean: sourceBean, sortData: sortData, page: page)
+            // 旧的源处理逻辑
+            return try await Type3SourceParser.shared.parseCategory(id: id, page: page, filters: filters, from: source)
         }
     }
     
-    // 获取详情
-    func getDetail(sourceBean: SourceBean, movieId: String) async throws -> MovieDetail {
-        if sourceBean.type == 5 {
-            // Node源
-            let body: [String: Any] = [
-                "id": movieId
-            ]
-            let result = try await requestNodeAPI(path: "/detail", body: body)
-            // 解析返回的数据
-            if let dict = result as? [String: Any],
-               let list = dict["list"] as? [[String: Any]],
-               let item = list.first {
-                return MovieDetail(
-                    id: item["vod_id"] as? String ?? "",
-                    name: item["vod_name"] as? String ?? "",
-                    cover: item["vod_pic"] as? String ?? "",
-                    desc: item["vod_content"] as? String ?? "",
-                    playFrom: item["vod_play_from"] as? String ?? "",
-                    playUrl: item["vod_play_url"] as? String ?? ""
-                )
-            }
-            throw SourceError.parseError
+    func requestDetail(ids: [String], from source: SourceBean) async throws -> Any {
+        if source.isNodeSource {
+            return try await requestNodeAPI(path: "/detail", body: [
+                "id": ids
+            ])
         } else {
-            // 原来的旧源处理，全部保留
-            return try await getOldDetail(sourceBean: sourceBean, movieId: movieId)
+            // 旧的源处理逻辑
+            return try await Type3SourceParser.shared.parseDetail(ids: ids, from: source)
         }
     }
     
-    // 解析播放地址
-    func getPlayUrl(sourceBean: SourceBean, flag: String, id: String) async throws -> String {
-        if sourceBean.type == 5 {
-            // Node源
-            let body: [String: Any] = [
+    func requestPlay(flag: String, id: String, from source: SourceBean) async throws -> Any {
+        if source.isNodeSource {
+            return try await requestNodeAPI(path: "/play", body: [
                 "flag": flag,
                 "id": id
-            ]
-            let result = try await requestNodeAPI(path: "/play", body: body)
-            if let dict = result as? [String: Any],
-               let url = dict["url"] as? String {
-                return url
-            }
-            throw SourceError.parseError
+            ])
         } else {
-            // 原来的旧源处理，全部保留
-            return try await getOldPlayUrl(sourceBean: sourceBean, flag: flag, id: id)
+            // 旧的源处理逻辑
+            return try await Type3SourceParser.shared.parsePlay(flag: flag, id: id, from: source)
         }
     }
     
-    // 搜索
-    func search(sourceBean: SourceBean, keyword: String, page: Int) async throws -> [Movie] {
-        if sourceBean.type == 5 {
-            // Node源
-            let body: [String: Any] = [
-                "wd": keyword,
+    func requestSearch(wd: String, page: Int, from source: SourceBean) async throws -> Any {
+        if source.isNodeSource {
+            return try await requestNodeAPI(path: "/search", body: [
+                "wd": wd,
                 "page": page
-            ]
-            let result = try await requestNodeAPI(path: "/search", body: body)
-            // 解析返回的数据
-            if let dict = result as? [String: Any],
-               let list = dict["list"] as? [[String: Any]] {
-                return list.map { item in
-                    Movie(
-                        id: item["vod_id"] as? String ?? "",
-                        name: item["vod_name"] as? String ?? "",
-                        cover: item["vod_pic"] as? String ?? "",
-                        year: item["vod_year"] as? String ?? ""
-                    )
-                }
-            }
-            return []
+            ])
         } else {
-            // 原来的旧源处理，全部保留
-            return try await getOldSearch(sourceBean: sourceBean, keyword: keyword, page: page)
+            // 旧的源处理逻辑
+            return try await Type3SourceParser.shared.parseSearch(wd: wd, page: page, from: source)
         }
     }
+}
+
+// 占位，旧的解析器
+class Type3SourceParser {
+    static let shared = Type3SourceParser()
     
-    // 原来的旧方法，全部保留，这里省略，你原来的代码都在
-    private func getOldSort(sourceBean: SourceBean) async throws -> [MovieSort] {
-        // 你原来的代码，全部保留
-        return []
+    func parseHome(from source: SourceBean) async throws -> Any {
+        throw SourceError.emptyApi
     }
     
-    private func getOldList(sourceBean: SourceBean, sortData: MovieSort, page: Int) async throws -> [Movie] {
-        // 你原来的代码，全部保留
-        return []
+    func parseCategory(id: String, page: Int, filters: [String: Any], from source: SourceBean) async throws -> Any {
+        throw SourceError.emptyApi
     }
     
-    private func getOldDetail(sourceBean: SourceBean, movieId: String) async throws -> MovieDetail {
-        // 你原来的代码，全部保留
-        return MovieDetail(id: "", name: "", cover: "", desc: "", playFrom: "", playUrl: "")
+    func parseDetail(ids: [String], from source: SourceBean) async throws -> Any {
+        throw SourceError.emptyApi
     }
     
-    private func getOldPlayUrl(sourceBean: SourceBean, flag: String, id: String) async throws -> String {
-        // 你原来的代码，全部保留
-        return ""
+    func parsePlay(flag: String, id: String, from source: SourceBean) async throws -> Any {
+        throw SourceError.emptyApi
     }
     
-    private func getOldSearch(sourceBean: SourceBean, keyword: String, page: Int) async throws -> [Movie] {
-        // 你原来的代码，全部保留
-        return []
+    func parseSearch(wd: String, page: Int, from source: SourceBean) async throws -> Any {
+        throw SourceError.emptyApi
     }
 }
 
 enum SourceError: Error {
     case emptyApi
-    case nodeNotReady
-    case parseError
 }
