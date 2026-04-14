@@ -1,137 +1,154 @@
 import SwiftUI
 
 struct DiskConfigView: View {
-    @State private var aliToken: String = ""
-    @State private var quarkCookie: String = ""
-    @State private var pan115Cookie: String = ""
-    @State private var tianyiToken: String = ""
-    @State private var alistUrl: String = ""
-    @State private var alistToken: String = ""
-    @State private var liveUrl: String = ""
-    
+    @State private var config = DiskConfig()
     @State private var showToast = false
     @State private var toastMessage = ""
     
-    @Environment(\.dismiss) private var dismiss
-    
     var body: some View {
-        Form {
-            SectionCard(title: "阿里云盘") {
-                VStack(spacing: 0) {
-                    TextEditor(text: $aliToken)
-                        .placeholder(when: aliToken.isEmpty) {
-                            Text("请输入阿里云盘 Refresh Token")
-                                .foregroundColor(.secondaryLabel)
-                        }
-                        .frame(minHeight: 80)
-                        .padding(12)
+        ScrollView {
+            VStack(spacing: 16) {
+                SectionCard(title: "阿里云盘") {
+                    VStack(spacing: 0) {
+                        TextFieldRow(
+                            icon: "doc.text.magnifyingglass",
+                            title: "Refresh Token",
+                            placeholder: "输入你的阿里云盘 refresh_token",
+                            text: $config.aliToken
+                        )
+                    }
                 }
-            }
-            
-            SectionCard(title: "夸克网盘") {
-                VStack(spacing: 0) {
-                    TextEditor(text: $quarkCookie)
-                        .placeholder(when: quarkCookie.isEmpty) {
-                            Text("请输入夸克网盘 Cookie")
-                                .foregroundColor(.secondaryLabel)
-                        }
-                        .frame(minHeight: 80)
-                        .padding(12)
+                
+                SectionCard(title: "夸克网盘") {
+                    VStack(spacing: 0) {
+                        TextFieldRow(
+                            icon: "doc.text.magnifyingglass",
+                            title: "Cookie",
+                            placeholder: "输入你的夸克网盘 Cookie",
+                            text: $config.quarkCookie,
+                            isMultiline: true
+                        )
+                    }
                 }
-            }
-            
-            SectionCard(title: "115 网盘") {
-                VStack(spacing: 0) {
-                    TextEditor(text: $pan115Cookie)
-                        .placeholder(when: pan115Cookie.isEmpty) {
-                            Text("请输入 115 网盘 Cookie")
-                                .foregroundColor(.secondaryLabel)
-                        }
-                        .frame(minHeight: 80)
-                        .padding(12)
+                
+                SectionCard(title: "115 网盘") {
+                    VStack(spacing: 0) {
+                        TextFieldRow(
+                            icon: "doc.text.magnifyingglass",
+                            title: "Cookie",
+                            placeholder: "输入你的 115 网盘 Cookie",
+                            text: $config.pan115Cookie,
+                            isMultiline: true
+                        )
+                    }
                 }
-            }
-            
-            SectionCard(title: "天翼云盘") {
-                VStack(spacing: 0) {
-                    TextEditor(text: $tianyiToken)
-                        .placeholder(when: tianyiToken.isEmpty) {
-                            Text("请输入天翼云盘 Refresh Token")
-                                .foregroundColor(.secondaryLabel)
-                        }
-                        .frame(minHeight: 80)
-                        .padding(12)
+                
+                SectionCard(title: "天翼云盘") {
+                    VStack(spacing: 0) {
+                        TextFieldRow(
+                            icon: "doc.text.magnifyingglass",
+                            title: "Refresh Token",
+                            placeholder: "输入你的天翼云盘 refresh_token",
+                            text: $config.tianyiToken
+                        )
+                    }
                 }
-            }
-            
-            SectionCard(title: "AList") {
-                VStack(spacing: 0) {
-                    TextField("AList 服务地址", text: $alistUrl)
-                        .padding(12)
-                    
-                    Divider()
-                    
-                    TextField("AList Token", text: $alistToken)
-                        .padding(12)
+                
+                SectionCard(title: "AList") {
+                    VStack(spacing: 0) {
+                        TextFieldRow(
+                            icon: "link",
+                            title: "服务地址",
+                            placeholder: "http://xxx.com:5244",
+                            text: $config.alistUrl
+                        )
+                        
+                        Divider()
+                        
+                        TextFieldRow(
+                            icon: "key",
+                            title: "Token",
+                            placeholder: "输入你的 AList Token",
+                            text: $config.alistToken
+                        )
+                    }
                 }
-            }
-            
-            SectionCard(title: "直播源") {
-                VStack(spacing: 0) {
-                    TextField("直播源地址", text: $liveUrl)
-                        .padding(12)
+                
+                SectionCard(title: "直播源") {
+                    VStack(spacing: 0) {
+                        TextFieldRow(
+                            icon: "tv",
+                            title: "直播源地址",
+                            placeholder: "输入你的直播源 m3u8 地址",
+                            text: $config.liveUrl
+                        )
+                    }
                 }
-            }
-            
-            Section {
-                Button {
-                    saveConfig()
-                } label: {
+                
+                // 保存按钮
+                Button(action: saveConfig) {
                     Text("保存配置")
-                        .frame(maxWidth: .infinity)
+                        .font(.headline)
                         .foregroundColor(.white)
-                        .padding(.vertical, 12)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 14)
                         .background(Color.tint)
                         .cornerRadius(12)
                 }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
             }
         }
         .navigationTitle("网盘配置")
         .navigationBarTitleDisplayMode(.inline)
+        .background(Color.background)
         .toast(isPresented: $showToast, message: toastMessage)
         .onAppear {
-            loadConfig()
+            // 加载现有配置
+            self.config = NodeJSBridge.shared.diskConfig
         }
-    }
-    
-    private func loadConfig() {
-        let config = NodeJSBridge.shared.diskConfig
-        aliToken = config.aliToken
-        quarkCookie = config.quarkCookie
-        pan115Cookie = config.pan115Cookie
-        tianyiToken = config.tianyiToken
-        alistUrl = config.alistUrl
-        alistToken = config.alistToken
-        liveUrl = config.liveUrl
     }
     
     private func saveConfig() {
-        var config = DiskConfig()
-        config.aliToken = aliToken.trimmingWhitespace()
-        config.quarkCookie = quarkCookie.trimmingWhitespace()
-        config.pan115Cookie = pan115Cookie.trimmingWhitespace()
-        config.tianyiToken = tianyiToken.trimmingWhitespace()
-        config.alistUrl = alistUrl.trimmingWhitespace()
-        config.alistToken = alistToken.trimmingWhitespace()
-        config.liveUrl = liveUrl.trimmingWhitespace()
-        
-        NodeJSBridge.shared.saveDiskConfig(config)
-        
+        NodeJSBridge.shared.saveConfig(config)
         toastMessage = "配置已保存"
         showToast = true
-        
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
-            dismiss()
+    }
+}
+
+// MARK: - TextFieldRow
+struct TextFieldRow: View {
+    let icon: String
+    let title: String
+    let placeholder: String
+    @Binding var text: String
+    var isMultiline: Bool = false
+    
+    var body: some View {
+        HStack(alignment: .top, spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 16))
+                .foregroundColor(.tint)
+                .frame(width: 24, height: 24)
+            
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.subheadline)
+                    .foregroundColor(.secondaryLabel)
+                
+                if isMultiline {
+                    TextEditor(text: $text)
+                        .frame(minHeight: 80)
+                        .placeholder(when: text.isEmpty) {
+                            Text(placeholder)
+                                .foregroundColor(.tertiaryLabel)
+                        }
+                } else {
+                    TextField(placeholder, text: $text)
+                }
+            }
         }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 12)
     }
 }
