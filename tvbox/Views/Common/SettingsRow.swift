@@ -1,12 +1,12 @@
 import SwiftUI
 
 struct SettingsRow: View {
-    let icon: String?
+    let icon: String
     let title: String
     let subtitle: String?
-    let action: (() -> Void)?
+    let action: () -> Void
     
-    init(icon: String? = nil, title: String, subtitle: String? = nil, action: (() -> Void)? = nil) {
+    init(icon: String, title: String, subtitle: String? = nil, action: @escaping () -> Void) {
         self.icon = icon
         self.title = title
         self.subtitle = subtitle
@@ -14,18 +14,16 @@ struct SettingsRow: View {
     }
     
     var body: some View {
-        Button {
-            action?()
-        } label: {
+        Button(action: action) {
             HStack(spacing: 12) {
-                if let icon = icon {
-                    Image(systemName: icon)
-                        .foregroundColor(.tint)
-                        .frame(width: 24, height: 24)
-                }
+                Image(systemName: icon)
+                    .font(.system(size: 18))
+                    .foregroundColor(.tint)
+                    .frame(width: 24, height: 24)
                 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(title)
+                        .font(.body)
                         .foregroundColor(.label)
                     
                     if let subtitle = subtitle {
@@ -38,11 +36,12 @@ struct SettingsRow: View {
                 Spacer()
                 
                 Image(systemName: "chevron.right")
+                    .font(.system(size: 14))
                     .foregroundColor(.secondaryLabel)
-                    .font(.caption)
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
+        .buttonStyle(PlainButtonStyle())
     }
 }
