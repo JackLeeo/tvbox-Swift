@@ -1,167 +1,80 @@
 import SwiftUI
+
 struct DiskConfigView: View {
-    @State private var config = DiskConfig.load()
+    @State private var aliToken = ""
+    @State private var quarkCookie = ""
+    @State private var pan115Cookie = ""
+    @State private var tianyiToken = ""
+    @State private var alistUrl = ""
+    @State private var alistToken = ""
+    @State private var liveUrl = ""
+    
     @State private var showToast = false
     @State private var toastMessage = ""
     
     var body: some View {
         NavigationStack {
-            ScrollView {
-                VStack(spacing: 24) {
-                    SectionCard(title: "阿里云盘") {
-                        VStack(spacing: 12) {
-                            TextEditor(text: $config.aliToken)
-                                .frame(minHeight: 80)
-                                .font(.subheadline)
-                                .padding(12)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(10)
-                                .placeholder(when: config.aliToken.isEmpty) {
-                                    Text("请输入阿里云盘 refresh_token")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .padding(16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                        }
-                    }
-                    
-                    SectionCard(title: "夸克网盘") {
-                        VStack(spacing: 12) {
-                            TextEditor(text: $config.quarkCookie)
-                                .frame(minHeight: 80)
-                                .font(.subheadline)
-                                .padding(12)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(10)
-                                .placeholder(when: config.quarkCookie.isEmpty) {
-                                    Text("请输入夸克网盘 Cookie")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .padding(16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                        }
-                    }
-                    
-                    SectionCard(title: "115 网盘") {
-                        VStack(spacing: 12) {
-                            TextEditor(text: $config.pan115Cookie)
-                                .frame(minHeight: 80)
-                                .font(.subheadline)
-                                .padding(12)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(10)
-                                .placeholder(when: config.pan115Cookie.isEmpty) {
-                                    Text("请输入 115 网盘 Cookie")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .padding(16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                        }
-                    }
-                    
-                    SectionCard(title: "天翼云盘") {
-                        VStack(spacing: 12) {
-                            TextEditor(text: $config.tianyiToken)
-                                .frame(minHeight: 80)
-                                .font(.subheadline)
-                                .padding(12)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(10)
-                                .placeholder(when: config.tianyiToken.isEmpty) {
-                                    Text("请输入天翼云盘 token")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .padding(16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                        }
-                    }
-                    
-                    SectionCard(title: "AList") {
-                        VStack(spacing: 12) {
-                            TextField("AList 地址", text: $config.alistUrl)
-                                .font(.subheadline)
-                                .padding(12)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(10)
-                            
-                            TextEditor(text: $config.alistToken)
-                                .frame(minHeight: 60)
-                                .font(.subheadline)
-                                .padding(12)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(10)
-                                .placeholder(when: config.alistToken.isEmpty) {
-                                    Text("AList Token")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .padding(16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                        }
-                    }
-                    
-                    SectionCard(title: "直播源") {
-                        VStack(spacing: 12) {
-                            TextEditor(text: $config.liveUrl)
-                                .frame(minHeight: 60)
-                                .font(.subheadline)
-                                .padding(12)
-                                .background(Color.secondary.opacity(0.1))
-                                .cornerRadius(10)
-                                .placeholder(when: config.liveUrl.isEmpty) {
-                                    Text("直播源地址")
-                                        .font(.subheadline)
-                                        .foregroundColor(.secondary)
-                                        .padding(16)
-                                        .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                        }
-                    }
-                    
-                    Button {
-                        saveConfig()
-                    } label: {
-                        Text("保存配置")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                    }
-                    .padding(.top, 8)
+            Form {
+                SectionCard(title: "阿里云盘") {
+                    TextField("Refresh Token", text: $aliToken)
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 24)
+                
+                SectionCard(title: "夸克网盘") {
+                    TextField("Cookie", text: $quarkCookie)
+                }
+                
+                SectionCard(title: "115 网盘") {
+                    TextField("Cookie", text: $pan115Cookie)
+                }
+                
+                SectionCard(title: "天翼云盘") {
+                    TextField("Refresh Token", text: $tianyiToken)
+                }
+                
+                SectionCard(title: "AList") {
+                    TextField("服务地址", text: $alistUrl)
+                    TextField("访问 Token", text: $alistToken)
+                }
+                
+                SectionCard(title: "直播源") {
+                    TextField("直播源地址", text: $liveUrl)
+                }
+                
+                Section {
+                    Button("保存配置") {
+                        saveConfig()
+                    }
+                }
             }
-            .background(AppTheme.primaryGradient.ignoresSafeArea())
             .navigationTitle("网盘配置")
-            #if os(iOS)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbarColorScheme(.dark, for: .navigationBar)
-            .toolbarBackground(.hidden, for: .navigationBar)
-            #endif
+            .navigationBarTitleDisplayMode(.large)
             .toast(isPresented: $showToast, message: toastMessage)
+            .background(Color.background)
+            .onAppear {
+                let defaults = UserDefaults.standard
+                aliToken = defaults.string(forKey: "aliToken") ?? ""
+                quarkCookie = defaults.string(forKey: "quarkCookie") ?? ""
+                pan115Cookie = defaults.string(forKey: "pan115Cookie") ?? ""
+                tianyiToken = defaults.string(forKey: "tianyiToken") ?? ""
+                alistUrl = defaults.string(forKey: "alistUrl") ?? ""
+                alistToken = defaults.string(forKey: "alistToken") ?? ""
+                liveUrl = defaults.string(forKey: "liveUrl") ?? ""
+            }
         }
     }
     
     private func saveConfig() {
-        config.save()
+        let config: [String: String] = [
+            "aliToken": aliToken,
+            "quarkCookie": quarkCookie,
+            "pan115Cookie": pan115Cookie,
+            "tianyiToken": tianyiToken,
+            "alistUrl": alistUrl,
+            "alistToken": alistToken,
+            "liveUrl": liveUrl
+        ]
         
-        // 如果 Node 已经启动，重新加载源以应用新配置
-        if NodeJSBridge.shared.isNodeReady {
-            // 重新加载当前源
-            if let remoteSources = SourceService.shared.getRemoteSources().last {
-                NodeJSBridge.shared.loadRemoteSource(path: remoteSources.localPath)
-            } else {
-                // 加载默认源
-                NodeJSBridge.shared.loadDefaultSource()
-            }
-        }
+        NodeJSBridge.shared.saveDiskConfig(config)
         
         toastMessage = "配置已保存"
         showToast = true
