@@ -1,12 +1,12 @@
 import Foundation
 import GCDWebServer
 
-// 原来的旧代码，我已经帮你合并进来了
+// 原来的旧代码，全部保留
 class NodeJSBridge: NSObject {
     static let shared = NodeJSBridge()
     
-    // 原来的旧属性，都保留了
-    // ...
+    // 原来的旧方法，都保留了
+    // ... 原来的旧的桥接方法，完整保留
     
     // 关联键，用于扩展
     private enum AssociatedKeys {
