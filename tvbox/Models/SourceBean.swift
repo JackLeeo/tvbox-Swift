@@ -3,72 +3,71 @@ import Foundation
 struct SourceBean: Codable, Identifiable {
     let id: UUID
     let name: String
-    let api: String
-    var type: Int  // 1=旧源, 5=Node源
-    var localPath: String?  // Node源的本地路径
+    let url: String
+    let type: Int
+    var localPath: String?
+    var isNodeSource: Bool {
+        return type == 5
+    }
     
-    // 原来的旧属性，全部保留
-    var group: String?
-    var isChecked: Bool = false
+    enum CodingKeys: String, CodingKey {
+        case id, name, url, type, localPath
+    }
     
-    init(name: String, api: String, type: Int = 0, localPath: String? = nil) {
+    init(name: String, url: String, type: Int) {
         self.id = UUID()
         self.name = name
-        self.api = api
+        self.url = url
         self.type = type
-        self.localPath = localPath
+        self.localPath = nil
     }
     
-    // 原来的旧方法，全部保留
-    enum CodingKeys: String, CodingKey {
-        case id, name, api, type, localPath, group, isChecked
-    }
-}
-
-// 源地址解析工具
-struct SourceUrlParser {
-    static func parse(_ input: String) -> (url: URL, type: String)? {
-        let input = input.trimmingWhitespace()
+    func parseNodeSourceUrl() -> (url: URL, type: String)? {
+        let input = url.trimmingCharacters(in: .whitespacesAndNewlines)
         
         // 解析Gitee地址
         if input.starts(with: "gitee://") {
-            let rest = String(input.dropFirst(8))
-            if let atIndex = rest.firstIndex(of: "@") {
-                let token = String(rest[..<atIndex])
-                let path = String(rest[rest.index(after: atIndex)...])
-                let parts = path.components(separatedBy: "/")
-                if parts.count >= 3 {
-                    let user = parts[0]
-                    let repo = parts[1]
-                    let branch = parts[2]
-                    let filePath = parts.count > 3 ? parts[3...].joined(separator: "/") : ""
-                    let apiUrl = URL(string: "https://gitee.com/api/v5/repos/\(user)/\(repo)/contents/\(filePath)?ref=\(branch)")!
-                    return (apiUrl, "gitee")
+            let pattern = "gitee://([^@]+)@gitee\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)"
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: input, options: [], range: NSRange(location: 0, length: input.utf16.count)) {
+                
+                let token = (input as NSString).substring(with: match.range(at: 1))
+                let user = (input as NSString).substring(with: match.range(at: 2))
+                let repo = (input as NSString).substring(with: match.range(at: 3))
+                let branch = (input as NSString).substring(with: match.range(at: 4))
+                let path = (input as NSString).substring(with: match.range(at: 5))
+                
+                let apiUrl = "https://gitee.com/api/v5/repos/\(user)/\(repo)/contents/\(path)?ref=\(branch)"
+                if let url = URL(string: apiUrl) {
+                    return (url, "gitee")
                 }
             }
         }
         
         // 解析GitHub地址
         if input.starts(with: "github://") {
-            let rest = String(input.dropFirst(9))
-            if let atIndex = rest.firstIndex(of: "@") {
-                let token = String(rest[..<atIndex])
-                let path = String(rest[rest.index(after: atIndex)...])
-                let parts = path.components(separatedBy: "/")
-                if parts.count >= 3 {
-                    let user = parts[0]
-                    let repo = parts[1]
-                    let branch = parts[2]
-                    let filePath = parts.count > 3 ? parts[3...].joined(separator: "/") : ""
-                    let apiUrl = URL(string: "https://api.github.com/repos/\(user)/\(repo)/contents/\(filePath)?ref=\(branch)")!
-                    return (apiUrl, "github")
+            let pattern = "github://([^@]+)@github\\.com/([^/]+)/([^/]+)/([^/]+)/(.+)"
+            if let regex = try? NSRegularExpression(pattern: pattern, options: []),
+               let match = regex.firstMatch(in: input, options: [], range: NSRange(location: 0, length: input.utf16.count)) {
+                
+                let token = (input as NSString).substring(with: match.range(at: 1))
+                let user = (input as NSString).substring(with: match.range(at: 2))
+                let repo = (input as NSString).substring(with: match.range(at: 3))
+                let branch = (input as NSString).substring(with: match.range(at: 4))
+                let path = (input as NSString).substring(with: match.range(at: 5))
+                
+                let apiUrl = "https://api.github.com/repos/\(user)/\(repo)/contents/\(path)?ref=\(branch)"
+                if let url = URL(string: apiUrl) {
+                    return (url, "github")
                 }
             }
         }
         
         // 普通HTTP地址
-        if let url = URL(string: input), url.scheme == "http" || url.scheme == "https" {
-            return (url, "http")
+        if input.starts(with: "http://") || input.starts(with: "https://") {
+            if let url = URL(string: input) {
+                return (url, "http")
+            }
         }
         
         return nil
