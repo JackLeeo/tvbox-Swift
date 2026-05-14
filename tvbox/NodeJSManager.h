@@ -2,6 +2,12 @@
 
 @interface NodeJSManager : NSObject
 
+@property (nonatomic, assign, readonly) BOOL isRunning;
+@property (nonatomic, assign, readonly) BOOL isNodeReady;
+@property (nonatomic, assign, readonly) int nativeServerPort;
+@property (nonatomic, assign, readonly) int managementPort;
+@property (nonatomic, assign, readonly) int spiderPort;
+
 + (instancetype)shared;
 
 - (void)startNodeJS:(void (^)(BOOL success))completion;
@@ -12,10 +18,9 @@
                completion:(void (^)(BOOL success, NSString * _Nullable message))completion;
 - (void)deleteSourceWithCompletion:(void (^)(BOOL success))completion;
 
-- (int)getSpiderPort;
+- (int)getNativeServerPort;
 - (int)getManagementPort;
-- (BOOL)isNodeReady;
-
-@property (nonatomic, readonly) BOOL isRunning;
+- (int)getSpiderPort;
+- (NSString *)getDocumentsSourcePath;
 
 @end

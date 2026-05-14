@@ -57,7 +57,7 @@ class SpiderService {
     }
 
     private var isNodeReady: Bool {
-        return NodeJSManager.shared().isNodeReady()
+        return NodeJSManager.shared().isNodeReady
     }
 
     // MARK: - URL构建

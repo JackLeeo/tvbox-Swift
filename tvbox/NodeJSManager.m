@@ -1,6 +1,8 @@
 #import "NodeJSManager.h"
 #import <NodeMobile/NodeMobile.h>
 #import <GCDWebServer/GCDWebServer.h>
+#import <GCDWebServer/GCDWebServerDataRequest.h>
+#import <GCDWebServer/GCDWebServerDataResponse.h>
 #import <CommonCrypto/CommonDigest.h>
 
 static const int kMaxStartupWaitSeconds = 30;
@@ -9,8 +11,7 @@ static const int kMaxStartupWaitSeconds = 30;
 
 @property (nonatomic, assign) BOOL isRunning;
 @property (nonatomic, assign) BOOL nodeReady;
-@property (nonatomic, strong) NSThread *nodeThread;
-@property (nonatomic, strong) GCDWebServer *nativeServer;
+@property (nonatomic, strong) GCDWebServer *webServer;
 @property (nonatomic, assign) int nativeServerPort;
 @property (nonatomic, assign) int spiderPort;
 @property (nonatomic, assign) int managementPort;
@@ -42,16 +43,6 @@ static const int kMaxStartupWaitSeconds = 30;
 
 #pragma mark - Path Helpers
 
-- (NSString *)nodeProjectPath {
-    return [[NSBundle mainBundle] pathForResource:@"nodejs-project/dist/main" ofType:@"js"];
-}
-
-- (NSString *)nodeProjectDir {
-    NSString *mainJsPath = [self nodeProjectPath];
-    if (!mainJsPath) return nil;
-    return [[mainJsPath stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
-}
-
 - (NSString *)documentsSourcePath {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     NSString *documentsDir = paths.firstObject;
@@ -63,23 +54,7 @@ static const int kMaxStartupWaitSeconds = 30;
     return sourcePath;
 }
 
-- (NSString *)sourcePath {
-    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
-    return paths.firstObject;
-}
-
 #pragma mark - MD5 Helper
-
-- (NSString *)md5HexOfString:(NSString *)string {
-    const char *cStr = [string UTF8String];
-    unsigned char digest[CC_MD5_DIGEST_LENGTH];
-    CC_MD5(cStr, (CC_LONG)strlen(cStr), digest);
-    NSMutableString *output = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
-    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
-        [output appendFormat:@"%02x", digest[i]];
-    }
-    return output;
-}
 
 - (NSString *)md5HexOfData:(NSData *)data {
     unsigned char digest[CC_MD5_DIGEST_LENGTH];
@@ -91,62 +66,80 @@ static const int kMaxStartupWaitSeconds = 30;
     return output;
 }
 
-#pragma mark - Native Server
+#pragma mark - Local Web Server
 
-- (BOOL)startNativeServer {
-    self.nativeServer = [[GCDWebServer alloc] init];
+- (BOOL)startLocalWebServer {
+    self.webServer = [[GCDWebServer alloc] init];
 
-    __weak typeof(self) weakSelf = self;
+    [self.webServer addHandlerForMethod:@"GET"
+                                    path:@"/onCatPawOpenPort"
+                            requestClass:[GCDWebServerDataRequest class]
+                            processBlock:^GCDWebServerResponse * _Nullable(GCDWebServerDataRequest * _Nonnull request) {
+        NSString *portStr = request.query[@"port"];
+        NSString *typeStr = request.query[@"type"] ?: @"spider";
+        if (portStr) {
+            int port = [portStr intValue];
+            NSLog(@"[NodeJSManager] Port received: %d, type: %@", port, typeStr);
 
-    [self.nativeServer addHandlerForMethod:@"GET"
-                                      path:@"/onCatPawOpenPort"
-                              requestClass:[GCDWebServerRequest class]
-                              processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
-        __strong typeof(weakSelf) strongSelf = weakSelf;
-        NSDictionary *query = request.query;
-        NSString *type = query[@"type"];
-        int port = [query[@"port"] intValue];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if ([typeStr isEqualToString:@"management"]) {
+                    self.managementPort = port;
+                } else {
+                    self.spiderPort = port;
+                }
 
-        if ([type isEqualToString:@"spider"]) {
-            strongSelf.spiderPort = port;
-            NSLog(@"[NodeJSManager] Spider port received: %d", port);
-        } else if ([type isEqualToString:@"management"]) {
-            strongSelf.managementPort = port;
-            NSLog(@"[NodeJSManager] Management port received: %d", port);
+                [[NSNotificationCenter defaultCenter] postNotificationName:@"NodeServerPortReceived"
+                                                                    object:nil
+                                                                  userInfo:@{@"port": @(port), @"type": typeStr}];
+            });
         }
-
-        if (strongSelf.spiderPort > 0) {
-            strongSelf.nodeReady = YES;
-        }
-
-        return [GCDWebServerResponse responseWithStatusCode:200];
+        return [GCDWebServerDataResponse responseWithText:@"OK"];
     }];
 
-    [self.nativeServer addHandlerForMethod:@"POST"
-                                      path:@"/onMessage"
-                              requestClass:[GCDWebServerRequest class]
-                              processBlock:^GCDWebServerResponse *(GCDWebServerRequest *request) {
-        NSLog(@"[NodeJSManager] Message received from Node.js");
-        return [GCDWebServerResponse responseWithStatusCode:200];
+    [self.webServer addHandlerForMethod:@"POST"
+                                    path:@"/onMessage"
+                            requestClass:[GCDWebServerDataRequest class]
+                            processBlock:^GCDWebServerResponse * _Nullable(GCDWebServerDataRequest * _Nonnull request) {
+        NSData *bodyData = request.data;
+        if (bodyData) {
+            NSError *error;
+            NSDictionary *body = [NSJSONSerialization JSONObjectWithData:bodyData options:0 error:&error];
+            if (!error && body) {
+                NSString *message = body[@"message"];
+                if (message) {
+                    NSLog(@"[NodeJSManager] Message from Node.js: %@", message);
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if ([message isEqualToString:@"ready"]) {
+                            self.nodeReady = YES;
+                            [[NSNotificationCenter defaultCenter] postNotificationName:@"NodeReady"
+                                                                                object:nil
+                                                                              userInfo:nil];
+                        } else {
+                            [[NSNotificationCenter defaultCenter] postNotificationName:@"NodeMessageReceived"
+                                                                                object:nil
+                                                                              userInfo:@{@"message": message}];
+                        }
+                    });
+                }
+            }
+        }
+        return [GCDWebServerDataResponse responseWithText:@"OK"];
     }];
 
-    [self.nativeServer startWithPort:0 bonjourName:nil];
+    NSError *error;
+    [self.webServer startWithOptions:@{
+        GCDWebServerOption_Port: @0,
+        GCDWebServerOption_BindToLocalhost: @YES
+    } error:&error];
 
-    if (self.nativeServer.isRunning) {
-        self.nativeServerPort = self.nativeServer.port;
-        NSLog(@"[NodeJSManager] Native server started on port %d", self.nativeServerPort);
-        return YES;
+    if (error) {
+        NSLog(@"[NodeJSManager] Local web server error: %@", error);
+        return NO;
     }
 
-    NSLog(@"[NodeJSManager] Failed to start native server");
-    return NO;
-}
-
-- (void)stopNativeServer {
-    if (self.nativeServer && self.nativeServer.isRunning) {
-        [self.nativeServer stop];
-    }
-    self.nativeServer = nil;
+    self.nativeServerPort = (int)self.webServer.port;
+    NSLog(@"[NodeJSManager] Local notification server started on port: %d", self.nativeServerPort);
+    return YES;
 }
 
 #pragma mark - Start / Stop
@@ -161,66 +154,78 @@ static const int kMaxStartupWaitSeconds = 30;
     self.spiderPort = 0;
     self.managementPort = 0;
 
-    if (![self startNativeServer]) {
+    if (![self startLocalWebServer]) {
         if (completion) completion(NO);
         return;
     }
 
-    self.nodeThread = [[NSThread alloc] initWithTarget:self selector:@selector(nodeMain) object:nil];
-    self.nodeThread.name = @"NodeJS";
-    [self.nodeThread start];
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSString *scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js" inDirectory:@"nodejs-project/dist"];
+        if (!scriptPath) {
+            scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js" inDirectory:@"nodejs-project/dist"];
+        }
+        if (!scriptPath) {
+            scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js"];
+        }
+        if (!scriptPath) {
+            scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js"];
+        }
 
-    [self waitForNodeReady:^(BOOL ready) {
-        if (ready) {
+        if (scriptPath) {
+            int nativePort = self.nativeServerPort;
+            NSLog(@"[NodeJSManager] Starting Node.js with script: %@, native-port: %d", scriptPath, nativePort);
+
+            NSString *sourcePath = [self documentsSourcePath];
+            const char *nodePathC = [sourcePath UTF8String];
+            setenv("NODE_PATH", nodePathC, 1);
+
+            NSMutableArray *args = [NSMutableArray arrayWithObjects:@"node", @"--security-revert=CVE-2023-46809", scriptPath, nil];
+            if (nativePort > 0) {
+                [args addObject:@"--native-port"];
+                [args addObject:[NSString stringWithFormat:@"%d", nativePort]];
+            }
+
+            int argc = (int)args.count;
+            char *argv[argc + 1];
+            for (int i = 0; i < argc; i++) {
+                argv[i] = strdup([args[i] UTF8String]);
+            }
+            argv[argc] = NULL;
+
             self.isRunning = YES;
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (completion) completion(YES);
+            });
+
+            int result = node_start(argc, argv);
+            NSLog(@"[NodeJSManager] Node.js exited with code %d", result);
+
+            for (int i = 0; i < argc; i++) {
+                free(argv[i]);
+            }
+
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.isRunning = NO;
+                self.nodeReady = NO;
+                [self.webServer stop];
+            });
         } else {
-            [self stopNativeServer];
+            NSLog(@"[NodeJSManager] Node.js script not found!");
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (completion) completion(NO);
+            });
         }
-        if (completion) completion(ready);
-    }];
-}
-
-- (void)nodeMain {
-    @autoreleasepool {
-        NSString *mainJsPath = [self nodeProjectPath];
-        if (!mainJsPath) {
-            NSLog(@"[NodeJSManager] main.js not found in bundle");
-            return;
-        }
-
-        NSString *nodeProjectDir = [self nodeProjectDir];
-        NSString *sourcePath = [self sourcePath];
-
-        NSArray *argv = @[
-            @"node",
-            @"--security-revert=CVE-2023-46809",
-            mainJsPath,
-            nodeProjectDir ?: @"",
-            sourcePath,
-            @"--native-port",
-            [NSString stringWithFormat:@"%d", self.nativeServerPort]
-        ];
-
-        int argc = (int)argv.count;
-        char **cargv = (char **)malloc(argc * sizeof(char *));
-        for (int i = 0; i < argc; i++) {
-            cargv[i] = (char *)[argv[i] UTF8String];
-        }
-
-        NSLog(@"[NodeJSManager] Starting Node.js with main.js: %@ --native-port %d", mainJsPath, self.nativeServerPort);
-        node_start(argc, cargv);
-
-        free(cargv);
-    }
+    });
 }
 
 - (void)stopNodeJS {
     if (!self.isRunning) return;
 
-    [self stopNativeServer];
-
     self.isRunning = NO;
     self.nodeReady = NO;
+    [self.webServer stop];
+    self.webServer = nil;
     self.nativeServerPort = 0;
     self.spiderPort = 0;
     self.managementPort = 0;
@@ -231,23 +236,22 @@ static const int kMaxStartupWaitSeconds = 30;
 #pragma mark - Wait for Ready
 
 - (void)waitForNodeReady:(void (^)(BOOL ready))completion {
-    __block int elapsed = 0;
-    __block int interval = 500;
+    if (self.nodeReady) {
+        if (completion) completion(YES);
+        return;
+    }
 
-    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        while (elapsed < kMaxStartupWaitSeconds * 1000) {
-            if (self.spiderPort > 0) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    if (completion) completion(YES);
-                });
-                return;
-            }
-            [NSThread sleepForTimeInterval:interval / 1000.0];
-            elapsed += interval;
-        }
-        dispatch_async(dispatch_get_main_queue(), ^{
-            if (completion) completion(NO);
-        });
+    __block id observer = [[NSNotificationCenter defaultCenter] addObserverForName:@"NodeReady"
+                                                                            object:nil
+                                                                             queue:[NSOperationQueue mainQueue]
+                                                                        usingBlock:^(NSNotification * _Nonnull note) {
+        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        if (completion) completion(YES);
+    }];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [[NSNotificationCenter defaultCenter] removeObserver:observer];
+        if (completion) completion(NO);
     });
 }
 
@@ -554,12 +558,20 @@ static const int kMaxStartupWaitSeconds = 30;
 
 #pragma mark - Accessors
 
+- (int)getNativeServerPort {
+    return self.nativeServerPort;
+}
+
 - (int)getSpiderPort {
     return self.spiderPort;
 }
 
 - (int)getManagementPort {
     return self.managementPort;
+}
+
+- (NSString *)getDocumentsSourcePath {
+    return [self documentsSourcePath];
 }
 
 - (BOOL)isNodeReady {
