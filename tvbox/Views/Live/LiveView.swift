@@ -103,7 +103,7 @@ struct LiveView: View {
                 viewModel.loadChannels()
                 wakeUpCurrentChannelInfo()
             }
-            .onChange(of: viewModel.currentChannel?.currentUrl) { _, newValue in
+            .onChange(of: viewModel.currentChannel?.currentUrl) { newValue in
                 if selectedEngine == .system {
                     playChannel(url: newValue)
                 } else {
@@ -116,7 +116,7 @@ struct LiveView: View {
                 resetFailureTracking(for: viewModel.currentChannel)
                 wakeUpCurrentChannelInfo()
             }
-            .onChange(of: selectedEngine) { _, _ in
+            .onChange(of: selectedEngine) { _ in
                 if selectedEngine == .system {
                     playChannel(url: viewModel.currentChannel?.currentUrl)
                 } else {

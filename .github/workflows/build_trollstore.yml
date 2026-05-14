@@ -33,17 +33,14 @@ jobs:
           TARGET_DIR="Frameworks"
           mkdir -p "$TARGET_DIR"
           rm -rf "$TARGET_DIR/NodeMobile.xcframework"
-
           curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip
           TEMP_DIR=$(mktemp -d)
           unzip -q nodejs-mobile.zip -d "$TEMP_DIR"
-
           FRAMEWORK_PATH=$(find "$TEMP_DIR" -name "NodeMobile.xcframework" -type d | head -1)
           if [ -z "$FRAMEWORK_PATH" ]; then
             echo "❌ NodeMobile.xcframework not found in archive"
             exit 1
           fi
-
           cp -r "$FRAMEWORK_PATH" "$TARGET_DIR/"
           rm -rf "$TEMP_DIR" nodejs-mobile.zip
           echo "✅ NodeMobile.xcframework ready at $TARGET_DIR/"
@@ -70,32 +67,38 @@ jobs:
           xcodegen
           echo "✅ Xcode project generated"
 
+      - name: Create Podfile
+        run: |
+          cat > Podfile << 'PODFILE'
+platform :ios, '16.0'
+
+target 'tvbox' do
+  pod 'GCDWebServer', '~> 3.0'
+end
+
+post_install do |installer|
+  installer.pods_project.targets.each do |target|
+    target.build_configurations.each do |config|
+      config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+      config.build_settings['CODE_SIGN_IDENTITY'] = ''
+      config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+      config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+    end
+  end
+end
+PODFILE
+
       - name: Install CocoaPods Dependencies
         run: |
           set -e
-          echo "=== Creating Podfile for GCDWebServer ==="
-          cat > Podfile << 'PODFILE'
-          platform :ios, '16.0'
-
-          target 'tvbox' do
-            pod 'GCDWebServer', '~> 3.0'
-          end
-
-          post_install do |installer|
-            installer.pods_project.targets.each do |target|
-              target.build_configurations.each do |config|
-                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
-                config.build_settings['CODE_SIGN_IDENTITY'] = ''
-                config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
-                config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
-              end
-            end
-          end
-          PODFILE
-
           echo "=== Running pod install ==="
           pod install
           echo "✅ CocoaPods dependencies installed"
+
+      - name: Verify Deployment Target
+        run: |
+          echo "=== Verifying deployment target ==="
+          xcodebuild -showBuildSettings -workspace tvbox.xcworkspace -scheme tvbox 2>/dev/null | grep IPHONEOS_DEPLOYMENT_TARGET || true
 
       - name: Build iOS App (Unsigned)
         run: |
@@ -110,7 +113,6 @@ jobs:
             CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
             CODE_SIGNING_ALLOWED=NO \
-            IPHONEOS_DEPLOYMENT_TARGET=16.0 \
             -derivedDataPath ./DerivedData \
             2>&1 | tee build.log
 
@@ -118,7 +120,7 @@ jobs:
 
           if [ $BUILD_EXIT_CODE -ne 0 ]; then
             echo "❌ Build failed (exit code: $BUILD_EXIT_CODE)"
-            tail -50 build.log
+            tail -100 build.log
             exit 1
           fi
 
@@ -128,28 +130,21 @@ jobs:
         run: |
           set -e
           echo "=== Finding app bundle ==="
-
           APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
           if [ -z "$APP_PATH" ]; then
             APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -1)
           fi
-
           if [ -z "$APP_PATH" ]; then
             echo "❌ App bundle not found"
             find ./DerivedData -name "*.app" -type d
             exit 1
           fi
-
           echo "Found app: $APP_PATH"
-
           rm -rf "$APP_PATH/_CodeSignature"
           rm -rf "$APP_PATH/embedded.mobileprovision"
-
           echo "=== Pseudo-signing with ldid ==="
-
           ldid -S "$APP_PATH"
           echo "✅ Signed app bundle"
-
           if [ -d "$APP_PATH/Frameworks" ]; then
             for FRAMEWORK in "$APP_PATH/Frameworks/"*.framework; do
               if [ -d "$FRAMEWORK" ]; then
@@ -161,7 +156,6 @@ jobs:
                 fi
               fi
             done
-
             for DYLIB in "$APP_PATH/Frameworks/"*.dylib; do
               if [ -f "$DYLIB" ]; then
                 ldid -S "$DYLIB"
@@ -169,7 +163,6 @@ jobs:
               fi
             done
           fi
-
           echo "=== Creating IPA ==="
           mkdir -p ./Build
           TEMP_DIR=$(mktemp -d)
@@ -179,7 +172,6 @@ jobs:
           zip -r -q -X "$GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa" Payload
           cd "$GITHUB_WORKSPACE"
           rm -rf "$TEMP_DIR"
-
           echo "✅ IPA created: ./Build/tvbox-Swift-TrollStore.ipa"
           ls -lh ./Build/tvbox-Swift-TrollStore.ipa
 

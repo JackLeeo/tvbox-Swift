@@ -163,24 +163,45 @@ struct SearchView: View {
                 .padding(.horizontal, 20)
                 .padding(.top, 16)
                 
-                FlowLayout(spacing: 8) {
-                    ForEach(viewModel.searchHistory, id: \.self) { keyword in
-                        Button {
-                            viewModel.keyword = keyword
-                            Task { await viewModel.search() }
-                        } label: {
-                            Text(keyword)
-                                .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.8))
-                                .padding(.horizontal, 14)
-                                .padding(.vertical, 7)
-                                .background(Color.white.opacity(0.1))
-                                .cornerRadius(16)
+                if #available(iOS 16.0, *) {
+                    FlowLayout(spacing: 8) {
+                        ForEach(viewModel.searchHistory, id: \.self) { keyword in
+                            Button {
+                                viewModel.keyword = keyword
+                                Task { await viewModel.search() }
+                            } label: {
+                                Text(keyword)
+                                    .font(.subheadline)
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(Color.white.opacity(0.1))
+                                    .cornerRadius(16)
+                            }
+                            .buttonStyle(.plain)
                         }
-                        .buttonStyle(.plain)
                     }
+                    .padding(.horizontal, 20)
+                } else {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
+                        ForEach(viewModel.searchHistory, id: \.self) { keyword in
+                            Button {
+                                viewModel.keyword = keyword
+                                Task { await viewModel.search() }
+                            } label: {
+                                Text(keyword)
+                                    .font(.subheadline)
+                                    .foregroundColor(.white.opacity(0.8))
+                                    .padding(.horizontal, 14)
+                                    .padding(.vertical, 7)
+                                    .background(Color.white.opacity(0.1))
+                                    .cornerRadius(16)
+                            }
+                            .buttonStyle(.plain)
+                        }
+                    }
+                    .padding(.horizontal, 20)
                 }
-                .padding(.horizontal, 20)
             }
             
             Spacer()
@@ -189,6 +210,7 @@ struct SearchView: View {
 }
 
 /// 流式布局
+@available(iOS 16.0, *)
 struct FlowLayout: Layout {
     /// 子项间距。
     var spacing: CGFloat = 8

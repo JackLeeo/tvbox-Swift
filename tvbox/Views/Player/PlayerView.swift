@@ -246,7 +246,7 @@ struct AVPlayerContentView: View {
             setupPlayer()
             wakeUpControls()
         }
-        .onChange(of: urlString) { _, _ in
+        .onChange(of: urlString) { _ in
             syncRateFromSettings()
             setupPlayer()
             wakeUpControls()
