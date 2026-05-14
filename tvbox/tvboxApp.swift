@@ -76,17 +76,12 @@ class AppState: ObservableObject {
         guard hasSpiderSource else { return }
 
         if !nodeJSStarted {
-            NodeJSManager.shared().startNodeJS { [weak self] success in
-                guard let self else { return }
-                Task { @MainActor [weak self] in
-                    guard let self else { return }
-                    if success {
-                        self.nodeJSStarted = true
-                        await loadSpiderSource()
-                    } else {
-                        print("[AppState] Node.js 启动失败")
-                    }
-                }
+            let success = await NodeJSManager.shared().startNodeJS()
+            if success {
+                nodeJSStarted = true
+                await loadSpiderSource()
+            } else {
+                print("[AppState] Node.js 启动失败")
             }
         } else {
             await loadSpiderSource()
@@ -97,7 +92,7 @@ class AppState: ObservableObject {
         guard let spiderSource = ApiConfig.shared.sourceBeanList.first(where: { $0.isSpiderSource }) else { return }
         guard !spiderSource.api.isEmpty else { return }
 
-        NodeJSManager.shared().loadSourceFromURL(spiderSource.api) { success, message in
+        NodeJSManager.shared().loadSource(fromURL: spiderSource.api) { success, message in
             if success {
                 print("[AppState] Spider 源加载成功")
             } else {
