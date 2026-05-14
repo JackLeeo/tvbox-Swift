@@ -131,7 +131,7 @@ struct PlayerView: View {
                 vlcController?.stop()
             }
         }
-        .onChange(of: selectedEngine) { _, newValue in
+        .onChange(of: selectedEngine) { newValue in
             if newValue != .system {
                 systemController?.stop()
             }

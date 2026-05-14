@@ -111,7 +111,7 @@ struct LiveView: View {
                 }
                 wakeUpCurrentChannelInfo()
             }
-            .onChange(of: viewModel.currentChannel?.id) { _, _ in
+            .onChange(of: viewModel.currentChannel?.id) { _ in
                 // 切台后清空失败线路记录，避免复用上个频道的失败状态。
                 resetFailureTracking(for: viewModel.currentChannel)
                 wakeUpCurrentChannelInfo()
