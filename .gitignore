@@ -16,3 +16,4 @@ node_modules/
 Pods/
 *.xcworkspace
 !tvbox.xcworkspace
+Frameworks/NodeMobile.xcframework/
