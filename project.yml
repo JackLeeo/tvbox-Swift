@@ -1,0 +1,104 @@
+name: tvbox
+options:
+  bundleIdPrefix: com.tvbox
+  xcodeVersion: "15.0"
+  groupSortPosition: top
+  minimumXcodeGenVersion: "2.35"
+
+settings:
+  base:
+    SWIFT_VERSION: "5.9"
+    DEVELOPMENT_TEAM: ""
+    CODE_SIGN_STYLE: Automatic
+
+packages:
+  VLCKitSPM:
+    url: https://github.com/tylerjonesio/vlckit-spm
+    from: 3.6.0
+
+targets:
+  tvbox:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    dependencies:
+      - package: VLCKitSPM
+        product: VLCKitSPM
+      - framework: Frameworks/NodeMobile.xcframework
+        embed: true
+      - sdk: WebKit.framework
+    sources:
+      - path: tvbox
+        excludes:
+          - Info.plist
+          - nodejs-project/src
+          - nodejs-project/node_modules
+          - nodejs-project/package.json
+          - nodejs-project/package-lock.json
+          - nodejs-project/esbuild.js
+          - nodejs-project/esbuild-config.js
+          - nodejs-project/.babelrc
+          - nodejs-project/setup.js
+          - nodejs-project/build-ios.sh
+          - nodejs-project/build.sh
+          - nodejs-project/build.ps1
+          - nodejs-project/README.md
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
+        INFOPLIST_FILE: tvbox/Info.plist
+        INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
+        INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents: YES
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad: "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.3"
+        PRODUCT_NAME: TVBox
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_EMIT_LOC_STRINGS: YES
+        SUPPORTS_MACCATALYST: YES
+        DERIVE_MACCATALYST_PRODUCT_BUNDLE_IDENTIFIER: NO
+        SWIFT_OBJC_BRIDGING_HEADER: tvbox/tvbox-Bridging-Header.h
+        OTHER_LDFLAGS: $(inherited) -ObjC
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"
+
+  tvbox-macOS:
+    type: application
+    platform: macOS
+    deploymentTarget: "14.0"
+    dependencies:
+      - package: VLCKitSPM
+        product: VLCKitSPM
+    sources:
+      - path: tvbox
+        excludes:
+          - Info.plist
+          - NodeJSManager.h
+          - NodeJSManager.m
+          - tvbox-Bridging-Header.h
+          - nodejs-project
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app.macos
+        INFOPLIST_FILE: tvbox/Info.plist
+        GENERATE_INFOPLIST_FILE: YES
+        CURRENT_PROJECT_VERSION: "1"
+        MARKETING_VERSION: "1.0.3"
+        PRODUCT_NAME: TVBox
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
+        ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
+        SWIFT_EMIT_LOC_STRINGS: YES
+        CODE_SIGN_IDENTITY: "-"
+        CODE_SIGN_ENTITLEMENTS: ""
+      configs:
+        Debug:
+          SWIFT_OPTIMIZATION_LEVEL: "-Onone"
+        Release:
+          SWIFT_OPTIMIZATION_LEVEL: "-O"

@@ -1,0 +1,199 @@
+name: Build TrollStore TVBox Swift
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: macos-14
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: '16.2'
+
+      - name: Install Tools
+        run: brew install xcodegen ldid
+
+      - name: Download NodeMobile.xcframework
+        run: |
+          set -e
+          echo "=== Downloading NodeMobile.xcframework ==="
+          VERSION="v18.20.4"
+          DOWNLOAD_URL="https://github.com/nodejs-mobile/nodejs-mobile/releases/download/${VERSION}/nodejs-mobile-${VERSION}-ios.zip"
+          TARGET_DIR="Frameworks"
+          mkdir -p "$TARGET_DIR"
+          rm -rf "$TARGET_DIR/NodeMobile.xcframework"
+
+          curl -fSL "$DOWNLOAD_URL" -o nodejs-mobile.zip
+          TEMP_DIR=$(mktemp -d)
+          unzip -q nodejs-mobile.zip -d "$TEMP_DIR"
+
+          FRAMEWORK_PATH=$(find "$TEMP_DIR" -name "NodeMobile.xcframework" -type d | head -1)
+          if [ -z "$FRAMEWORK_PATH" ]; then
+            echo "❌ NodeMobile.xcframework not found in archive"
+            exit 1
+          fi
+
+          cp -r "$FRAMEWORK_PATH" "$TARGET_DIR/"
+          rm -rf "$TEMP_DIR" nodejs-mobile.zip
+          echo "✅ NodeMobile.xcframework ready at $TARGET_DIR/"
+
+      - name: Build Node.js Project
+        run: |
+          set -e
+          echo "=== Building Node.js project ==="
+          cd tvbox/nodejs-project
+          npm install
+          node esbuild.js
+          if [ -f "dist/main.js" ]; then
+            echo "✅ Node.js build successful"
+            ls -la dist/
+          else
+            echo "❌ Node.js build failed"
+            exit 1
+          fi
+
+      - name: Generate Xcode Project
+        run: |
+          set -e
+          echo "=== Generating Xcode project ==="
+          xcodegen
+          echo "✅ Xcode project generated"
+
+      - name: Install CocoaPods Dependencies
+        run: |
+          set -e
+          echo "=== Creating Podfile for GCDWebServer ==="
+          cat > Podfile << 'EOF'
+          platform :ios, '15.0'
+
+          target 'tvbox' do
+            pod 'GCDWebServer', '~> 3.0'
+          end
+
+          post_install do |installer|
+            installer.pods_project.targets.each do |target|
+              target.build_configurations.each do |config|
+                config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '15.0'
+                config.build_settings['CODE_SIGN_IDENTITY'] = ''
+                config.build_settings['CODE_SIGNING_REQUIRED'] = 'NO'
+                config.build_settings['CODE_SIGNING_ALLOWED'] = 'NO'
+              end
+            end
+          end
+          EOF
+
+          echo "=== Running pod install ==="
+          pod install
+          echo "✅ CocoaPods dependencies installed"
+
+      - name: Build iOS App (Unsigned)
+        run: |
+          set -e
+          echo "=== Building iOS app (unsigned) ==="
+          set +o pipefail
+          xcodebuild build \
+            -workspace tvbox.xcworkspace \
+            -scheme tvbox \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGNING_ALLOWED=NO \
+            IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+            -derivedDataPath ./DerivedData \
+            2>&1 | tee build.log
+
+          BUILD_EXIT_CODE=${PIPESTATUS[0]}
+
+          if [ $BUILD_EXIT_CODE -ne 0 ]; then
+            echo "❌ Build failed (exit code: $BUILD_EXIT_CODE)"
+            tail -50 build.log
+            exit 1
+          fi
+
+          echo "✅ Build successful"
+
+      - name: Create IPA & Pseudo-Sign
+        run: |
+          set -e
+          echo "=== Finding app bundle ==="
+
+          APP_PATH=$(find ./DerivedData -name "TVBox.app" -type d | head -1)
+          if [ -z "$APP_PATH" ]; then
+            APP_PATH=$(find ./DerivedData -name "tvbox.app" -type d | head -1)
+          fi
+
+          if [ -z "$APP_PATH" ]; then
+            echo "❌ App bundle not found"
+            find ./DerivedData -name "*.app" -type d
+            exit 1
+          fi
+
+          echo "Found app: $APP_PATH"
+
+          rm -rf "$APP_PATH/_CodeSignature"
+          rm -rf "$APP_PATH/embedded.mobileprovision"
+
+          echo "=== Pseudo-signing with ldid ==="
+
+          ldid -S "$APP_PATH"
+          echo "✅ Signed app bundle"
+
+          if [ -d "$APP_PATH/Frameworks" ]; then
+            for FRAMEWORK in "$APP_PATH/Frameworks/"*.framework; do
+              if [ -d "$FRAMEWORK" ]; then
+                FW_NAME=$(basename "$FRAMEWORK" .framework)
+                FW_EXEC="$FRAMEWORK/$FW_NAME"
+                if [ -f "$FW_EXEC" ]; then
+                  ldid -S "$FW_EXEC"
+                  echo "✅ Signed framework: $FW_NAME"
+                fi
+              fi
+            done
+
+            for DYLIB in "$APP_PATH/Frameworks/"*.dylib; do
+              if [ -f "$DYLIB" ]; then
+                ldid -S "$DYLIB"
+                echo "✅ Signed dylib: $(basename "$DYLIB")"
+              fi
+            done
+          fi
+
+          echo "=== Creating IPA ==="
+          mkdir -p ./Build
+          TEMP_DIR=$(mktemp -d)
+          mkdir -p "$TEMP_DIR/Payload"
+          cp -r "$APP_PATH" "$TEMP_DIR/Payload/"
+          cd "$TEMP_DIR"
+          zip -r -q -X "$GITHUB_WORKSPACE/Build/tvbox-Swift-TrollStore.ipa" Payload
+          cd "$GITHUB_WORKSPACE"
+          rm -rf "$TEMP_DIR"
+
+          echo "✅ IPA created: ./Build/tvbox-Swift-TrollStore.ipa"
+          ls -lh ./Build/tvbox-Swift-TrollStore.ipa
+
+      - name: Upload IPA Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: tvbox-Swift-TrollStore
+          path: ./Build/tvbox-Swift-TrollStore.ipa
+          retention-days: 30
+
+      - name: Upload Build Logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ./build.log
+          retention-days: 7
