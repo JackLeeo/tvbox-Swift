@@ -1,6 +1,7 @@
 #import "NodeJSManager.h"
 #import <NodeMobile/NodeMobile.h>
 #import <GCDWebServer/GCDWebServer.h>
+#import <CommonCrypto/CommonDigest.h>
 
 static const int kMaxStartupWaitSeconds = 30;
 
@@ -51,9 +52,43 @@ static const int kMaxStartupWaitSeconds = 30;
     return [[mainJsPath stringByDeletingLastPathComponent] stringByDeletingLastPathComponent];
 }
 
+- (NSString *)documentsSourcePath {
+    NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
+    NSString *documentsDir = paths.firstObject;
+    NSString *sourcePath = [documentsDir stringByAppendingPathComponent:@"nodejs-project/src/source"];
+    NSFileManager *fm = [NSFileManager defaultManager];
+    if (![fm fileExistsAtPath:sourcePath]) {
+        [fm createDirectoryAtPath:sourcePath withIntermediateDirectories:YES attributes:nil error:nil];
+    }
+    return sourcePath;
+}
+
 - (NSString *)sourcePath {
     NSArray *paths = NSSearchPathForDirectoriesInDomains(NSDocumentDirectory, NSUserDomainMask, YES);
     return paths.firstObject;
+}
+
+#pragma mark - MD5 Helper
+
+- (NSString *)md5HexOfString:(NSString *)string {
+    const char *cStr = [string UTF8String];
+    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(cStr, (CC_LONG)strlen(cStr), digest);
+    NSMutableString *output = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [output appendFormat:@"%02x", digest[i]];
+    }
+    return output;
+}
+
+- (NSString *)md5HexOfData:(NSData *)data {
+    unsigned char digest[CC_MD5_DIGEST_LENGTH];
+    CC_MD5(data.bytes, (CC_LONG)data.length, digest);
+    NSMutableString *output = [NSMutableString stringWithCapacity:CC_MD5_DIGEST_LENGTH * 2];
+    for (int i = 0; i < CC_MD5_DIGEST_LENGTH; i++) {
+        [output appendFormat:@"%02x", digest[i]];
+    }
+    return output;
 }
 
 #pragma mark - Native Server
@@ -225,65 +260,296 @@ static const int kMaxStartupWaitSeconds = 30;
         return;
     }
 
-    NSURL *url = [NSURL URLWithString:urlString];
+    NSString *normalizedUrl = urlString;
+    if ([normalizedUrl hasSuffix:@".js.md5"]) {
+        normalizedUrl = [normalizedUrl substringToIndex:normalizedUrl.length - 4];
+        NSLog(@"[NodeJSManager] Normalized URL (removed .md5 suffix): %@", normalizedUrl);
+    }
+
+    NSURL *url = [NSURL URLWithString:normalizedUrl];
     if (!url) {
         if (completion) completion(NO, @"Invalid URL");
         return;
     }
 
-    NSURLSessionDataTask *task = [[NSURLSession sharedSession] dataTaskWithURL:url
-                                                            completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+    dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+        NSString *sourcePath = [self documentsSourcePath];
+        NSString *indexJSPath = [sourcePath stringByAppendingPathComponent:@"index.js"];
+        NSString *indexMd5Path = [sourcePath stringByAppendingPathComponent:@"index.js.md5"];
+        NSString *configJSPath = [sourcePath stringByAppendingPathComponent:@"index.config.js"];
+        NSString *configMd5Path = [sourcePath stringByAppendingPathComponent:@"index.config.js.md5"];
+
+        NSFileManager *fm = [NSFileManager defaultManager];
+        BOOL localJSExists = [fm fileExistsAtPath:indexJSPath];
+        BOOL localMd5Exists = [fm fileExistsAtPath:indexMd5Path];
+        NSLog(@"[NodeJSManager] Cache check: index.js exists=%d, index.js.md5 exists=%d", localJSExists, localMd5Exists);
+
+        if (localJSExists && localMd5Exists) {
+            __block NSData *remoteMd5Data = nil;
+            __block BOOL md5DownloadSuccess = NO;
+
+            dispatch_group_t md5Group = dispatch_group_create();
+            dispatch_group_enter(md5Group);
+            NSString *md5Url = [normalizedUrl stringByAppendingString:@".md5"];
+            NSLog(@"[NodeJSManager] Cache check: downloading remote MD5: %@", md5Url);
+            [[[NSURLSession sharedSession] dataTaskWithURL:[NSURL URLWithString:md5Url] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+                if (!error && data) {
+                    remoteMd5Data = data;
+                    md5DownloadSuccess = YES;
+                    NSLog(@"[NodeJSManager] Remote MD5 downloaded, size: %lu bytes", (unsigned long)data.length);
+                } else {
+                    NSLog(@"[NodeJSManager] Remote MD5 download failed: %@", error.localizedDescription);
+                }
+                dispatch_group_leave(md5Group);
+            }] resume];
+
+            dispatch_group_wait(md5Group, dispatch_time(DISPATCH_TIME_NOW, 15 * NSEC_PER_SEC));
+
+            if (md5DownloadSuccess && remoteMd5Data) {
+                NSString *remoteMd5 = [[NSString alloc] initWithData:remoteMd5Data encoding:NSUTF8StringEncoding];
+                remoteMd5 = [remoteMd5 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+                NSString *localMd5 = [[NSString alloc] initWithData:[NSData dataWithContentsOfFile:indexMd5Path] encoding:NSUTF8StringEncoding];
+                localMd5 = [localMd5 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+
+                NSLog(@"[NodeJSManager] Cache MD5 comparison: local=%@, remote=%@", localMd5, remoteMd5);
+
+                if (remoteMd5.length > 0 && [localMd5 isEqualToString:remoteMd5]) {
+                    NSLog(@"[NodeJSManager] MD5 match! Using cached source, skipping download");
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        [self sendLoadCommandToNodeJS:sourcePath completion:completion];
+                    });
+                    return;
+                } else {
+                    NSLog(@"[NodeJSManager] MD5 mismatch or empty, need to re-download source");
+                }
+            } else {
+                NSLog(@"[NodeJSManager] Could not download remote MD5, proceeding with full download");
+            }
+        }
+
+        __block NSData *jsData = nil;
+        __block NSData *md5Data = nil;
+        __block NSData *configData = nil;
+        __block NSData *configMd5Data = nil;
+        __block NSError *jsError = nil;
+        __block NSError *configError = nil;
+        __block NSHTTPURLResponse *jsResponse = nil;
+        __block NSHTTPURLResponse *configResponse = nil;
+
+        dispatch_group_t group = dispatch_group_create();
+
+        dispatch_group_enter(group);
+        NSLog(@"[NodeJSManager] Downloading main source: %@", normalizedUrl);
+        [[[NSURLSession sharedSession] dataTaskWithURL:[NSURL URLWithString:normalizedUrl] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            jsData = data;
+            jsError = error;
+            jsResponse = (NSHTTPURLResponse *)response;
+            if (error) {
+                NSLog(@"[NodeJSManager] ERROR downloading main source: %@", error.localizedDescription);
+            } else {
+                NSLog(@"[NodeJSManager] Main source downloaded, status: %ld, size: %lu bytes", (long)jsResponse.statusCode, (unsigned long)data.length);
+            }
+            dispatch_group_leave(group);
+        }] resume];
+
+        dispatch_group_enter(group);
+        NSString *md5Url = [normalizedUrl stringByAppendingString:@".md5"];
+        NSLog(@"[NodeJSManager] Downloading md5: %@", md5Url);
+        [[[NSURLSession sharedSession] dataTaskWithURL:[NSURL URLWithString:md5Url] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            md5Data = data;
+            if (error) {
+                NSLog(@"[NodeJSManager] MD5 download failed (optional): %@", error.localizedDescription);
+            } else {
+                NSLog(@"[NodeJSManager] MD5 downloaded, size: %lu bytes", (unsigned long)data.length);
+            }
+            dispatch_group_leave(group);
+        }] resume];
+
+        dispatch_group_enter(group);
+        NSString *configUrl = [normalizedUrl stringByReplacingOccurrencesOfString:@"/index.js" withString:@"/index.config.js"];
+        NSLog(@"[NodeJSManager] Downloading config: %@", configUrl);
+        [[[NSURLSession sharedSession] dataTaskWithURL:[NSURL URLWithString:configUrl] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            configData = data;
+            configError = error;
+            configResponse = (NSHTTPURLResponse *)response;
+            if (error) {
+                NSLog(@"[NodeJSManager] Config download failed (optional): %@", error.localizedDescription);
+            } else {
+                NSLog(@"[NodeJSManager] Config downloaded, status: %ld", (long)configResponse.statusCode);
+            }
+            dispatch_group_leave(group);
+        }] resume];
+
+        dispatch_group_enter(group);
+        NSString *configMd5Url = [configUrl stringByAppendingString:@".md5"];
+        [[[NSURLSession sharedSession] dataTaskWithURL:[NSURL URLWithString:configMd5Url] completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+            configMd5Data = data;
+            dispatch_group_leave(group);
+        }] resume];
+
+        NSLog(@"[NodeJSManager] Waiting for all downloads to complete...");
+        dispatch_group_wait(group, dispatch_time(DISPATCH_TIME_NOW, 60 * NSEC_PER_SEC));
+        NSLog(@"[NodeJSManager] All downloads completed");
+
+        if (jsError || !jsData) {
+            NSString *errorMsg = [NSString stringWithFormat:@"Failed to download source: %@ (status: %ld)",
+                                  jsError ? jsError.localizedDescription : @"no data",
+                                  jsResponse ? (long)jsResponse.statusCode : -1];
+            NSLog(@"[NodeJSManager] ERROR: %@", errorMsg);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (completion) completion(NO, errorMsg);
+            });
+            return;
+        }
+
+        if (md5Data) {
+            NSString *expectedMd5 = [[NSString alloc] initWithData:md5Data encoding:NSUTF8StringEncoding];
+            expectedMd5 = [expectedMd5 stringByTrimmingCharactersInSet:[NSCharacterSet whitespaceAndNewlineCharacterSet]];
+            if (expectedMd5.length > 0) {
+                NSString *actualMd5 = [self md5HexOfData:jsData];
+                if (![actualMd5 isEqualToString:expectedMd5]) {
+                    NSLog(@"[NodeJSManager] MD5 verification failed: expected=%@, actual=%@", expectedMd5, actualMd5);
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        if (completion) completion(NO, @"MD5 verification failed");
+                    });
+                    return;
+                }
+                NSLog(@"[NodeJSManager] Downloaded source MD5 verified successfully");
+            }
+        }
+
+        NSLog(@"[NodeJSManager] Creating directory at: %@", sourcePath);
+        [fm createDirectoryAtPath:sourcePath withIntermediateDirectories:YES attributes:nil error:nil];
+
+        NSLog(@"[NodeJSManager] Writing index.js to: %@", indexJSPath);
+        BOOL writeResult = [jsData writeToFile:indexJSPath atomically:YES];
+        if (!writeResult) {
+            NSLog(@"[NodeJSManager] ERROR: Failed to write index.js");
+        }
+
+        if (md5Data) {
+            [md5Data writeToFile:indexMd5Path atomically:YES];
+            NSLog(@"[NodeJSManager] Saved index.js.md5 for future cache checks");
+        }
+
+        if (configData && !configError) {
+            NSLog(@"[NodeJSManager] Writing index.config.js");
+            [configData writeToFile:configJSPath atomically:YES];
+            if (configMd5Data) {
+                [configMd5Data writeToFile:configMd5Path atomically:YES];
+            }
+        } else {
+            NSLog(@"[NodeJSManager] Creating default index.config.js");
+            NSString *defaultConfig = @"module.exports = { color: [] };";
+            [defaultConfig writeToFile:configJSPath atomically:YES encoding:NSUTF8StringEncoding error:nil];
+        }
+
+        NSLog(@"[NodeJSManager] Files saved successfully, now sending load command to Node.js with path: %@", sourcePath);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self sendLoadCommandToNodeJS:sourcePath completion:completion];
+        });
+    });
+}
+
+- (void)sendLoadCommandToNodeJS:(NSString *)path completion:(void (^)(BOOL, NSString * _Nullable))completion {
+    [self sendLoadCommandToNodeJS:path retryCount:3 completion:completion];
+}
+
+- (void)sendLoadCommandToNodeJS:(NSString *)path retryCount:(int)retryCount completion:(void (^)(BOOL, NSString * _Nullable))completion {
+    NSLog(@"[NodeJSManager] sendLoadCommandToNodeJS called, managementPort: %d, retryCount: %d", self.managementPort, retryCount);
+
+    if (self.managementPort <= 0) {
+        if (retryCount > 0) {
+            NSLog(@"[NodeJSManager] Management port not ready, retrying... (%d left)", retryCount);
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(2 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+                [self sendLoadCommandToNodeJS:path retryCount:retryCount - 1 completion:completion];
+            });
+            return;
+        }
+        NSString *errorMsg = @"Management server not ready after retries";
+        NSLog(@"[NodeJSManager] ERROR: %@", errorMsg);
+        if (completion) completion(NO, errorMsg);
+        return;
+    }
+
+    NSString *urlString = [NSString stringWithFormat:@"http://127.0.0.1:%d/source/loadPath", self.managementPort];
+    NSLog(@"[NodeJSManager] Sending request to: %@", urlString);
+    NSURL *url = [NSURL URLWithString:urlString];
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    request.HTTPMethod = @"POST";
+    [request setValue:@"application/json" forHTTPHeaderField:@"Content-Type"];
+    request.timeoutInterval = 15.0;
+
+    NSDictionary *body = @{@"path": path};
+    request.HTTPBody = [NSJSONSerialization dataWithJSONObject:body options:0 error:nil];
+
+    [[[NSURLSession sharedSession] dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
+
         if (error) {
+            NSLog(@"[NodeJSManager] ERROR: Load command failed with error: %@", error.localizedDescription);
+            if (retryCount > 0) {
+                NSLog(@"[NodeJSManager] Retrying... (%d left)", retryCount);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self sendLoadCommandToNodeJS:path retryCount:retryCount - 1 completion:completion];
+                });
+                return;
+            }
             dispatch_async(dispatch_get_main_queue(), ^{
                 if (completion) completion(NO, error.localizedDescription);
             });
             return;
         }
 
-        NSHTTPURLResponse *httpResponse = (NSHTTPURLResponse *)response;
-        if (httpResponse.statusCode != 200) {
+        NSLog(@"[NodeJSManager] Response status code: %ld", (long)httpResponse.statusCode);
+        NSString *responseBody = data ? [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding] : @"";
+        NSLog(@"[NodeJSManager] Response body: %@", responseBody);
+
+        if (httpResponse.statusCode >= 400) {
+            if (retryCount > 0 && httpResponse.statusCode >= 500) {
+                NSLog(@"[NodeJSManager] Server error, retrying... (%d left)", retryCount);
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    [self sendLoadCommandToNodeJS:path retryCount:retryCount - 1 completion:completion];
+                });
+                return;
+            }
             dispatch_async(dispatch_get_main_queue(), ^{
-                if (completion) completion(NO, [NSString stringWithFormat:@"HTTP %ld", (long)httpResponse.statusCode]);
+                if (completion) completion(NO, [NSString stringWithFormat:@"Server error (%ld): %@", (long)httpResponse.statusCode, responseBody]);
             });
             return;
         }
 
-        NSString *sourceDir = [self sourcePath];
-        NSFileManager *fm = [NSFileManager defaultManager];
-        if (![fm fileExistsAtPath:sourceDir]) {
-            [fm createDirectoryAtPath:sourceDir withIntermediateDirectories:YES attributes:nil error:nil];
+        NSDictionary *responseDict = nil;
+        if (data) {
+            responseDict = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
         }
 
-        NSString *sourceFilePath = [sourceDir stringByAppendingPathComponent:@"source.json"];
-        BOOL writeSuccess = [data writeToFile:sourceFilePath atomically:YES];
+        if (responseDict && responseDict[@"error"]) {
+            NSString *errorMsg = [NSString stringWithFormat:@"Load error: %@", responseDict[@"error"]];
+            NSLog(@"[NodeJSManager] ERROR: %@", errorMsg);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (completion) completion(NO, errorMsg);
+            });
+            return;
+        }
 
+        NSLog(@"[NodeJSManager] === Source loaded successfully! ===");
         dispatch_async(dispatch_get_main_queue(), ^{
-            if (completion) {
-                completion(writeSuccess, writeSuccess ? @"Source loaded" : @"Failed to write source file");
-            }
+            if (completion) completion(YES, @"Source loaded successfully");
         });
-    }];
-    [task resume];
+    }] resume];
 }
 
 - (void)deleteSourceWithCompletion:(void (^)(BOOL success))completion {
-    NSString *sourceDir = [self sourcePath];
+    NSString *sourcePath = [self documentsSourcePath];
     NSFileManager *fm = [NSFileManager defaultManager];
-
-    if (![fm fileExistsAtPath:sourceDir]) {
-        if (completion) completion(YES);
-        return;
-    }
-
-    NSString *sourceFilePath = [sourceDir stringByAppendingPathComponent:@"source.json"];
     NSError *error = nil;
-    BOOL deleted = [fm removeItemAtPath:sourceFilePath error:&error];
-
-    if (error) {
-        NSLog(@"[NodeJSManager] Error deleting source: %@", error.localizedDescription);
+    if ([fm fileExistsAtPath:sourcePath]) {
+        [fm removeItemAtPath:sourcePath error:&error];
     }
-
-    if (completion) completion(deleted);
+    self.spiderPort = 0;
+    if (completion) completion(error == nil);
 }
 
 #pragma mark - Accessors

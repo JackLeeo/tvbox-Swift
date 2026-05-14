@@ -97,7 +97,7 @@ class AppState: ObservableObject {
         guard let spiderSource = ApiConfig.shared.sourceBeanList.first(where: { $0.isSpiderSource }) else { return }
         guard !spiderSource.api.isEmpty else { return }
 
-        SpiderService.shared.loadSource(url: spiderSource.api) { success, message in
+        NodeJSManager.shared().loadSourceFromURL(spiderSource.api) { success, message in
             if success {
                 print("[AppState] Spider 源加载成功")
             } else {

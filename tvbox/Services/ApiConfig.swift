@@ -148,11 +148,6 @@ class ApiConfig: ObservableObject {
         
         let jsonStr = try await fetchConfigText(from: normalizedUrl)
         
-        if Self.looksLikeJavaScript(jsonStr) {
-            let config = Self.createSpiderSourceConfig(from: normalizedUrl)
-            return (config, normalizedUrl)
-        }
-        
         let cleanedJson = Self.stripJsonComments(jsonStr)
         
         guard let data = cleanedJson.data(using: .utf8) else {
@@ -354,36 +349,17 @@ class ApiConfig: ObservableObject {
             || path.hasSuffix(".jar.md5")
     }
     
-    private static func looksLikeJavaScript(_ content: String) -> Bool {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return false }
-        if trimmed.hasPrefix("{") || trimmed.hasPrefix("[") { return false }
-        let indicators = ["function ", "=>", "module.exports", "globalThis.", "var ", "let ", "const "]
-        let lowercased = trimmed.lowercased()
-        let matchCount = indicators.filter { lowercased.contains($0.lowercased()) }.count
-        return matchCount >= 2
-    }
-    
-    private static func resolveSpiderApiUrl(_ url: String) -> String {
-        if url.hasSuffix(".md5") {
-            return String(url.dropLast(4))
-        }
-        return url
-    }
-    
     private static func createSpiderSourceConfig(from url: String) -> AppConfigData {
-        let jsApiUrl = resolveSpiderApiUrl(url)
-        
         let key: String
         if let components = URLComponents(string: url), let host = components.host {
-            let pathComponent = components.path
+            let fileName = components.path
                 .components(separatedBy: "/")
                 .last?
                 .replacingOccurrences(of: ".js.md5", with: "")
                 .replacingOccurrences(of: ".js", with: "")
                 .replacingOccurrences(of: ".jar.md5", with: "")
                 .replacingOccurrences(of: ".jar", with: "")
-            key = (pathComponent?.isEmpty == true) ? host : pathComponent!
+            key = (fileName?.isEmpty == true) ? host : fileName!
         } else {
             key = "spider_source"
         }
@@ -396,7 +372,7 @@ class ApiConfig: ObservableObject {
         }
         
         let site = AppConfigData.SiteConfig(
-            key: key, name: name, api: jsApiUrl,
+            key: key, name: name, api: url,
             searchable: FlexibleInt(1), filterable: FlexibleInt(1),
             quickSearch: FlexibleInt(0), playerType: FlexibleInt(0),
             type: FlexibleInt(3), ext: nil, jar: nil, style: nil,
@@ -404,7 +380,7 @@ class ApiConfig: ObservableObject {
         )
         
         return AppConfigData(
-            spider: jsApiUrl, wallpaper: nil, sites: [site],
+            spider: url, wallpaper: nil, sites: [site],
             parses: nil, lives: nil, doh: nil,
             rules: nil, hosts: nil, flags: nil, ads: nil
         )
@@ -595,11 +571,6 @@ class ApiConfig: ObservableObject {
     /// 返回 nil 表示不是多仓库入口；返回数组表示是多仓库入口（数组可能为空）。
     func fetchMultiRepoOptions(from apiUrl: String) async throws -> [MultiRepoOption]? {
         let normalizedUrl = Self.normalizeConfigUrl(apiUrl)
-        
-        if Self.isSpiderSourceUrl(normalizedUrl) {
-            return nil
-        }
-        
         let jsonStr = try await fetchConfigText(from: normalizedUrl)
         let cleanedJson = Self.stripJsonComments(jsonStr)
         
