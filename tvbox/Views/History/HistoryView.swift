@@ -50,8 +50,8 @@ struct HistoryView: View {
             .navigationBarTitleDisplayMode(.inline)
             #endif
             .toolbar {
-                if !sortedRecords.isEmpty {
-                    ToolbarItem(placement: .automatic) {
+                ToolbarItem(placement: .automatic) {
+                    if !sortedRecords.isEmpty {
                         Button {
                             store.clearHistory()
                         } label: {

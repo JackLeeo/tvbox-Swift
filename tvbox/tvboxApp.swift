@@ -82,7 +82,7 @@ class AppState: ObservableObject {
                     guard let self else { return }
                     if success {
                         self.nodeJSStarted = true
-                        await self?.loadSpiderSource()
+                        await loadSpiderSource()
                     } else {
                         print("[AppState] Node.js 启动失败")
                     }

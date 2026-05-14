@@ -49,11 +49,11 @@ class SpiderService {
     // MARK: - 端口与状态
 
     private var spiderPort: Int {
-        return NodeJSManager.shared().getSpiderPort()
+        return Int(NodeJSManager.shared().getSpiderPort())
     }
 
     private var managementPort: Int {
-        return NodeJSManager.shared().getManagementPort()
+        return Int(NodeJSManager.shared().getManagementPort())
     }
 
     private var isNodeReady: Bool {

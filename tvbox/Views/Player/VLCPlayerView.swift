@@ -880,12 +880,14 @@ struct VLCVodPlayerView: View {
             .opacity(0.01)
             .allowsHitTesting(false)
         }
+        #if os(macOS)
         .onContinuousHover { phase in
             switch phase {
             case .active(_): wakeUpControls()
             case .ended: break
             }
         }
+        #endif
         .onAppear {
             startPlayback()
             wakeUpControls()

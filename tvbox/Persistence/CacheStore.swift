@@ -124,7 +124,7 @@ class CacheStore: ObservableObject {
 
     func isCollected(vodId: String, sourceKey: String) -> Bool {
         let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
-        return favorites.contains { $0.bizKey == bizKey || ($0.bizKey.isEmpty && $0.vodId == vodId && $0.sourceKey == sourceKey }
+        return favorites.contains { $0.bizKey == bizKey || ($0.bizKey.isEmpty && $0.vodId == vodId && $0.sourceKey == sourceKey) }
     }
 
     func addRecord(
@@ -178,12 +178,12 @@ class CacheStore: ObservableObject {
 
     func clearHistory() {
         records = []
-        saveJSON([], to: recordsFileName)
+        saveJSON(records, to: recordsFileName)
     }
 
     func removeRecord(vodId: String, sourceKey: String) {
         let bizKey = makeVodBusinessKey(vodId: vodId, sourceKey: sourceKey)
-        records.removeAll { $0.bizKey == bizKey || ($0.bizKey.isEmpty && $0.vodId == vodId && $0.sourceKey == sourceKey }
+        records.removeAll { $0.bizKey == bizKey || ($0.bizKey.isEmpty && $0.vodId == vodId && $0.sourceKey == sourceKey) }
         saveJSON(records, to: recordsFileName)
     }
 

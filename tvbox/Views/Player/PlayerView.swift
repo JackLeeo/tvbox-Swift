@@ -233,12 +233,14 @@ struct AVPlayerContentView: View {
             .opacity(0.01)
             .allowsHitTesting(false)
         }
+        #if os(macOS)
         .onContinuousHover { phase in
             switch phase {
             case .active(_): wakeUpControls()
             case .ended: break
             }
         }
+        #endif
         .onAppear {
             syncRateFromSettings()
             setupPlayer()
@@ -278,7 +280,9 @@ struct AVPlayerContentView: View {
         
         let playerItem = AVPlayerItem(url: url)
         let newPlayer = AVPlayer(playerItem: playerItem)
-        newPlayer.defaultRate = preferredRate
+        if #available(iOS 17.0, *) {
+            newPlayer.defaultRate = preferredRate
+        }
         if let sharedController {
             sharedController.setPlayer(newPlayer, urlString: targetURLString)
         }
@@ -663,7 +667,9 @@ struct AVPlayerContentView: View {
         rate = normalized
         savedPlaybackRate = Double(normalized)
         guard let player else { return }
-        player.defaultRate = normalized
+        if #available(iOS 17.0, *) {
+            player.defaultRate = normalized
+        }
         if player.rate > 0 {
             player.rate = normalized
         }
@@ -672,7 +678,9 @@ struct AVPlayerContentView: View {
     private func applyPreferredPlaybackRate(to player: AVPlayer) {
         let normalized = normalizedSavedPlaybackRate
         rate = normalized
-        player.defaultRate = normalized
+        if #available(iOS 17.0, *) {
+            player.defaultRate = normalized
+        }
         if player.rate > 0 {
             player.rate = normalized
         }
@@ -681,7 +689,9 @@ struct AVPlayerContentView: View {
     private func playAtPreferredRate(_ player: AVPlayer) {
         let normalized = normalizedSavedPlaybackRate
         rate = normalized
-        player.defaultRate = normalized
+        if #available(iOS 17.0, *) {
+            player.defaultRate = normalized
+        }
         player.playImmediately(atRate: normalized)
     }
 
