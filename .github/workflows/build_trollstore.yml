@@ -59,6 +59,12 @@ jobs:
             echo "❌ Node.js build failed"
             exit 1
           fi
+          echo "=== Ensure dist/ exists in workspace ==="
+          WORKSPACE="$GITHUB_WORKSPACE"
+          mkdir -p "$WORKSPACE/tvbox/nodejs-project/dist"
+          cp -f dist/main.js "$WORKSPACE/tvbox/nodejs-project/dist/" 2>/dev/null || true
+          cp -f dist/main.js.md5 "$WORKSPACE/tvbox/nodejs-project/dist/" 2>/dev/null || true
+          ls -la "$WORKSPACE/tvbox/nodejs-project/dist/"
 
       - name: Generate Xcode Project
         run: |

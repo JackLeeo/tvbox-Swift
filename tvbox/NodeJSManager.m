@@ -154,68 +154,94 @@ static const int kMaxStartupWaitSeconds = 30;
     self.spiderPort = 0;
     self.managementPort = 0;
 
+    NSString *scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js" inDirectory:@"nodejs-project/dist"];
+    if (!scriptPath) {
+        scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js" inDirectory:@"nodejs-project/dist"];
+    }
+    if (!scriptPath) {
+        scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js"];
+    }
+    if (!scriptPath) {
+        scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js"];
+    }
+
+    if (!scriptPath) {
+        NSLog(@"[NodeJSManager] Node.js script NOT FOUND in bundle!");
+        if (completion) completion(NO);
+        return;
+    }
+
     if (![self startLocalWebServer]) {
         if (completion) completion(NO);
         return;
     }
 
+    NSLog(@"[NodeJSManager] Starting Node.js with script: %@, nativeServerPort: %d", scriptPath, self.nativeServerPort);
+
+    NSString *sourcePath = [self documentsSourcePath];
+    const char *nodePathC = [sourcePath UTF8String];
+    setenv("NODE_PATH", nodePathC, 1);
+
+    NSMutableArray *args = [NSMutableArray arrayWithObjects:@"node", @"--security-revert=CVE-2023-46809", scriptPath, nil];
+    if (self.nativeServerPort > 0) {
+        [args addObject:@"--native-port"];
+        [args addObject:[NSString stringWithFormat:@"%d", self.nativeServerPort]];
+    }
+
+    int argc = (int)args.count;
+    char *argv[argc + 1];
+    for (int i = 0; i < argc; i++) {
+        argv[i] = strdup([args[i] UTF8String]);
+    }
+    argv[argc] = NULL;
+
+    self.isRunning = YES;
+
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
-        NSString *scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js" inDirectory:@"nodejs-project/dist"];
-        if (!scriptPath) {
-            scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js" inDirectory:@"nodejs-project/dist"];
-        }
-        if (!scriptPath) {
-            scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js"];
-        }
-        if (!scriptPath) {
-            scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js"];
+        node_start(argc, argv);
+        NSLog(@"[NodeJSManager] Node.js process exited");
+
+        for (int i = 0; i < argc; i++) {
+            free(argv[i]);
         }
 
-        if (scriptPath) {
-            int nativePort = self.nativeServerPort;
-            NSLog(@"[NodeJSManager] Starting Node.js with script: %@, native-port: %d", scriptPath, nativePort);
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.isRunning = NO;
+            self.nodeReady = NO;
+            [self.webServer stop];
+        });
+    });
 
-            NSString *sourcePath = [self documentsSourcePath];
-            const char *nodePathC = [sourcePath UTF8String];
-            setenv("NODE_PATH", nodePathC, 1);
+    if (completion) {
+        [self waitForNodeReadyInternalWithCompletion:completion];
+    }
+}
 
-            NSMutableArray *args = [NSMutableArray arrayWithObjects:@"node", @"--security-revert=CVE-2023-46809", scriptPath, nil];
-            if (nativePort > 0) {
-                [args addObject:@"--native-port"];
-                [args addObject:[NSString stringWithFormat:@"%d", nativePort]];
-            }
+- (void)waitForNodeReadyInternalWithCompletion:(void (^)(BOOL ready))completion {
+    __block id observer = nil;
+    __block BOOL completed = NO;
 
-            int argc = (int)args.count;
-            char *argv[argc + 1];
-            for (int i = 0; i < argc; i++) {
-                argv[i] = strdup([args[i] UTF8String]);
-            }
-            argv[argc] = NULL;
-
-            self.isRunning = YES;
-
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (completion) completion(YES);
-            });
-
-            int result = node_start(argc, argv);
-            NSLog(@"[NodeJSManager] Node.js exited with code %d", result);
-
-            for (int i = 0; i < argc; i++) {
-                free(argv[i]);
-            }
-
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.isRunning = NO;
-                self.nodeReady = NO;
-                [self.webServer stop];
-            });
-        } else {
-            NSLog(@"[NodeJSManager] Node.js script not found!");
-            dispatch_async(dispatch_get_main_queue(), ^{
-                if (completion) completion(NO);
-            });
+    void (^finish)(BOOL) = ^(BOOL ready) {
+        @synchronized (self) {
+            if (completed) return;
+            completed = YES;
         }
+        if (observer) {
+            [[NSNotificationCenter defaultCenter] removeObserver:observer];
+            observer = nil;
+        }
+        if (completion) completion(ready);
+    };
+
+    observer = [[NSNotificationCenter defaultCenter] addObserverForName:@"NodeReady"
+                                                                object:nil
+                                                                 queue:[NSOperationQueue mainQueue]
+                                                            usingBlock:^(NSNotification * _Nonnull note) {
+        finish(YES);
+    }];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kMaxStartupWaitSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        finish(NO);
     });
 }
 
@@ -233,7 +259,7 @@ static const int kMaxStartupWaitSeconds = 30;
     NSLog(@"[NodeJSManager] Node.js stopped");
 }
 
-#pragma mark - Wait for Ready
+#pragma mark - Wait for Ready (Public)
 
 - (void)waitForNodeReady:(void (^)(BOOL ready))completion {
     if (self.nodeReady) {
@@ -241,17 +267,30 @@ static const int kMaxStartupWaitSeconds = 30;
         return;
     }
 
-    __block id observer = [[NSNotificationCenter defaultCenter] addObserverForName:@"NodeReady"
-                                                                            object:nil
-                                                                             queue:[NSOperationQueue mainQueue]
-                                                                        usingBlock:^(NSNotification * _Nonnull note) {
-        [[NSNotificationCenter defaultCenter] removeObserver:observer];
-        if (completion) completion(YES);
+    __block id observer = nil;
+    __block BOOL completed = NO;
+
+    void (^finish)(BOOL) = ^(BOOL ready) {
+        @synchronized (self) {
+            if (completed) return;
+            completed = YES;
+        }
+        if (observer) {
+            [[NSNotificationCenter defaultCenter] removeObserver:observer];
+            observer = nil;
+        }
+        if (completion) completion(ready);
+    };
+
+    observer = [[NSNotificationCenter defaultCenter] addObserverForName:@"NodeReady"
+                                                                object:nil
+                                                                 queue:[NSOperationQueue mainQueue]
+                                                            usingBlock:^(NSNotification * _Nonnull note) {
+        finish(YES);
     }];
 
-    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(15 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-        [[NSNotificationCenter defaultCenter] removeObserver:observer];
-        if (completion) completion(NO);
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(kMaxStartupWaitSeconds * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        finish(NO);
     });
 }
 
