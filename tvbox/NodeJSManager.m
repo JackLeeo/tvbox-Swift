@@ -1,7 +1,6 @@
 #import "NodeJSManager.h"
 #import <NodeMobile/NodeMobile.h>
 #import <GCDWebServer/GCDWebServer.h>
-#import <GCDWebServer/Responses/GCDWebServerDataResponse.h>
 
 static const int kMaxStartupWaitSeconds = 30;
 
