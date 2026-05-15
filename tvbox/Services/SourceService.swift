@@ -646,7 +646,8 @@ class SourceService {
     private func getSpiderSort(sourceBean: SourceBean) async throws -> (sorts: [MovieSort.SortData], homeVideos: [Movie.Video]) {
         let spider = SpiderService.shared
         let key = sourceBean.key.hasPrefix("nodejs_") ? String(sourceBean.key.dropFirst(7)) : sourceBean.key
-        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: sourceBean.api)
+        let apiBase = sourceBean.api.hasPrefix("http") ? "" : sourceBean.api
+        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: apiBase)
         try await spider.initSpider()
         
         let result = try await spider.getHomeContent()
@@ -710,7 +711,8 @@ class SourceService {
     private func getSpiderList(sourceBean: SourceBean, sortData: MovieSort.SortData, page: Int, filters: [String: String]?) async throws -> [Movie.Video] {
         let spider = SpiderService.shared
         let key = sourceBean.key.hasPrefix("nodejs_") ? String(sourceBean.key.dropFirst(7)) : sourceBean.key
-        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: sourceBean.api)
+        let apiBase = sourceBean.api.hasPrefix("http") ? "" : sourceBean.api
+        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: apiBase)
         
         let result = try await spider.getCategoryContent(id: sortData.id, page: page, filters: filters ?? [:])
         var videos: [Movie.Video] = []
@@ -732,7 +734,8 @@ class SourceService {
     private func getSpiderDetail(sourceBean: SourceBean, vodId: String) async throws -> VodInfo? {
         let spider = SpiderService.shared
         let key = sourceBean.key.hasPrefix("nodejs_") ? String(sourceBean.key.dropFirst(7)) : sourceBean.key
-        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: sourceBean.api)
+        let apiBase = sourceBean.api.hasPrefix("http") ? "" : sourceBean.api
+        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: apiBase)
         
         let result = try await spider.getDetail(id: vodId)
         
@@ -757,7 +760,8 @@ class SourceService {
     private func spiderSearch(sourceBean: SourceBean, keyword: String) async throws -> [Movie.Video] {
         let spider = SpiderService.shared
         let key = sourceBean.key.hasPrefix("nodejs_") ? String(sourceBean.key.dropFirst(7)) : sourceBean.key
-        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: sourceBean.api)
+        let apiBase = sourceBean.api.hasPrefix("http") ? "" : sourceBean.api
+        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: apiBase)
         
         let result = try await spider.search(wd: keyword, page: 1)
         var videos: [Movie.Video] = []

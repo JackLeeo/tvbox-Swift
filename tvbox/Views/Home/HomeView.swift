@@ -44,6 +44,9 @@ struct HomeView: View {
                 viewModel.selectSort(first)
             }
         }
+        .onChange(of: ApiConfig.shared.homeSourceBean?.key) { _ in
+            Task { await viewModel.refresh() }
+        }
     }
     
     // MARK: - 顶部栏

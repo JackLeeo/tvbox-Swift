@@ -366,7 +366,7 @@ class ApiConfig: ObservableObject {
         
         let name: String
         if let components = URLComponents(string: url), let host = components.host {
-            name = host
+            name = "Spider源(\(host))"
         } else {
             name = "Spider源"
         }
@@ -652,11 +652,14 @@ class ApiConfig: ObservableObject {
             self.sourceBeanList = sources
             
             // 设置默认主页源：优先选择 Swift 支持的源
+            // 对于 Spider 源（type=3），不在此处设置 homeSourceBean，
+            // 等待 fetchSpiderConfig() 从 /config 获取真实线路后再设置
             if let saved = UserDefaults.standard.string(forKey: HawkConfig.HOME_API),
-               let found = sources.first(where: { $0.key == saved }) {
+               let found = sources.first(where: { $0.key == saved }), !found.isSpiderSource {
                 self.homeSourceBean = found
             } else {
-                self.homeSourceBean = sources.first(where: { $0.isSupportedInSwift }) ?? sources.first
+                self.homeSourceBean = sources.first(where: { !$0.isSpiderSource && $0.isSupportedInSwift })
+                    ?? sources.first(where: { !$0.isSpiderSource })
             }
             
             // 解析解析器列表

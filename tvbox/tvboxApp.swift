@@ -35,9 +35,16 @@ class AppState: ObservableObject {
     private var lastLiveUrl: String = ""
     private var networkRestoredCancellable: AnyCancellable?
     private var nodeJSStarted = false
+    private var cancellables = Set<AnyCancellable>()
 
     init() {
         setupNetworkRestoredAutoRetry()
+        ApiConfig.shared.objectWillChange
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
+            }
+            .store(in: &cancellables)
     }
 
     func loadConfig(url: String) async {
@@ -56,8 +63,8 @@ class AppState: ObservableObject {
 
         do {
             try await ApiConfig.shared.loadConfigs(vodApiUrl: trimmedVod, liveApiUrl: resolvedLive)
-            applyLoadedConfigState()
             await ensureNodeJSAndLoadSource()
+            applyLoadedConfigState()
         } catch {
             if !(error is CancellationError) {
                 configLoadError = error.localizedDescription
