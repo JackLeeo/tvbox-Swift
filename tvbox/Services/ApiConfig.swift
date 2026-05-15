@@ -644,7 +644,8 @@ class ApiConfig: ObservableObject {
                         quickSearch: site.quickSearch?.value ?? 0,
                         playerType: site.playerType?.value ?? 0,
                         type: site.type?.value ?? 1,
-                        ext: site.ext?.stringValue
+                        ext: site.ext?.stringValue,
+                        indexs: site.indexs?.value ?? 0
                     )
                     sources.append(bean)
                 }
@@ -981,7 +982,7 @@ class ApiConfig: ObservableObject {
     
     /// 获取可搜索的源列表
     func getSearchableSources() -> [SourceBean] {
-        sourceBeanList.filter { $0.isSearchable }
+        sourceBeanList.filter { $0.isSearchable && $0.key != "douban" && $0.key != "baseset" }
     }
     
     /// 设置主页源
@@ -1007,7 +1008,7 @@ class ApiConfig: ObservableObject {
             let filterable = site["filterable"] as? Int ?? 1
             let quickSearch = site["quickSearch"] as? Int ?? 0
             let playerType = site["playerType"] as? Int ?? 0
-            let _ = site["indexs"] as? Int ?? 0
+            let indexs = site["indexs"] as? Int ?? 0
 
             guard !key.isEmpty else { continue }
 
@@ -1020,7 +1021,8 @@ class ApiConfig: ObservableObject {
                 quickSearch: quickSearch,
                 playerType: playerType,
                 type: type,
-                ext: nil
+                ext: nil,
+                indexs: indexs
             )
             newSources.append(bean)
         }

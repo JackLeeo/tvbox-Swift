@@ -2,8 +2,7 @@ import SwiftUI
 
 /// 搜索页 - 对应 Android 版 SearchActivity
 struct SearchView: View {
-    /// 搜索状态与结果管理。
-    @StateObject private var viewModel = SearchViewModel()
+    @StateObject var viewModel: SearchViewModel
     
     #if os(iOS)
     /// iOS 卡片网格参数。

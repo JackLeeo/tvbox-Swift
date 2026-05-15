@@ -20,6 +20,7 @@ struct ContentView: View {
     @State private var showSetup = false
     /// 首次配置页历史回填目标输入框。
     @State private var setupInputTarget: ApiInputTarget = .vod
+    @StateObject private var searchVM = SearchViewModel()
     
     var body: some View {
         Group {
@@ -34,6 +35,14 @@ struct ContentView: View {
             networkStatusBanner
         }
         .preferredColorScheme(.dark)
+        .onChange(of: appState.pendingSearchKeyword) { keyword in
+            if let keyword, !keyword.isEmpty {
+                searchVM.keyword = keyword
+                selectedTab = 2
+                Task { await searchVM.search() }
+                appState.pendingSearchKeyword = nil
+            }
+        }
         .onAppear {
             // 自动加载已保存的配置
             let defaults = UserDefaults.standard
@@ -91,7 +100,7 @@ struct ContentView: View {
                 }
                 .tag(1)
             
-            SearchView()
+            SearchView(viewModel: searchVM)
                 .tabItem {
                     Label("搜索", systemImage: "magnifyingglass")
                 }
@@ -132,7 +141,7 @@ struct ContentView: View {
             switch selectedTab {
             case 0: HomeView()
             case 1: LiveView()
-            case 2: SearchView()
+            case 2: SearchView(viewModel: searchVM)
             case 3: FavoritesView()
             case 4: SettingsView()
             case 5: HistoryView()

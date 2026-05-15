@@ -1,4 +1,7 @@
 import SwiftUI
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// 首页 - 对应 Android 版 HomeActivity + UserFragment
 struct HomeView: View {
@@ -334,17 +337,26 @@ struct HomeView: View {
                         .padding(.top, 12)
                     Spacer()
                 }
-            } else if let error = viewModel.errorMessage, viewModel.categoryVideos.isEmpty && viewModel.homeVideos.isEmpty {
+            } else if let error = viewModel.errorMessage, viewModel.categoryVideos.isEmpty {
                 VStack(spacing: 12) {
                     Spacer()
                     Image(systemName: "exclamationmark.triangle")
                         .font(.largeTitle)
                         .foregroundColor(.orange)
-                    Text(error)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
+                    
+                    if let source = ApiConfig.shared.homeSourceBean, source.isIndexSite {
+                        Text("该线路为索引服务，请点击影视跳转搜索")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    } else {
+                        Text(error)
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                            .multilineTextAlignment(.center)
+                            .padding(.horizontal, 40)
+                    }
                     
                     // 如果是不支持的源类型，显示类型信息
                     if let source = ApiConfig.shared.homeSourceBean, !source.isSupportedInSwift {
@@ -366,10 +378,28 @@ struct HomeView: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
                         ForEach(videos) { video in
-                            NavigationLink(value: video) {
-                                VodCardView(video: video)
+                            Group {
+                                if let source = ApiConfig.shared.homeSourceBean, source.isIndexSite {
+                                    Button {
+                                        navigateToSearch(with: video.name)
+                                    } label: {
+                                        VodCardView(video: video)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else if let source = ApiConfig.shared.homeSourceBean, source.isConfigCenter {
+                                    Button {
+                                        openConfigCenterUrl(from: video)
+                                    } label: {
+                                        VodCardView(video: video)
+                                    }
+                                    .buttonStyle(.plain)
+                                } else {
+                                    NavigationLink(value: video) {
+                                        VodCardView(video: video)
+                                    }
+                                    .buttonStyle(.plain)
+                                }
                             }
-                            .buttonStyle(.plain)
                             .onAppear {
                                 Task { await viewModel.loadMoreIfNeeded(currentItem: video) }
                             }
@@ -391,6 +421,34 @@ struct HomeView: View {
         }
         .navigationDestination(for: Movie.Video.self) { video in
             DetailView(video: video)
+        }
+    }
+    
+    private func navigateToSearch(with keyword: String) {
+        appState.pendingSearchKeyword = keyword
+    }
+    
+    private func openConfigCenterUrl(from video: Movie.Video) {
+        var openUrl: String?
+        if video.pic.hasPrefix("http") {
+            openUrl = video.pic
+            if let proxyMatch = video.pic.range(of: "/proxy/([A-Za-z0-9+/=]+)", options: .regularExpression) {
+                let proxySubstring = String(video.pic[proxyMatch])
+                if let base64Range = proxySubstring.range(of: "/proxy/") {
+                    let encoded = String(proxySubstring[base64Range.upperBound...])
+                    if let decoded = Data(base64Encoded: encoded),
+                       let decodedStr = String(data: decoded, encoding: .utf8),
+                       decodedStr.hasPrefix("http") {
+                        openUrl = decodedStr
+                    }
+                }
+            }
+        }
+        
+        if let urlString = openUrl, let url = URL(string: urlString) {
+            #if os(iOS)
+            UIApplication.shared.open(url)
+            #endif
         }
     }
 }

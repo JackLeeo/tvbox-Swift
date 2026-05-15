@@ -159,6 +159,7 @@ struct AppConfigData: Codable {
         var quickSearch: FlexibleInt?
         var playerType: FlexibleInt?
         var type: FlexibleInt?
+        var indexs: FlexibleInt?
         var ext: AnyCodableValue?
         var jar: String?
         var style: AnyCodableValue?
@@ -168,8 +169,7 @@ struct AppConfigData: Codable {
         
         enum CodingKeys: String, CodingKey {
             case key, name, api, searchable, filterable, quickSearch
-            case playerType, type, ext, jar, style, playUrl, categories, click
-            // type_flag 也可能出现
+            case playerType, type, ext, jar, style, playUrl, categories, click, indexs
         }
     }
     

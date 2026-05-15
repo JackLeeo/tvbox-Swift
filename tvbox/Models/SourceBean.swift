@@ -23,10 +23,13 @@ struct SourceBean: Codable, Identifiable, Hashable {
     let type: Int
     /// 扩展参数（remote 源常用）。
     let ext: String?
+    /// 索引标记：1 表示索引服务（如豆瓣），点击视频应跳转搜索。
+    let indexs: Int
     
     init(key: String = "", name: String = "", api: String = "",
          searchable: Int = 1, filterable: Int = 1, quickSearch: Int = 0,
-         playerType: Int = 0, type: Int = 1, ext: String? = nil) {
+         playerType: Int = 0, type: Int = 1, ext: String? = nil,
+         indexs: Int = 0) {
         self.key = key
         self.name = name
         self.api = api
@@ -36,6 +39,7 @@ struct SourceBean: Codable, Identifiable, Hashable {
         self.playerType = playerType
         self.type = type
         self.ext = ext
+        self.indexs = indexs
     }
     
     var isSearchable: Bool { searchable == 1 }
@@ -48,6 +52,14 @@ struct SourceBean: Codable, Identifiable, Hashable {
     
     var isSpiderSource: Bool {
         return type == 3
+    }
+    
+    var isIndexSite: Bool {
+        return indexs == 1 || key == "douban"
+    }
+    
+    var isConfigCenter: Bool {
+        return key == "baseset"
     }
     
     /// 类型描述

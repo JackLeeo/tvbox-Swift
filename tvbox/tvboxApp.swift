@@ -31,6 +31,7 @@ class AppState: ObservableObject {
     @Published var currentSourceKey: String = ""
     @Published var configLoadError: String?
     @Published var isRetryingConfig = false
+    @Published var pendingSearchKeyword: String?
 
     #if os(macOS)
     @Published var splitViewVisibility: NavigationSplitViewVisibility = .all
