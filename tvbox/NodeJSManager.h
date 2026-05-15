@@ -1,5 +1,7 @@
 #import <Foundation/Foundation.h>
 
+NS_ASSUME_NONNULL_BEGIN
+
 @interface NodeJSManager : NSObject
 
 @property (nonatomic, assign, readonly) BOOL isRunning;
@@ -24,3 +26,5 @@
 - (NSString *)getDocumentsSourcePath;
 
 @end
+
+NS_ASSUME_NONNULL_END

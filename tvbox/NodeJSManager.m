@@ -71,6 +71,8 @@ static const int kMaxStartupWaitSeconds = 30;
 - (BOOL)startLocalWebServer {
     self.webServer = [[GCDWebServer alloc] init];
 
+    __weak typeof(self) weakSelf = self;
+
     [self.webServer addHandlerForMethod:@"GET"
                                     path:@"/onCatPawOpenPort"
                             requestClass:[GCDWebServerDataRequest class]
@@ -82,10 +84,12 @@ static const int kMaxStartupWaitSeconds = 30;
             NSLog(@"[NodeJSManager] Port received: %d, type: %@", port, typeStr);
 
             dispatch_async(dispatch_get_main_queue(), ^{
+                __strong typeof(weakSelf) strongSelf = weakSelf;
+                if (!strongSelf) return;
                 if ([typeStr isEqualToString:@"management"]) {
-                    self.managementPort = port;
+                    strongSelf.managementPort = port;
                 } else {
-                    self.spiderPort = port;
+                    strongSelf.spiderPort = port;
                 }
 
                 [[NSNotificationCenter defaultCenter] postNotificationName:@"NodeServerPortReceived"
@@ -109,8 +113,10 @@ static const int kMaxStartupWaitSeconds = 30;
                 if (message) {
                     NSLog(@"[NodeJSManager] Message from Node.js: %@", message);
                     dispatch_async(dispatch_get_main_queue(), ^{
+                        __strong typeof(weakSelf) strongSelf = weakSelf;
+                        if (!strongSelf) return;
                         if ([message isEqualToString:@"ready"]) {
-                            self.nodeReady = YES;
+                            strongSelf.nodeReady = YES;
                             [[NSNotificationCenter defaultCenter] postNotificationName:@"NodeReady"
                                                                                 object:nil
                                                                               userInfo:nil];
@@ -189,7 +195,7 @@ static const int kMaxStartupWaitSeconds = 30;
     }
 
     int argc = (int)args.count;
-    char *argv[argc + 1];
+    char **argv = (char **)malloc((argc + 1) * sizeof(char *));
     for (int i = 0; i < argc; i++) {
         argv[i] = strdup([args[i] UTF8String]);
     }
@@ -197,19 +203,24 @@ static const int kMaxStartupWaitSeconds = 30;
 
     self.isRunning = YES;
 
+    __weak typeof(self) weakSelf = self;
+
     dispatch_async(dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
         node_start(argc, argv);
-        NSLog(@"[NodeJSManager] Node.js process exited");
 
         for (int i = 0; i < argc; i++) {
             free(argv[i]);
         }
+        free(argv);
 
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.isRunning = NO;
-            self.nodeReady = NO;
-            [self.webServer stop];
-        });
+        __strong typeof(weakSelf) strongSelf = weakSelf;
+        if (strongSelf) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                strongSelf.isRunning = NO;
+                strongSelf.nodeReady = NO;
+                [strongSelf.webServer stop];
+            });
+        }
     });
 
     if (completion) {
