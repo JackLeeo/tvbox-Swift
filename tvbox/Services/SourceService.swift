@@ -761,9 +761,14 @@ class SourceService {
         let spider = SpiderService.shared
         let key = sourceBean.key.hasPrefix("nodejs_") ? String(sourceBean.key.dropFirst(7)) : sourceBean.key
         let apiBase = sourceBean.api.hasPrefix("http") ? "" : sourceBean.api
-        spider.setCurrentSpider(key: key, type: sourceBean.type, apiBase: apiBase)
         
-        let result = try await spider.search(wd: keyword, page: 1)
+        let result = try await spider.searchWithSpider(
+            keyword: keyword,
+            spiderKey: key,
+            spiderType: sourceBean.type,
+            apiBase: apiBase,
+            page: 1
+        )
         var videos: [Movie.Video] = []
         
         if let list = result["list"] as? [[String: Any]] {
@@ -777,7 +782,7 @@ class SourceService {
             }
         }
         
-        return filterSearchResults(videos, keyword: keyword)
+        return videos
     }
 }
 

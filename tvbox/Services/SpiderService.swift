@@ -203,6 +203,24 @@ class SpiderService {
         return try await postJSON(path: path, port: spiderPort, body: ["wd": wd, "page": page])
     }
 
+    func searchWithSpider(keyword: String, spiderKey: String, spiderType: Int, apiBase: String, page: Int = 1) async throws -> [String: Any] {
+        guard spiderPort > 0 else {
+            throw SpiderError.nodeNotReady
+        }
+        let spiderPath: String
+        if !apiBase.isEmpty {
+            spiderPath = apiBase
+        } else {
+            spiderPath = "/\(spiderKey)/\(spiderType)"
+        }
+
+        let initPath = "\(spiderPath)/init"
+        _ = try? await postJSON(path: initPath, port: spiderPort, body: [:])
+
+        let searchPath = "\(spiderPath)/search"
+        return try await postJSON(path: searchPath, port: spiderPort, body: ["wd": keyword, "page": page])
+    }
+
     // MARK: - 源加载（通过managementPort）
 
     func loadSource(url urlString: String, completion: @escaping (Bool, String?) -> Void) {

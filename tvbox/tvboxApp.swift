@@ -5,12 +5,18 @@ import Combine
 struct tvboxApp: App {
     @StateObject private var appState = AppState()
     @StateObject private var networkMonitor = NetworkMonitor.shared
+    @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
         WindowGroup {
             ContentView()
                 .environmentObject(appState)
                 .environmentObject(networkMonitor)
+                .onChange(of: scenePhase) { newPhase in
+                    if newPhase == .active {
+                        Task { await appState.handleSceneActive() }
+                    }
+                }
         }
         #if os(macOS)
         .defaultSize(width: 1200, height: 800)
@@ -161,6 +167,32 @@ class AppState: ObservableObject {
                     self.isRetryingConfig = false
                 }
             }
+    }
+
+    func handleSceneActive() async {
+        guard isConfigLoaded else { return }
+        let hasSpiderSource = ApiConfig.shared.sourceBeanList.contains(where: { $0.isSpiderSource })
+        guard hasSpiderSource else { return }
+
+        let spiderPort = NodeJSManager.shared().getSpiderPort()
+        if spiderPort <= 0 || !NodeJSManager.shared().isRunning {
+            nodeJSStarted = false
+            await ensureNodeJSAndLoadSource()
+        } else {
+            var request = URLRequest(url: URL(string: "http://127.0.0.1:\(spiderPort)/config")!)
+            request.httpMethod = "GET"
+            request.timeoutInterval = 5
+            do {
+                let (_, response) = try await URLSession.shared.data(for: request)
+                if let httpResponse = response as? HTTPURLResponse, !(200...299).contains(httpResponse.statusCode) {
+                    nodeJSStarted = false
+                    await ensureNodeJSAndLoadSource()
+                }
+            } catch {
+                nodeJSStarted = false
+                await ensureNodeJSAndLoadSource()
+            }
+        }
     }
 
     #if os(macOS)

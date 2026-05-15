@@ -24,7 +24,7 @@ class HomeViewModel: ObservableObject {
     @Published var selectedFilters: [String: String] = [:]
     
     var currentFilters: [MovieSort.SortFilter] {
-        guard let sortId = selectedSort?.id, sortId != "home" else { return [] }
+        guard let sortId = selectedSort?.id else { return [] }
         return sorts.first(where: { $0.id == sortId })?.filters ?? []
     }
     
@@ -47,11 +47,7 @@ class HomeViewModel: ObservableObject {
         do {
             let result = try await sourceService.getSort(sourceBean: source)
             
-            // 插入本地"推荐"分类，保持 UI 与 Android 版本习惯一致。
-            var allSorts = [MovieSort.SortData.home()]
-            allSorts.append(contentsOf: result.sorts)
-            
-            self.sorts = allSorts
+            self.sorts = result.sorts
             self.homeVideos = result.homeVideos
             lastLoadFailedDueToNetwork = false
             
@@ -88,18 +84,13 @@ class HomeViewModel: ObservableObject {
         hasMore = true
         selectedFilters = [:]
         
-        if sort.id == "home" {
-            return
-        } else {
-            Task {
-                await loadCategoryVideos(page: 1, sort: sort)
-            }
+        Task {
+            await loadCategoryVideos(page: 1, sort: sort)
         }
     }
     
     /// 加载分类视频列表
     private func loadCategoryVideos(page: Int, sort: MovieSort.SortData) async {
-        guard sort.id != "home" else { return }
         guard let source = ApiConfig.shared.homeSourceBean else { return }
         guard !isLoading else { return }
         
@@ -135,7 +126,6 @@ class HomeViewModel: ObservableObject {
     
     /// 当最后一个元素出现时触发加载下一页
     func loadMoreIfNeeded(currentItem: Movie.Video) async {
-        guard selectedSort?.id != "home" else { return }
         guard hasMore, !isLoading else { return }
         guard categoryVideos.last?.id == currentItem.id else { return }
         guard let sort = selectedSort else { return }
@@ -155,7 +145,7 @@ class HomeViewModel: ObservableObject {
         currentPage = 1
         hasMore = true
         
-        if let sort = selectedSort, sort.id != "home" {
+        if let sort = selectedSort {
             Task {
                 await loadCategoryVideos(page: 1, sort: sort)
             }
@@ -163,7 +153,6 @@ class HomeViewModel: ObservableObject {
     }
     
     func refresh() async {
-        // 全量刷新时重置分页与错误态，再重新拉分类与当前分类内容。
         currentPage = 1
         hasMore = true
         categoryVideos = []
@@ -171,12 +160,11 @@ class HomeViewModel: ObservableObject {
         await loadSorts()
         
         guard let sort = selectedSort else { return }
-        if sort.id == "home" { return }
         
         if let matchedSort = sorts.first(where: { $0.id == sort.id }) {
             selectedSort = matchedSort
             await loadCategoryVideos(page: 1, sort: matchedSort)
-        } else if let firstCategory = sorts.first(where: { $0.id != "home" }) {
+        } else if let firstCategory = sorts.first {
             selectedSort = firstCategory
             await loadCategoryVideos(page: 1, sort: firstCategory)
         }

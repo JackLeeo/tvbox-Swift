@@ -361,9 +361,7 @@ struct HomeView: View {
                     Spacer()
                 }
             } else {
-                let videos = viewModel.selectedSort?.id == "home"
-                    ? viewModel.homeVideos
-                    : viewModel.categoryVideos
+                let videos = viewModel.categoryVideos
                 
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: 16) {
@@ -381,7 +379,7 @@ struct HomeView: View {
                     .padding(.vertical, 12)
                     
                     // 加载更多
-                    if viewModel.selectedSort?.id != "home" && viewModel.hasMore {
+                    if viewModel.hasMore {
                         ProgressView()
                             .padding()
                     }
