@@ -21,11 +21,14 @@ struct ContentView: View {
     /// 首次配置页历史回填目标输入框。
     @State private var setupInputTarget: ApiInputTarget = .vod
     @StateObject private var searchVM = SearchViewModel()
-    
+    @State private var hasSavedConfig = false
+
     var body: some View {
         Group {
             if appState.isConfigLoaded {
                 mainTabView
+            } else if hasSavedConfig && appState.loadingPhase != .idle {
+                loadingView
             } else {
                 setupView
             }
@@ -44,19 +47,101 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            // 自动加载已保存的配置
             let defaults = UserDefaults.standard
             let savedVodUrl = defaults.string(forKey: HawkConfig.API_URL) ?? ""
             let savedLiveUrl = defaults.string(forKey: HawkConfig.LIVE_API_URL) ?? ""
             if !savedVodUrl.isEmpty {
-                // 启动自动恢复配置，避免每次重启都回到首次配置页。
+                hasSavedConfig = true
                 Task {
                     await appState.loadConfig(vodUrl: savedVodUrl, liveUrl: savedLiveUrl)
                 }
             }
         }
     }
-    
+
+    private var loadingView: some View {
+        ZStack {
+            AppTheme.primaryGradient
+                .ignoresSafeArea()
+
+            VStack {
+                HStack {
+                    Circle()
+                        .fill(Color.orange.opacity(0.15))
+                        .frame(width: 300, height: 300)
+                        .blur(radius: 80)
+                        .offset(x: -100, y: -100)
+                    Spacer()
+                }
+                Spacer()
+                HStack {
+                    Spacer()
+                    Circle()
+                        .fill(Color.red.opacity(0.15))
+                        .frame(width: 300, height: 300)
+                        .blur(radius: 80)
+                        .offset(x: 100, y: 100)
+                }
+            }
+            .ignoresSafeArea()
+
+            VStack(spacing: 32) {
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.accentGradient)
+                        .frame(width: 100, height: 100)
+                        .blur(radius: 20)
+                        .opacity(0.5)
+
+                    Image(systemName: "play.tv.fill")
+                        .font(.system(size: 80))
+                        .foregroundStyle(AppTheme.accentGradient)
+                        .shadow(color: .red.opacity(0.3), radius: 15, x: 0, y: 10)
+                }
+
+                Text("TVBox")
+                    .font(.system(size: 48, weight: .heavy, design: .rounded))
+                    .foregroundColor(.white)
+                    .tracking(2)
+
+                VStack(spacing: 16) {
+                    if appState.loadingPhase.isLoading {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                            .tint(.orange)
+                    } else if case .failed = appState.loadingPhase {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                            .font(.system(size: 36))
+                            .foregroundColor(.orange)
+                    }
+
+                    Text(appState.loadingPhase.displayText)
+                        .font(.system(size: 16))
+                        .foregroundColor(.white.opacity(0.7))
+                        .multilineTextAlignment(.center)
+                        .animation(.easeInOut(duration: 0.3), value: appState.loadingPhase.displayText)
+                }
+                .padding(.top, 8)
+
+                if case .failed(let msg) = appState.loadingPhase {
+                    Button {
+                        hasSavedConfig = false
+                    } label: {
+                        Text("返回配置页")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 24)
+                            .padding(.vertical, 10)
+                            .background(Color.orange.opacity(0.3))
+                            .cornerRadius(20)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.top, 8)
+                }
+            }
+        }
+    }
+
     @ViewBuilder
     private var multiRepoSelectionOverlay: some View {
         // 若配置地址解析出“多仓库入口”，在根层统一弹窗，避免被子页面导航遮挡。

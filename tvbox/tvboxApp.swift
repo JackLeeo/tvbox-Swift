@@ -1,6 +1,43 @@
 import SwiftUI
 import Combine
 
+enum LoadingPhase: Equatable {
+    case idle
+    case loadingConfig
+    case startingNodeJS
+    case downloadingSource
+    case verifyingMD5
+    case loadingSource
+    case waitingSpiderPort
+    case fetchingSpiderConfig
+    case initializingSpider
+    case completed
+    case failed(String)
+
+    var displayText: String {
+        switch self {
+        case .idle: return ""
+        case .loadingConfig: return "正在加载配置..."
+        case .startingNodeJS: return "正在启动 Node.js 运行时..."
+        case .downloadingSource: return "正在下载源文件..."
+        case .verifyingMD5: return "正在校验文件完整性..."
+        case .loadingSource: return "正在加载 Spider 源..."
+        case .waitingSpiderPort: return "等待 Spider 服务就绪..."
+        case .fetchingSpiderConfig: return "正在获取线路配置..."
+        case .initializingSpider: return "正在初始化 Spider..."
+        case .completed: return "加载完成"
+        case .failed(let msg): return "加载失败: \(msg)"
+        }
+    }
+
+    var isLoading: Bool {
+        switch self {
+        case .idle, .completed, .failed: return false
+        default: return true
+        }
+    }
+}
+
 @main
 struct tvboxApp: App {
     @StateObject private var appState = AppState()
@@ -32,6 +69,7 @@ class AppState: ObservableObject {
     @Published var configLoadError: String?
     @Published var isRetryingConfig = false
     @Published var pendingSearchKeyword: String?
+    @Published var loadingPhase: LoadingPhase = .idle
 
     #if os(macOS)
     @Published var splitViewVisibility: NavigationSplitViewVisibility = .all
@@ -67,14 +105,17 @@ class AppState: ObservableObject {
         lastVodUrl = trimmedVod
         lastLiveUrl = resolvedLive
         configLoadError = nil
+        loadingPhase = .loadingConfig
 
         do {
             try await ApiConfig.shared.loadConfigs(vodApiUrl: trimmedVod, liveApiUrl: resolvedLive)
             await ensureNodeJSAndLoadSource()
+            loadingPhase = .completed
             applyLoadedConfigState()
         } catch {
             if !(error is CancellationError) {
                 configLoadError = error.localizedDescription
+                loadingPhase = .failed(error.localizedDescription)
             }
         }
     }
@@ -90,11 +131,13 @@ class AppState: ObservableObject {
         guard hasSpiderSource else { return }
 
         if !nodeJSStarted {
+            loadingPhase = .startingNodeJS
             let success = await NodeJSManager.shared().startNodeJS()
             if success {
                 nodeJSStarted = true
                 await loadSpiderSource()
             } else {
+                loadingPhase = .failed("Node.js 启动失败")
                 print("[AppState] Node.js 启动失败")
             }
         } else {
@@ -106,6 +149,7 @@ class AppState: ObservableObject {
         guard let spiderSource = ApiConfig.shared.sourceBeanList.first(where: { $0.isSpiderSource }) else { return }
         guard !spiderSource.api.isEmpty else { return }
 
+        loadingPhase = .downloadingSource
         let loadSuccess = await withCheckedContinuation { continuation in
             NodeJSManager.shared().loadSource(fromURL: spiderSource.api) { success, message in
                 if success {
@@ -117,8 +161,12 @@ class AppState: ObservableObject {
             }
         }
 
-        guard loadSuccess else { return }
+        guard loadSuccess else {
+            loadingPhase = .failed("Spider 源加载失败")
+            return
+        }
 
+        loadingPhase = .waitingSpiderPort
         let portReady = await withCheckedContinuation { continuation in
             NodeJSManager.shared().waitForSpiderPort { ready in
                 continuation.resume(returning: ready)
@@ -126,6 +174,7 @@ class AppState: ObservableObject {
         }
 
         guard portReady else {
+            loadingPhase = .failed("等待 Spider 服务超时")
             print("[AppState] 等待 spiderPort 超时")
             return
         }
@@ -136,15 +185,18 @@ class AppState: ObservableObject {
     private func fetchSpiderConfig() async {
         let spiderPort = NodeJSManager.shared().getSpiderPort()
         guard spiderPort > 0 else {
+            loadingPhase = .failed("Spider 端口为 0")
             print("[AppState] spiderPort 为 0，无法获取线路配置")
             return
         }
 
+        loadingPhase = .fetchingSpiderConfig
         do {
             let config = try await SpiderService.shared.getCatConfig()
             ApiConfig.shared.updateSourceBeansFromSpiderConfig(config, spiderUrl: "")
 
             if let firstSource = ApiConfig.shared.sourceBeanList.first {
+                loadingPhase = .initializingSpider
                 SpiderService.shared.setCurrentSpider(
                     key: firstSource.key,
                     type: firstSource.type,
@@ -153,6 +205,7 @@ class AppState: ObservableObject {
                 try? await SpiderService.shared.initSpider()
             }
         } catch {
+            loadingPhase = .failed("获取线路配置失败")
             print("[AppState] 获取 Spider 配置失败: \(error)")
         }
     }
