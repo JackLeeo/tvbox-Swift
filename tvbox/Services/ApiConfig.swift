@@ -571,6 +571,11 @@ class ApiConfig: ObservableObject {
     /// 返回 nil 表示不是多仓库入口；返回数组表示是多仓库入口（数组可能为空）。
     func fetchMultiRepoOptions(from apiUrl: String) async throws -> [MultiRepoOption]? {
         let normalizedUrl = Self.normalizeConfigUrl(apiUrl)
+        
+        if Self.isSpiderSourceUrl(normalizedUrl) {
+            return nil
+        }
+        
         let jsonStr = try await fetchConfigText(from: normalizedUrl)
         let cleanedJson = Self.stripJsonComments(jsonStr)
         

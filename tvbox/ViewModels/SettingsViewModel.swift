@@ -54,6 +54,8 @@ class SettingsViewModel: ObservableObject {
     @Published var playTimeStep: Int = 10
     /// 缓存占用展示文本。
     @Published var cacheSizeString: String = "0 KB"
+    /// NodeJS 是否已启动。
+    private var nodeJSStarted = false
     
     /// 快进步长候选项。
     let playTimeStepOptions: [Int] = [5, 10, 15, 30, 60]
@@ -136,7 +138,6 @@ class SettingsViewModel: ObservableObject {
             }
             
             try await ApiConfig.shared.loadConfigs(vodApiUrl: trimmedVod, liveApiUrl: resolvedLive)
-            // 保存用户输入（live 允许空值，表示跟随点播地址）。
             UserDefaults.standard.set(trimmedVod, forKey: HawkConfig.API_URL)
             UserDefaults.standard.set(trimmedLive, forKey: HawkConfig.LIVE_API_URL)
             vodApiUrl = trimmedVod
@@ -144,6 +145,7 @@ class SettingsViewModel: ObservableObject {
             addToApiHistory(trimmedVod)
             addToApiHistory(resolvedLive)
             configSuccess = true
+            await ensureNodeJSAndLoadSource()
         } catch {
             configError = error.localizedDescription
         }
@@ -218,6 +220,36 @@ class SettingsViewModel: ObservableObject {
     }
     
     // MARK: - API 历史
+    
+    private func ensureNodeJSAndLoadSource() async {
+        let hasSpiderSource = ApiConfig.shared.sourceBeanList.contains(where: { $0.isSpiderSource })
+        guard hasSpiderSource else { return }
+
+        if !nodeJSStarted {
+            let success = await NodeJSManager.shared().startNodeJS()
+            if success {
+                nodeJSStarted = true
+                await loadSpiderSource()
+            } else {
+                print("[SettingsViewModel] Node.js 启动失败")
+            }
+        } else {
+            await loadSpiderSource()
+        }
+    }
+
+    private func loadSpiderSource() async {
+        guard let spiderSource = ApiConfig.shared.sourceBeanList.first(where: { $0.isSpiderSource }) else { return }
+        guard !spiderSource.api.isEmpty else { return }
+
+        NodeJSManager.shared().loadSource(fromURL: spiderSource.api) { success, message in
+            if success {
+                print("[SettingsViewModel] Spider 源加载成功")
+            } else {
+                print("[SettingsViewModel] Spider 源加载失败: \(message ?? "未知错误")")
+            }
+        }
+    }
     
     /// 读取 API 历史。
     private func loadApiHistory() {
