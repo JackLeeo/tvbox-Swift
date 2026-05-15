@@ -43,6 +43,9 @@ targets:
           - nodejs-project/build.sh
           - nodejs-project/build.ps1
           - nodejs-project/README.md
+      - path: tvbox/nodejs-project/dist
+        type: folder
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.tvbox.app
