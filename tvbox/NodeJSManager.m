@@ -162,7 +162,13 @@ static const int kMaxStartupWaitSeconds = 30;
 
     NSString *scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js" inDirectory:@"nodejs-project/dist"];
     if (!scriptPath) {
+        scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js" inDirectory:@"dist"];
+    }
+    if (!scriptPath) {
         scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js" inDirectory:@"nodejs-project/dist"];
+    }
+    if (!scriptPath) {
+        scriptPath = [[NSBundle mainBundle] pathForResource:@"index" ofType:@"js" inDirectory:@"dist"];
     }
     if (!scriptPath) {
         scriptPath = [[NSBundle mainBundle] pathForResource:@"main" ofType:@"js"];

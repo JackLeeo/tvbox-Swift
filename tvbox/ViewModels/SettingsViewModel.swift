@@ -242,12 +242,41 @@ class SettingsViewModel: ObservableObject {
         guard let spiderSource = ApiConfig.shared.sourceBeanList.first(where: { $0.isSpiderSource }) else { return }
         guard !spiderSource.api.isEmpty else { return }
 
-        NodeJSManager.shared().loadSource(fromURL: spiderSource.api) { success, message in
-            if success {
-                print("[SettingsViewModel] Spider 源加载成功")
-            } else {
-                print("[SettingsViewModel] Spider 源加载失败: \(message ?? "未知错误")")
+        await withCheckedContinuation { continuation in
+            NodeJSManager.shared().loadSource(fromURL: spiderSource.api) { success, message in
+                if success {
+                    print("[SettingsViewModel] Spider 源加载成功")
+                } else {
+                    print("[SettingsViewModel] Spider 源加载失败: \(message ?? "未知错误")")
+                }
+                continuation.resume()
             }
+        }
+
+        await fetchSpiderConfig()
+    }
+
+    private func fetchSpiderConfig() async {
+        let spiderPort = NodeJSManager.shared().getSpiderPort()
+        guard spiderPort > 0 else {
+            print("[SettingsViewModel] spiderPort 为 0，无法获取线路配置")
+            return
+        }
+
+        do {
+            let config = try await SpiderService.shared.getCatConfig()
+            ApiConfig.shared.updateSourceBeansFromSpiderConfig(config, spiderUrl: "")
+
+            if let firstSource = ApiConfig.shared.sourceBeanList.first {
+                SpiderService.shared.setCurrentSpider(
+                    key: firstSource.key,
+                    type: firstSource.type,
+                    apiBase: firstSource.api
+                )
+                try? await SpiderService.shared.initSpider()
+            }
+        } catch {
+            print("[SettingsViewModel] 获取 Spider 配置失败: \(error)")
         }
     }
     

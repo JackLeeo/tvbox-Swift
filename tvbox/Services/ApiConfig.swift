@@ -986,6 +986,59 @@ class ApiConfig: ObservableObject {
         self.homeSourceBean = source
         UserDefaults.standard.set(source.key, forKey: HawkConfig.HOME_API)
     }
+
+    func updateSourceBeansFromSpiderConfig(_ config: [String: Any], spiderUrl: String) {
+        guard let video = config["video"] as? [String: Any],
+              let sites = video["sites"] as? [[String: Any]] else {
+            print("[ApiConfig] Spider /config 响应中没有 video.sites")
+            return
+        }
+
+        var newSources: [SourceBean] = []
+        for site in sites {
+            let key = (site["key"] as? String ?? "").replacingOccurrences(of: "nodejs_", with: "")
+            let name = site["name"] as? String ?? key
+            let api = site["api"] as? String ?? ""
+            let type = site["type"] as? Int ?? 3
+            let searchable = site["searchable"] as? Int ?? 1
+            let filterable = site["filterable"] as? Int ?? 1
+            let quickSearch = site["quickSearch"] as? Int ?? 0
+            let playerType = site["playerType"] as? Int ?? 0
+            let indexs = site["indexs"] as? Int ?? 0
+
+            guard !key.isEmpty else { continue }
+
+            let bean = SourceBean(
+                key: key,
+                name: name,
+                api: api,
+                searchable: searchable,
+                filterable: filterable,
+                quickSearch: quickSearch,
+                playerType: playerType,
+                type: type,
+                ext: nil
+            )
+            bean.indexs = indexs
+            newSources.append(bean)
+        }
+
+        if newSources.isEmpty {
+            print("[ApiConfig] Spider /config 返回的 sites 为空")
+            return
+        }
+
+        self.sourceBeanList = newSources
+
+        if let saved = UserDefaults.standard.string(forKey: HawkConfig.HOME_API),
+           let found = newSources.first(where: { $0.key == saved }) {
+            self.homeSourceBean = found
+        } else {
+            self.homeSourceBean = newSources.first(where: { $0.isSupportedInSwift }) ?? newSources.first
+        }
+
+        print("[ApiConfig] 从 Spider /config 更新了 \(newSources.count) 个线路")
+    }
 }
 
 enum ConfigError: LocalizedError {

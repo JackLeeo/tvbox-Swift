@@ -77,10 +77,13 @@ class SpiderService {
     }
 
     private func buildSpiderPath(action: String) throws -> String {
+        if let apiBase = currentApiBase, !apiBase.isEmpty {
+            return "\(apiBase)/\(action)"
+        }
         guard let key = currentKey, let type = currentType else {
             throw SpiderError.spiderNotSet
         }
-        return "/spider/\(key)/\(type)/\(action)"
+        return "/\(key)/\(type)/\(action)"
     }
 
     // MARK: - 核心POST请求（带重试）
@@ -143,6 +146,28 @@ class SpiderService {
     }
 
     // MARK: - Spider API
+
+    func getCatConfig() async throws -> [String: Any] {
+        guard spiderPort > 0 else {
+            throw SpiderError.nodeNotReady
+        }
+        let url = try buildURL(port: spiderPort, path: "/config")
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        request.timeoutInterval = timeoutInterval
+        
+        let (data, response) = try await session.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw SpiderError.invalidResponse
+        }
+        guard (200...299).contains(httpResponse.statusCode) else {
+            throw SpiderError.httpError(httpResponse.statusCode)
+        }
+        guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+            throw SpiderError.decodingError("config响应不是有效的JSON对象")
+        }
+        return json
+    }
 
     func initSpider() async throws {
         let path = try buildSpiderPath(action: "init")
