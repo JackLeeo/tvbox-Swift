@@ -52,7 +52,7 @@ class HomeViewModel: ObservableObject {
             lastLoadFailedDueToNetwork = false
             
             if selectedSort == nil {
-                selectedSort = allSorts.first
+                selectedSort = sorts.first
             }
         } catch {
             errorMessage = error.localizedDescription

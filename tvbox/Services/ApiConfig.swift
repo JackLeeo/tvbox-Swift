@@ -1007,7 +1007,7 @@ class ApiConfig: ObservableObject {
             let filterable = site["filterable"] as? Int ?? 1
             let quickSearch = site["quickSearch"] as? Int ?? 0
             let playerType = site["playerType"] as? Int ?? 0
-            let indexs = site["indexs"] as? Int ?? 0
+            let _ = site["indexs"] as? Int ?? 0
 
             guard !key.isEmpty else { continue }
 
