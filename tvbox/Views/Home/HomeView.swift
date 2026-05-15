@@ -1,7 +1,4 @@
 import SwiftUI
-#if canImport(UIKit)
-import UIKit
-#endif
 
 /// 首页 - 对应 Android 版 HomeActivity + UserFragment
 struct HomeView: View {
@@ -9,6 +6,7 @@ struct HomeView: View {
     @EnvironmentObject var appState: AppState
     @State private var categoryScrollAnchorId: String?
     @State private var categoryDragTranslation: CGFloat = 0
+    @State private var safariUrl: URL?
     
     // 网格布局
     #if os(iOS)
@@ -49,6 +47,9 @@ struct HomeView: View {
         }
         .onChange(of: ApiConfig.shared.homeSourceBean?.key) { _ in
             Task { await viewModel.refresh() }
+        }
+        .sheet(item: $safariUrl) { url in
+            SafariWebView(url: url)
         }
     }
     
@@ -446,9 +447,7 @@ struct HomeView: View {
         }
         
         if let urlString = openUrl, let url = URL(string: urlString) {
-            #if os(iOS)
-            UIApplication.shared.open(url)
-            #endif
+            safariUrl = url
         }
     }
 }
