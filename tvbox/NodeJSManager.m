@@ -262,6 +262,42 @@ static const int kMaxStartupWaitSeconds = 30;
     });
 }
 
+- (void)waitForSpiderPort:(void (^)(BOOL ready))completion {
+    if (self.spiderPort > 0) {
+        if (completion) completion(YES);
+        return;
+    }
+
+    __block id observer = nil;
+    __block BOOL completed = NO;
+
+    void (^finish)(BOOL) = ^(BOOL ready) {
+        @synchronized (self) {
+            if (completed) return;
+            completed = YES;
+        }
+        if (observer) {
+            [[NSNotificationCenter defaultCenter] removeObserver:observer];
+            observer = nil;
+        }
+        if (completion) completion(ready);
+    };
+
+    observer = [[NSNotificationCenter defaultCenter] addObserverForName:@"NodeServerPortReceived"
+                                                                object:nil
+                                                                 queue:[NSOperationQueue mainQueue]
+                                                            usingBlock:^(NSNotification * _Nonnull note) {
+        NSString *type = note.userInfo[@"type"] ?: @"";
+        if ([type isEqualToString:@"spider"]) {
+            finish(YES);
+        }
+    }];
+
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(30 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        finish(NO);
+    });
+}
+
 - (void)stopNodeJS {
     if (!self.isRunning) return;
 

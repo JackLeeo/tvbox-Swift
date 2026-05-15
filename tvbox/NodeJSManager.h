@@ -15,6 +15,7 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)startNodeJS:(void (^)(BOOL success))completion;
 - (void)stopNodeJS;
 - (void)waitForNodeReady:(void (^)(BOOL ready))completion;
+- (void)waitForSpiderPort:(void (^)(BOOL ready))completion;
 
 - (void)loadSourceFromURL:(NSString *)urlString
                completion:(void (^)(BOOL success, NSString * _Nullable message))completion;

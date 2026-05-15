@@ -242,15 +242,28 @@ class SettingsViewModel: ObservableObject {
         guard let spiderSource = ApiConfig.shared.sourceBeanList.first(where: { $0.isSpiderSource }) else { return }
         guard !spiderSource.api.isEmpty else { return }
 
-        await withCheckedContinuation { continuation in
+        let loadSuccess = await withCheckedContinuation { continuation in
             NodeJSManager.shared().loadSource(fromURL: spiderSource.api) { success, message in
                 if success {
                     print("[SettingsViewModel] Spider 源加载成功")
                 } else {
                     print("[SettingsViewModel] Spider 源加载失败: \(message ?? "未知错误")")
                 }
-                continuation.resume()
+                continuation.resume(returning: success)
             }
+        }
+
+        guard loadSuccess else { return }
+
+        let portReady = await withCheckedContinuation { continuation in
+            NodeJSManager.shared().waitForSpiderPort { ready in
+                continuation.resume(returning: ready)
+            }
+        }
+
+        guard portReady else {
+            print("[SettingsViewModel] 等待 spiderPort 超时")
+            return
         }
 
         await fetchSpiderConfig()
