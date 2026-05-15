@@ -1019,7 +1019,6 @@ class ApiConfig: ObservableObject {
                 type: type,
                 ext: nil
             )
-            bean.indexs = indexs
             newSources.append(bean)
         }
 
