@@ -43,10 +43,10 @@ private struct MacOSPlayerView: NSViewRepresentable {
     }
 }
 #else
-private struct IOSPlayerView: UIViewRepresentable {
+private struct IOSPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
 
-    func makeUIView(context: Context) -> AVPlayerViewController {
+    func makeUIViewController(context: Context) -> AVPlayerViewController {
         let controller = AVPlayerViewController()
         controller.player = player
         controller.showsPlaybackControls = false
@@ -55,13 +55,13 @@ private struct IOSPlayerView: UIViewRepresentable {
         return controller
     }
 
-    func updateUIView(_ uiViewController: AVPlayerViewController, context: Context) {
+    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
         if uiViewController.player !== player {
             uiViewController.player = player
         }
     }
 
-    static func dismantleUIView(_ uiViewController: AVPlayerViewController, coordinator: ()) {
+    static func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: ()) {
         uiViewController.player = nil
     }
 }

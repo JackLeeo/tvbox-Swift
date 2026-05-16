@@ -37,7 +37,7 @@ class SearchViewModel: ObservableObject {
 
         addToHistory(trimmed)
 
-        let sources = await ApiConfig.shared.getSearchableSources()
+        let sources = ApiConfig.shared.getSearchableSources()
         let validSources = sources.filter { $0.isSupportedInSwift && $0.key != "douban" && $0.key != "baseset" }
 
         isSearching = true

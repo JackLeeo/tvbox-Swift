@@ -123,7 +123,7 @@ struct ContentView: View {
                 }
                 .padding(.top, 8)
 
-                if case .failed(let msg) = appState.loadingPhase {
+                if case .failed = appState.loadingPhase {
                     Button {
                         hasSavedConfig = false
                     } label: {
