@@ -17,6 +17,7 @@ struct DetailView: View {
     #endif
     @State private var lastPersistedProgress: Double = 0
     @State private var isCollected = false
+    @State private var isFullScreenTransitioning = false
     
     var body: some View {
         ScrollView {
@@ -148,17 +149,10 @@ struct DetailView: View {
                 }
             )
             .onAppear {
-                AppDelegate.orientationLock = .landscape
-                UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
                 if #available(iOS 16.0, *) {
                     if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape))
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-                        }
+                        scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
                     }
-                } else {
-                    UIViewController.attemptRotationToDeviceOrientation()
                 }
             }
             .onDisappear {
@@ -526,6 +520,9 @@ struct DetailView: View {
     
     private func openFullScreenPlayer() {
         #if os(iOS)
+        guard !isFullScreenTransitioning else { return }
+        isFullScreenTransitioning = true
+
         AppDelegate.orientationLock = .landscape
         UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
         if #available(iOS 16.0, *) {
@@ -536,7 +533,11 @@ struct DetailView: View {
         } else {
             UIViewController.attemptRotationToDeviceOrientation()
         }
-        showFullScreen = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+            showFullScreen = true
+            isFullScreenTransitioning = false
+        }
         #else
         guard viewModel.playUrl != nil else { return }
         appState.enterPlayerFullScreen()
