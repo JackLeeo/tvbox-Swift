@@ -381,6 +381,7 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
         }
     }
     #endif
+    #endif
 
     private func refreshDrawableBinding() {
         // 强制重绑视频输出，规避 macOS 切全屏后偶发“有声音无画面”
