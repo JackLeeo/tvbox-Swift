@@ -670,8 +670,8 @@ private struct LandscapeFullScreenPresenter: UIViewControllerRepresentable {
         Coordinator()
     }
 
-    private class Coordinator {
-        fileprivate var hostingController: LandscapeHostingController?
+    fileprivate class Coordinator {
+        var hostingController: LandscapeHostingController?
     }
 }
 #endif
