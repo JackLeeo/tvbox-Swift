@@ -133,30 +133,49 @@ struct DetailView: View {
         }
         #endif
         #if os(iOS)
-        .background(
-            LandscapeFullScreenPresenter(
-                isPresented: $showFullScreen,
-                content: { AnyView(
-                    Group {
-                        if let url = viewModel.playUrl {
-                            FullScreenPlayerView(
-                                urlString: url,
-                                startPosition: viewModel.currentPlaybackSeconds(),
-                                onProgressChanged: handlePlaybackProgress,
-                                onPlaybackEnded: playNextEpisodeIfNeeded,
-                                canPlayNext: canPlayNextEpisode,
-                                onPlayNext: playNextEpisodeIfNeeded,
-                                systemController: sharedSystemController,
-                                vlcController: sharedVLCController,
-                                onCloseRequested: {
-                                    showFullScreen = false
-                                }
-                            )
+        .fullScreenCover(isPresented: $showFullScreen) {
+            FullScreenPlayerView(
+                urlString: viewModel.playUrl ?? "",
+                startPosition: viewModel.currentPlaybackSeconds(),
+                onProgressChanged: handlePlaybackProgress,
+                onPlaybackEnded: playNextEpisodeIfNeeded,
+                canPlayNext: canPlayNextEpisode,
+                onPlayNext: playNextEpisodeIfNeeded,
+                systemController: sharedSystemController,
+                vlcController: sharedVLCController,
+                onCloseRequested: {
+                    showFullScreen = false
+                }
+            )
+            .onAppear {
+                AppDelegate.orientationLock = .landscape
+                UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+                if #available(iOS 16.0, *) {
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape))
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
                         }
                     }
-                ) }
-            )
-        )
+                } else {
+                    UIViewController.attemptRotationToDeviceOrientation()
+                }
+            }
+            .onDisappear {
+                AppDelegate.orientationLock = .portrait
+                UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+                if #available(iOS 16.0, *) {
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                        }
+                    }
+                } else {
+                    UIViewController.attemptRotationToDeviceOrientation()
+                }
+            }
+        }
         #endif
     }
     
@@ -507,6 +526,16 @@ struct DetailView: View {
     
     private func openFullScreenPlayer() {
         #if os(iOS)
+        AppDelegate.orientationLock = .landscape
+        UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+        if #available(iOS 16.0, *) {
+            if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscape))
+                scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+            }
+        } else {
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
         showFullScreen = true
         #else
         guard viewModel.playUrl != nil else { return }
@@ -598,80 +627,3 @@ struct FullScreenPlayerView: View {
         #endif
     }
 }
-
-#if os(iOS)
-fileprivate final class LandscapeHostingController: UIHostingController<AnyView> {
-    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-        .landscape
-    }
-
-    override var prefersStatusBarHidden: Bool {
-        true
-    }
-}
-
-private struct LandscapeFullScreenPresenter: UIViewControllerRepresentable {
-    @Binding var isPresented: Bool
-    let content: () -> AnyView
-
-    func makeUIViewController(context: Context) -> UIViewController {
-        let vc = UIViewController()
-        vc.view.backgroundColor = .clear
-        return vc
-    }
-
-    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
-        if isPresented, context.coordinator.hostingController == nil {
-            let hostingController = LandscapeHostingController(rootView: content())
-            hostingController.modalPresentationStyle = .fullScreen
-            context.coordinator.hostingController = hostingController
-
-            AppDelegate.orientationLock = .landscape
-            UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
-            if #available(iOS 16.0, *) {
-                if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
-                }
-            }
-
-            uiViewController.present(hostingController, animated: true) {
-                if #available(iOS 16.0, *) {
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                        scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-                    }
-                } else {
-                    UIViewController.attemptRotationToDeviceOrientation()
-                }
-            }
-        } else if !isPresented, let hostingController = context.coordinator.hostingController {
-            context.coordinator.hostingController = nil
-
-            AppDelegate.orientationLock = .portrait
-            UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
-            if #available(iOS 16.0, *) {
-                if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
-                }
-            }
-
-            hostingController.dismiss(animated: true) {
-                if #available(iOS 16.0, *) {
-                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
-                        scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-                    }
-                } else {
-                    UIViewController.attemptRotationToDeviceOrientation()
-                }
-            }
-        }
-    }
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator()
-    }
-
-    fileprivate class Coordinator {
-        var hostingController: LandscapeHostingController?
-    }
-}
-#endif

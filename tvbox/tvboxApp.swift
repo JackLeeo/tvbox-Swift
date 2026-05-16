@@ -1,5 +1,8 @@
 import SwiftUI
 import Combine
+#if os(iOS)
+import AVFoundation
+#endif
 
 #if os(iOS)
 final class AppDelegate: NSObject, UIApplicationDelegate {
@@ -10,6 +13,19 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
         supportedInterfaceOrientationsFor window: UIWindow?
     ) -> UIInterfaceOrientationMask {
         AppDelegate.orientationLock
+    }
+
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
+    ) -> Bool {
+        do {
+            try AVAudioSession.sharedInstance().setCategory(.playback, mode: .moviePlayback)
+            try AVAudioSession.sharedInstance().setActive(true)
+        } catch {
+            print("AVAudioSession setup failed: \(error)")
+        }
+        return true
     }
 }
 #endif
