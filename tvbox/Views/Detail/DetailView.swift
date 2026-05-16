@@ -136,7 +136,7 @@ struct DetailView: View {
         .background(
             LandscapeFullScreenPresenter(
                 isPresented: $showFullScreen,
-                content: {
+                content: { AnyView(
                     Group {
                         if let url = viewModel.playUrl {
                             FullScreenPlayerView(
@@ -154,7 +154,7 @@ struct DetailView: View {
                             )
                         }
                     }
-                }
+                ) }
             )
         )
         #endif
@@ -600,6 +600,16 @@ struct FullScreenPlayerView: View {
 }
 
 #if os(iOS)
+fileprivate final class LandscapeHostingController: UIHostingController<AnyView> {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        .landscape
+    }
+
+    override var prefersStatusBarHidden: Bool {
+        true
+    }
+}
+
 private struct LandscapeFullScreenPresenter: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
     let content: () -> AnyView
@@ -660,18 +670,8 @@ private struct LandscapeFullScreenPresenter: UIViewControllerRepresentable {
         Coordinator()
     }
 
-    class Coordinator {
-        var hostingController: LandscapeHostingController?
-    }
-
-    private class LandscapeHostingController: UIHostingController<AnyView> {
-        override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
-            .landscape
-        }
-
-        override var prefersStatusBarHidden: Bool {
-            true
-        }
+    private class Coordinator {
+        fileprivate var hostingController: LandscapeHostingController?
     }
 }
 #endif
