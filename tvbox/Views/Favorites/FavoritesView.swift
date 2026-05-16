@@ -18,38 +18,40 @@ struct FavoritesView: View {
     }
 
     var body: some View {
-        Group {
-            if sortedFavorites.isEmpty {
-                emptyState
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 16) {
-                        ForEach(sortedFavorites) { item in
-                            NavigationLink(value: movieVideo(from: item)) {
-                                favoriteCard(item)
-                            }
-                            .buttonStyle(.plain)
-                            .contextMenu {
-                                Button(role: .destructive) {
-                                    store.removeCollect(vodId: item.vodId, sourceKey: item.sourceKey)
-                                } label: {
-                                    Label("取消收藏", systemImage: "heart.slash")
+        NavigationStack {
+            Group {
+                if sortedFavorites.isEmpty {
+                    emptyState
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: columns, spacing: 16) {
+                            ForEach(sortedFavorites) { item in
+                                NavigationLink(value: movieVideo(from: item)) {
+                                    favoriteCard(item)
+                                }
+                                .buttonStyle(.plain)
+                                .contextMenu {
+                                    Button(role: .destructive) {
+                                        store.removeCollect(vodId: item.vodId, sourceKey: item.sourceKey)
+                                    } label: {
+                                        Label("取消收藏", systemImage: "heart.slash")
+                                    }
                                 }
                             }
                         }
+                        .padding(.horizontal, 20)
+                        .padding(.vertical, 12)
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
                 }
             }
-        }
-        .background(Color(red: 0.08, green: 0.08, blue: 0.1))
-        .navigationTitle("收藏")
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
-        .navigationDestination(for: Movie.Video.self) { video in
-            DetailView(video: video)
+            .background(Color(red: 0.08, green: 0.08, blue: 0.1))
+            .navigationTitle("收藏")
+            #if os(iOS)
+            .navigationBarTitleDisplayMode(.inline)
+            #endif
+            .navigationDestination(for: Movie.Video.self) { video in
+                DetailView(video: video)
+            }
         }
     }
 

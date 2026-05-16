@@ -29,6 +29,8 @@ struct SettingsView: View {
     @State private var showAbout = false
     @State private var sourceSearchText = ""
     @State private var showingPicker: PickerType = .none
+    @State private var showHistorySheet = false
+    @State private var showFavoritesSheet = false
     
     enum PickerType {
         case none
@@ -103,14 +105,14 @@ struct SettingsView: View {
                     
                     // 功能
                     SectionCard(title: "功能") {
-                        NavigationLink {
-                            HistoryView()
+                        Button {
+                            showHistorySheet = true
                         } label: {
                             SettingsRow(icon: "clock", title: "播放历史", value: "", action: nil)
                         }
                         Divider().background(Color.white.opacity(0.1))
-                        NavigationLink {
-                            FavoritesView()
+                        Button {
+                            showFavoritesSheet = true
                         } label: {
                             SettingsRow(icon: "heart", title: "我的收藏", value: "", action: nil)
                         }
@@ -146,6 +148,12 @@ struct SettingsView: View {
             #endif
             .sheet(isPresented: $showApiInput) {
                 apiInputSheet
+            }
+            .sheet(isPresented: $showHistorySheet) {
+                HistoryView()
+            }
+            .sheet(isPresented: $showFavoritesSheet) {
+                FavoritesView()
             }
         }
         .overlay(pickerOverlay)
