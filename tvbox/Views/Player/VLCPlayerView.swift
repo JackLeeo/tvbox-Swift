@@ -378,6 +378,10 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
         preferredDrawableContainer = container
         if let container = container {
             attachDrawable(to: container)
+        } else if let lastContainer = lastAttachedContainer, lastContainer.superview != nil {
+            refreshDrawableBinding()
+            scheduleDelayedDrawableRebind(for: lastContainer)
+            resumePlaybackAfterDrawableRebindIfNeeded()
         }
     }
     #endif

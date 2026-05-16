@@ -1,6 +1,19 @@
 import SwiftUI
 import Combine
 
+#if os(iOS)
+final class AppDelegate: NSObject, UIApplicationDelegate {
+    static var orientationLock = UIInterfaceOrientationMask.portrait
+
+    func application(
+        _ application: UIApplication,
+        supportedInterfaceOrientationsFor window: UIWindow?
+    ) -> UIInterfaceOrientationMask {
+        AppDelegate.orientationLock
+    }
+}
+#endif
+
 enum LoadingPhase: Equatable {
     case idle
     case loadingConfig
@@ -40,6 +53,9 @@ enum LoadingPhase: Equatable {
 
 @main
 struct tvboxApp: App {
+    #if os(iOS)
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    #endif
     @StateObject private var appState = AppState()
     @StateObject private var networkMonitor = NetworkMonitor.shared
     @Environment(\.scenePhase) private var scenePhase

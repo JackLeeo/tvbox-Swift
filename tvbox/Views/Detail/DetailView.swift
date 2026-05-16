@@ -5,7 +5,6 @@ import AppKit
 import UIKit
 #endif
 
-/// 详情页 - 对应 Android 版 DetailActivity
 struct DetailView: View {
     let video: Movie.Video
     @StateObject private var viewModel = DetailViewModel()
@@ -22,57 +21,51 @@ struct DetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                // 播放器区域
                 if viewModel.isPlaying, let url = viewModel.playUrl {
-                    if showFullScreen {
-                        Color.black
-                            .aspectRatio(16/9, contentMode: .fit)
-                    } else {
-                        PlayerView(
-                            urlString: url,
-                            startPosition: viewModel.currentPlaybackSeconds(),
-                            onProgressChanged: handlePlaybackProgress,
-                            onPlaybackEnded: playNextEpisodeIfNeeded,
-                            onToggleFullScreen: {
-                                openFullScreenPlayer()
-                            },
-                            canPlayNext: canPlayNextEpisode,
-                            onPlayNext: playNextEpisodeIfNeeded,
-                            systemController: sharedSystemController,
-                            vlcController: sharedVLCController
-                        )
-                            .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
-                            .aspectRatio(16/9, contentMode: .fit)
-                            .background(Color.black)
+                    PlayerView(
+                        urlString: url,
+                        startPosition: viewModel.currentPlaybackSeconds(),
+                        onProgressChanged: handlePlaybackProgress,
+                        onPlaybackEnded: playNextEpisodeIfNeeded,
+                        onToggleFullScreen: {
+                            openFullScreenPlayer()
+                        },
+                        canPlayNext: canPlayNextEpisode,
+                        onPlayNext: playNextEpisodeIfNeeded,
+                        systemController: sharedSystemController,
+                        vlcController: sharedVLCController
+                    )
+                    .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
+                    .aspectRatio(16/9, contentMode: .fit)
+                    .background(Color.black)
+                    .overlay {
+                        if showFullScreen {
+                            Color.black
+                        }
                     }
                 }
                 
-                // 视频信息
                 videoInfoSection
                     .padding(.horizontal, 20)
                     .padding(.top, 16)
                 
-                // 线路选择
                 if viewModel.flags.count > 1 {
                     flagSelector
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                 }
                 
-                // 清晰度选择
                 if viewModel.hasQualityChoices {
                     qualitySelector
                         .padding(.horizontal, 20)
                         .padding(.top, 16)
                 }
                 
-                // 剧集列表
                 if !viewModel.currentEpisodes.isEmpty {
                     episodeSection
                         .padding(.top, 16)
                 }
                 
-                // 简介
                 if let info = viewModel.vodInfo, !info.des.isEmpty {
                     descriptionSection(info.des)
                         .padding(.horizontal, 20)
@@ -140,28 +133,30 @@ struct DetailView: View {
         }
         #endif
         #if os(iOS)
-        .fullScreenCover(isPresented: $showFullScreen) {
-            if let url = viewModel.playUrl {
-                FullScreenPlayerView(
-                    urlString: url,
-                    startPosition: viewModel.currentPlaybackSeconds(),
-                    onProgressChanged: handlePlaybackProgress,
-                    onPlaybackEnded: playNextEpisodeIfNeeded,
-                    canPlayNext: canPlayNextEpisode,
-                    onPlayNext: playNextEpisodeIfNeeded,
-                    systemController: sharedSystemController,
-                    vlcController: sharedVLCController,
-                    onCloseRequested: {
-                        showFullScreen = false
+        .background(
+            LandscapeFullScreenPresenter(
+                isPresented: $showFullScreen,
+                content: {
+                    if let url = viewModel.playUrl {
+                        FullScreenPlayerView(
+                            urlString: url,
+                            startPosition: viewModel.currentPlaybackSeconds(),
+                            onProgressChanged: handlePlaybackProgress,
+                            onPlaybackEnded: playNextEpisodeIfNeeded,
+                            canPlayNext: canPlayNextEpisode,
+                            onPlayNext: playNextEpisodeIfNeeded,
+                            systemController: sharedSystemController,
+                            vlcController: sharedVLCController,
+                            onCloseRequested: {
+                                showFullScreen = false
+                            }
+                        )
                     }
-                )
-                .forceLandscapeOnAppear()
-            }
-        }
+                }
+            )
+        )
         #endif
     }
-    
-    // MARK: - 视频信息
     
     @ViewBuilder
     private var videoInfoSection: some View {
@@ -287,8 +282,6 @@ struct DetailView: View {
         }
     }
     
-    // MARK: - 线路选择
-    
     @ViewBuilder
     private var flagSelector: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -342,8 +335,6 @@ struct DetailView: View {
         .buttonStyle(.plain)
     }
     
-    // MARK: - 清晰度选择
-    
     @ViewBuilder
     private var qualitySelector: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -392,8 +383,6 @@ struct DetailView: View {
         .buttonStyle(.plain)
     }
     
-    // MARK: - 剧集列表
-    
     private var episodeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("选集播放")
@@ -413,8 +402,6 @@ struct DetailView: View {
             )
         }
     }
-    
-    // MARK: - 简介
     
     private func descriptionSection(_ des: String) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -560,6 +547,7 @@ struct DetailView: View {
 
     #if os(iOS)
     private func rotateToPortrait() {
+        AppDelegate.orientationLock = .portrait
         UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
         if #available(iOS 16.0, *) {
             let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
@@ -610,27 +598,77 @@ struct FullScreenPlayerView: View {
 }
 
 #if os(iOS)
-extension View {
-    func forceLandscapeOnAppear() -> some View {
-        self.onAppear {
+private struct LandscapeFullScreenPresenter<Content: View>: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let content: () -> Content
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let vc = UIViewController()
+        vc.view.backgroundColor = .clear
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        if isPresented, context.coordinator.hostingController == nil {
+            let hostingController = LandscapeHostingController(rootView: content())
+            hostingController.modalPresentationStyle = .fullScreen
+            context.coordinator.hostingController = hostingController
+
+            AppDelegate.orientationLock = .landscape
             UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
             if #available(iOS 16.0, *) {
-                guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
-                scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            } else {
-                UIViewController.attemptRotationToDeviceOrientation()
+                if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .landscapeRight))
+                }
             }
-        }
-        .onDisappear {
+
+            uiViewController.present(hostingController, animated: true) {
+                if #available(iOS 16.0, *) {
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    }
+                } else {
+                    UIViewController.attemptRotationToDeviceOrientation()
+                }
+            }
+        } else if !isPresented, let hostingController = context.coordinator.hostingController {
+            context.coordinator.hostingController = nil
+
+            AppDelegate.orientationLock = .portrait
             UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
             if #available(iOS 16.0, *) {
-                guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene else { return }
-                scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
-                scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
-            } else {
-                UIViewController.attemptRotationToDeviceOrientation()
+                if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                    scene.requestGeometryUpdate(.iOS(interfaceOrientations: .portrait))
+                }
             }
+
+            hostingController.dismiss(animated: true) {
+                if #available(iOS 16.0, *) {
+                    if let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene {
+                        scene.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    }
+                } else {
+                    UIViewController.attemptRotationToDeviceOrientation()
+                }
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    class Coordinator {
+        var hostingController: LandscapeHostingController<Content>?
+    }
+
+    private class LandscapeHostingController<Content: View>: UIHostingController<Content> {
+        override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+            .landscape
+        }
+
+        override var prefersStatusBarHidden: Bool {
+            true
         }
     }
 }
