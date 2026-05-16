@@ -140,24 +140,30 @@ struct DetailView: View {
         }
         #endif
         #if os(iOS)
-        .overlay {
-            if showFullScreen, let url = viewModel.playUrl {
-                FullScreenPlayerView(
-                    urlString: url,
-                    startPosition: viewModel.currentPlaybackSeconds(),
-                    onProgressChanged: handlePlaybackProgress,
-                    onPlaybackEnded: playNextEpisodeIfNeeded,
-                    canPlayNext: canPlayNextEpisode,
-                    onPlayNext: playNextEpisodeIfNeeded,
-                    systemController: sharedSystemController,
-                    vlcController: sharedVLCController,
-                    onCloseRequested: closeIOSFullScreenOverlay
-                )
-                .ignoresSafeArea()
-                .transition(.opacity)
-                .zIndex(2)
-            }
-        }
+        .background(
+            LandscapeFullScreenPresenter(
+                isPresented: $showFullScreen,
+                rotateToPortrait: { rotateToPortrait() },
+                content: {
+                    if let url = viewModel.playUrl {
+                        FullScreenPlayerView(
+                            urlString: url,
+                            startPosition: viewModel.currentPlaybackSeconds(),
+                            onProgressChanged: handlePlaybackProgress,
+                            onPlaybackEnded: playNextEpisodeIfNeeded,
+                            canPlayNext: canPlayNextEpisode,
+                            onPlayNext: playNextEpisodeIfNeeded,
+                            systemController: sharedSystemController,
+                            vlcController: sharedVLCController,
+                            onCloseRequested: {
+                                showFullScreen = false
+                                rotateToPortrait()
+                            }
+                        )
+                    }
+                }
+            )
+        )
         #endif
     }
     
@@ -518,7 +524,6 @@ struct DetailView: View {
     
     private func openFullScreenPlayer() {
         #if os(iOS)
-        rotateToLandscape()
         showFullScreen = true
         #else
         guard viewModel.playUrl != nil else { return }
@@ -569,11 +574,6 @@ struct DetailView: View {
         UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
         UIViewController.attemptRotationToDeviceOrientation()
     }
-
-    private func closeIOSFullScreenOverlay() {
-        showFullScreen = false
-        rotateToPortrait()
-    }
     #endif
 }
 
@@ -606,7 +606,75 @@ struct FullScreenPlayerView: View {
                 systemController: systemController,
                 vlcController: vlcController
             )
-            .ignoresSafeArea()
         }
+        #if os(iOS)
+        .statusBarHidden(true)
+        .persistentSystemOverlays(.hidden)
+        #endif
     }
 }
+
+#if os(iOS)
+private final class LandscapeHostingController<Content: View>: UIHostingController<Content> {
+    override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
+        .landscape
+    }
+
+    override var prefersStatusBarHidden: Bool {
+        true
+    }
+
+    override var shouldAutorotate: Bool {
+        true
+    }
+}
+
+private struct LandscapeFullScreenPresenter<Content: View>: UIViewControllerRepresentable {
+    @Binding var isPresented: Bool
+    let rotateToPortrait: () -> Void
+    let content: () -> Content
+
+    func makeUIViewController(context: Context) -> UIViewController {
+        let vc = UIViewController()
+        vc.view.backgroundColor = .clear
+        return vc
+    }
+
+    func updateUIViewController(_ uiViewController: UIViewController, context: Context) {
+        if isPresented {
+            if context.coordinator.presentedVC == nil {
+                let hostingVC = LandscapeHostingController(rootView: content())
+                hostingVC.modalPresentationStyle = .fullScreen
+                hostingVC.modalTransitionStyle = .crossDissolve
+                context.coordinator.presentedVC = hostingVC
+                context.coordinator.parentVC = uiViewController
+
+                DispatchQueue.main.async {
+                    UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+                    UIViewController.attemptRotationToDeviceOrientation()
+                    uiViewController.present(hostingVC, animated: true)
+                }
+            }
+        } else {
+            if let presentedVC = context.coordinator.presentedVC {
+                context.coordinator.presentedVC = nil
+                context.coordinator.parentVC = nil
+                DispatchQueue.main.async {
+                    presentedVC.dismiss(animated: true) {
+                        rotateToPortrait()
+                    }
+                }
+            }
+        }
+    }
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator()
+    }
+
+    final class Coordinator {
+        var presentedVC: UIViewController?
+        weak var parentVC: UIViewController?
+    }
+}
+#endif
