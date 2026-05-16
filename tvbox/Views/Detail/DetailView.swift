@@ -38,9 +38,6 @@ struct DetailView: View {
                         .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
                         .aspectRatio(16/9, contentMode: .fit)
                         .background(Color.black)
-                        .onTapGesture(count: 2) {
-                            openFullScreenPlayer()
-                        }
                 }
                 
                 // 视频信息
@@ -565,7 +562,7 @@ struct FullScreenPlayerView: View {
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
-            
+
             PlayerView(
                 urlString: urlString,
                 startPosition: startPosition,
@@ -583,26 +580,7 @@ struct FullScreenPlayerView: View {
                 systemController: systemController,
                 vlcController: vlcController
             )
-                .ignoresSafeArea()
-            
-            VStack {
-                HStack {
-                    Button {
-                        if let onCloseRequested {
-                            onCloseRequested()
-                        } else {
-                            dismiss()
-                        }
-                    } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .font(.title2)
-                            .foregroundColor(.white.opacity(0.8))
-                    }
-                    Spacer()
-                }
-                .padding()
-                Spacer()
-            }
+            .ignoresSafeArea()
         }
     }
 }

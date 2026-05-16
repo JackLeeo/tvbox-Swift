@@ -809,71 +809,51 @@ struct VLCVodPlayerView: View {
     @StateObject private var ownedController = VLCPlayerController()
     @State private var isDraggingProgress = false
     @State private var draggingSeconds: Double = 0
-    
     @State private var showControls = true
     @State private var controlsTimer: Timer?
-    @State private var osdIcon: String?
-    @State private var osdOpacity: Double = 0
-    @State private var osdTimer: Timer?
     @State private var startPlaybackTask: Task<Void, Never>?
-    
+
     private var controller: VLCPlayerController {
         sharedController ?? ownedController
     }
-    
+
     var body: some View {
         ZStack {
             VLCDrawableView(controller: controller)
                 .background(Color.black)
-                .onTapGesture(count: 2) {
-                    onToggleFullScreen?()
-                }
-                .onTapGesture(count: 1) {
-                    togglePlaybackWithOSD()
-                }
-            
+
             if controller.isPreparing {
                 ProgressView()
                     .tint(.white)
             }
-            
-            if let osdIcon = osdIcon {
-                Image(systemName: osdIcon)
-                    .font(.system(size: 60, weight: .semibold))
-                    .foregroundColor(.white)
-                    .padding(30)
-                    .background(.ultraThinMaterial)
-                    .clipShape(Circle())
-                    .opacity(osdOpacity)
-                    .allowsHitTesting(false)
-            }
+
+            Color.clear
+                .contentShape(Rectangle())
+                .onTapGesture {
+                    toggleControls()
+                }
         }
-        .overlay(alignment: .bottom) {
-            GeometryReader { proxy in
-                playbackControls(containerWidth: proxy.size.width)
-                    .padding(12)
-                    .opacity(showControls ? 1.0 : 0.0)
-                    .animation(.easeInOut(duration: 0.3), value: showControls)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+        .overlay {
+            if showControls {
+                controlsOverlay
+                    .transition(.opacity)
             }
         }
         .overlay {
             KeyboardShortcutCaptureView(
-                onLeft: { wakeUpControls(); controller.seek(by: -seekStep); showOSD(icon: "gobackward.\(Int(seekStep))") },
-                onRight: { wakeUpControls(); controller.seek(by: seekStep); showOSD(icon: "goforward.\(Int(seekStep))") },
-                onTogglePlayPause: { wakeUpControls(); togglePlaybackWithOSD() },
+                onLeft: { wakeUpControls(); controller.seek(by: -seekStep) },
+                onRight: { wakeUpControls(); controller.seek(by: seekStep) },
+                onTogglePlayPause: { wakeUpControls(); togglePlayback() },
                 onToggleFullScreen: { wakeUpControls(); onToggleFullScreen?() },
-                onDecreaseSpeed: { wakeUpControls(); controller.decreasePlaybackRate(); showOSD(icon: "tortoise.fill") },
-                onIncreaseSpeed: { wakeUpControls(); controller.increasePlaybackRate(); showOSD(icon: "hare.fill") },
+                onDecreaseSpeed: { wakeUpControls(); controller.decreasePlaybackRate() },
+                onIncreaseSpeed: { wakeUpControls(); controller.increasePlaybackRate() },
                 onVolumeDown: {
                     wakeUpControls()
                     controller.setVolume(controller.volume - volumeStep)
-                    showOSD(icon: controller.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 },
                 onVolumeUp: {
                     wakeUpControls()
                     controller.setVolume(controller.volume + volumeStep)
-                    showOSD(icon: controller.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                 }
             )
             .frame(width: 1, height: 1)
@@ -908,238 +888,139 @@ struct VLCVodPlayerView: View {
                 controller.stop()
             }
             controlsTimer?.invalidate()
-            osdTimer?.invalidate()
         }
-    }
-    
-    private func wakeUpControls() {
-        withAnimation { showControls = true }
-        controlsTimer?.invalidate()
-        controlsTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: false) { _ in
-            withAnimation(.easeOut(duration: 0.5)) {
-                showControls = false
-            }
-        }
-    }
-    
-    private func showOSD(icon: String) {
-        osdIcon = icon
-        osdOpacity = 1.0
-        osdTimer?.invalidate()
-        osdTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { _ in
-            withAnimation(.easeOut(duration: 0.5)) {
-                osdOpacity = 0.0
-            }
-        }
-    }
-    
-    private func togglePlaybackWithOSD() {
-        controller.togglePlayback()
-        showOSD(icon: controller.isPlaying ? "pause.fill" : "play.fill")
-    }
-    
-    private func startPlayback() {
-        guard let url = URL(string: urlString) else { return }
-        let targetStartPosition = max(startPosition, 0)
-        draggingSeconds = targetStartPosition
-        startPlaybackTask?.cancel()
-        startPlaybackTask = Task { @MainActor in
-            // 先让出一个主线程周期，避免点击瞬间布局与播放器初始化竞争。
-            await Task.yield()
-            guard !Task.isCancelled else { return }
-            controller.play(
-                url: url,
-                startPosition: targetStartPosition,
-                isLive: false,
-                onProgressChanged: onProgressChanged,
-                onPlaybackEnded: onPlaybackEnded,
-                onPlaybackFailed: nil
-            )
-        }
-    }
-    
-    private var seekStep: Double {
-        let saved = UserDefaults.standard.integer(forKey: HawkConfig.PLAY_TIME_STEP)
-        return Double(saved > 0 ? saved : 10)
     }
 
-    private var volumeStep: Int { 10 }
-    
-    private var progressUpperBound: Double {
-        max(controller.durationSeconds, max(controller.currentTimeSeconds, 1))
-    }
-    
-    private var currentDisplaySeconds: Double {
-        isDraggingProgress ? draggingSeconds : controller.currentTimeSeconds
-    }
-    
-    private var totalDisplayText: String {
-        controller.hasValidDuration ? controller.durationSeconds.durationString : "--:--"
-    }
-    
-    private func playbackControls(containerWidth: CGFloat) -> some View {
-        VStack(spacing: 8) {
-            // 第一行：进度条和时间
-            HStack(spacing: 12) {
-                Text(currentDisplaySeconds.durationString)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineLimit(1)
-                    .frame(width: 62, alignment: .leading)
-                
-                Slider(
-                    value: Binding(
-                        get: { isDraggingProgress ? draggingSeconds : controller.currentTimeSeconds },
-                        set: { 
-                            draggingSeconds = $0
+    private var controlsOverlay: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 0) {
+                HStack(spacing: 12) {
+                    Text(currentDisplaySeconds.durationString)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.9))
+                        .frame(width: 50, alignment: .leading)
+
+                    Slider(
+                        value: Binding(
+                            get: { isDraggingProgress ? draggingSeconds : controller.currentTimeSeconds },
+                            set: {
+                                draggingSeconds = $0
+                                wakeUpControls()
+                            }
+                        ),
+                        in: 0...progressUpperBound,
+                        onEditingChanged: { editing in
+                            isDraggingProgress = editing
                             wakeUpControls()
+                            if !editing {
+                                controller.seek(to: draggingSeconds)
+                            }
                         }
-                    ),
-                    in: 0...progressUpperBound,
-                    onEditingChanged: { editing in
-                        isDraggingProgress = editing
-                        wakeUpControls()
-                        if !editing {
-                            controller.seek(to: draggingSeconds)
-                        }
-                    }
-                )
-                .accentColor(.white)
-                .disabled(!controller.hasValidDuration)
-                
-                Text(totalDisplayText)
-                    .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.6))
-                    .lineLimit(1)
-                    .frame(width: 62, alignment: .trailing)
-            }
-            .padding(.horizontal, 4)
-            
-            // 第二行：控制按钮
-            HStack(spacing: 0) {
-                // 左侧区：倍速
-                HStack(spacing: 16) {
-                    playbackRateMenu
+                    )
+                    .tint(.white)
+                    .disabled(!controller.hasValidDuration)
+
+                    Text(totalDisplayText)
+                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .foregroundColor(.white.opacity(0.7))
+                        .frame(width: 50, alignment: .trailing)
                 }
-                .frame(width: 150, alignment: .leading)
-                
-                Spacer()
-                
-                // 中间区：主控
-                HStack(spacing: 24) {
-                    Button {
-                        wakeUpControls()
-                        controller.seek(by: -seekStep)
-                        showOSD(icon: "gobackward.\(Int(seekStep))")
-                    } label: {
-                        Image(systemName: "gobackward.\(Int(seekStep))")
-                            .font(.system(size: 18, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Button {
-                        wakeUpControls()
-                        togglePlaybackWithOSD()
-                    } label: {
-                        ZStack {
-                            Circle()
-                                .fill(Color.white.opacity(0.15))
-                                .frame(width: 38, height: 38)
-                            
-                            Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 18, weight: .bold))
-                        }
-                    }
-                    .buttonStyle(.plain)
-                    
-                    Button {
-                        wakeUpControls()
-                        controller.seek(by: seekStep)
-                        showOSD(icon: "goforward.\(Int(seekStep))")
-                    } label: {
-                        Image(systemName: "goforward.\(Int(seekStep))")
-                            .font(.system(size: 18, weight: .medium))
-                    }
-                    .buttonStyle(.plain)
+                .padding(.horizontal, 16)
 
-                    if let onPlayNext {
+                HStack(spacing: 0) {
+                    HStack(spacing: 16) {
+                        playbackRateMenu
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 28) {
                         Button {
-                            guard canPlayNext else { return }
                             wakeUpControls()
-                            onPlayNext()
-                            showOSD(icon: "forward.end.fill")
+                            controller.seek(by: -seekStep)
                         } label: {
-                            Image(systemName: "forward.end.fill")
-                                .font(.system(size: 18, weight: .medium))
+                            Image(systemName: "gobackward.\(Int(seekStep))")
+                                .font(.system(size: 20))
                         }
                         .buttonStyle(.plain)
-                        .disabled(!canPlayNext)
-                        .opacity(canPlayNext ? 1 : 0.4)
+
+                        Button {
+                            togglePlayback()
+                        } label: {
+                            Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                                .font(.system(size: 28, weight: .medium))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            wakeUpControls()
+                            controller.seek(by: seekStep)
+                        } label: {
+                            Image(systemName: "goforward.\(Int(seekStep))")
+                                .font(.system(size: 20))
+                        }
+                        .buttonStyle(.plain)
+
+                        if canPlayNext {
+                            Button {
+                                wakeUpControls()
+                                onPlayNext?()
+                            } label: {
+                                Image(systemName: "forward.end.fill")
+                                    .font(.system(size: 20))
+                            }
+                            .buttonStyle(.plain)
+                            .opacity(canPlayNext ? 1 : 0.4)
+                        }
                     }
-                }
-                
-                Spacer()
-                
-                // 右侧区：音量和全屏
-                HStack(spacing: 14) {
-                    HStack(spacing: 6) {
+
+                    Spacer()
+
+                    HStack(spacing: 16) {
                         Button {
                             wakeUpControls()
                             controller.toggleMute()
-                            showOSD(icon: controller.volume == 0 ? "speaker.slash.fill" : "speaker.wave.2.fill")
                         } label: {
                             Image(systemName: volumeIconName)
-                                .font(.system(size: 14, weight: .bold))
-                                .frame(width: 20)
+                                .font(.system(size: 16))
                         }
                         .buttonStyle(.plain)
 
-                        Slider(
-                            value: Binding(
-                                get: { Double(controller.volume) },
-                                set: {
-                                    controller.setVolume(Int($0.rounded()))
-                                    wakeUpControls()
-                                }
-                            ),
-                            in: 0...200,
-                            step: 1
-                        )
-                        .accentColor(.white.opacity(0.8))
-                        .frame(width: 80)
-                    }
-                    
-                    if let onToggleFullScreen {
                         Button {
                             wakeUpControls()
-                            onToggleFullScreen()
+                            onToggleFullScreen?()
                         } label: {
                             Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 15, weight: .bold))
+                                .font(.system(size: 17, weight: .semibold))
                         }
                         .buttonStyle(.plain)
                     }
                 }
-                .frame(width: 150, alignment: .trailing)
+                .padding(.horizontal, 16)
+                .padding(.top, 6)
+                .padding(.bottom, 4)
             }
+            .padding(.top, 12)
+            .padding(.bottom, 8)
+            .background(
+                LinearGradient(
+                    colors: [.clear, .black.opacity(0.85)],
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+            )
         }
-        .padding(.horizontal, 24)
-        .padding(.vertical, 10)
-        .foregroundColor(.white)
-        .glassCard(cornerRadius: 18)
-        .padding(.horizontal, 20)
-        .padding(.bottom, 6)
-        .frame(width: containerWidth * 0.7)
-        .environment(\.colorScheme, .dark)
+        .animation(.easeInOut(duration: 0.25), value: showControls)
     }
-    
+
     private var playbackRateMenu: some View {
         Menu {
             ForEach(VLCPlayerController.supportedPlaybackRates, id: \.self) { rate in
                 Button {
                     wakeUpControls()
                     controller.setPlaybackRate(rate)
-                    showOSD(icon: "speedometer")
                 } label: {
                     HStack {
                         Text(playbackRateLabel(rate))
@@ -1160,12 +1041,12 @@ struct VLCVodPlayerView: View {
             .foregroundColor(.white)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .background(Color.white.opacity(0.12))
+            .background(Color.white.opacity(0.15))
             .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
-    
+
     private func playbackRateLabel(_ rate: Float) -> String {
         if rate.rounded() == rate {
             return "\(Int(rate))x"
@@ -1178,13 +1059,74 @@ struct VLCVodPlayerView: View {
 
     private var volumeIconName: String {
         switch controller.volume {
-        case ...0:
-            return "speaker.slash.fill"
-        case 1...66:
-            return "speaker.wave.1.fill"
-        default:
-            return "speaker.wave.2.fill"
+        case ...0: return "speaker.slash.fill"
+        case 1...66: return "speaker.wave.1.fill"
+        default: return "speaker.wave.2.fill"
         }
+    }
+
+    private func toggleControls() {
+        withAnimation(.easeInOut(duration: 0.25)) {
+            showControls.toggle()
+        }
+        if showControls {
+            wakeUpControls()
+        } else {
+            controlsTimer?.invalidate()
+        }
+    }
+
+    private func togglePlayback() {
+        controller.togglePlayback()
+        wakeUpControls()
+    }
+
+    private func wakeUpControls() {
+        withAnimation(.easeInOut(duration: 0.25)) { showControls = true }
+        controlsTimer?.invalidate()
+        controlsTimer = Timer.scheduledTimer(withTimeInterval: 5.0, repeats: false) { _ in
+            withAnimation(.easeOut(duration: 0.3)) {
+                showControls = false
+            }
+        }
+    }
+
+    private func startPlayback() {
+        guard let url = URL(string: urlString) else { return }
+        let targetStartPosition = max(startPosition, 0)
+        draggingSeconds = targetStartPosition
+        startPlaybackTask?.cancel()
+        startPlaybackTask = Task { @MainActor in
+            await Task.yield()
+            guard !Task.isCancelled else { return }
+            controller.play(
+                url: url,
+                startPosition: targetStartPosition,
+                isLive: false,
+                onProgressChanged: onProgressChanged,
+                onPlaybackEnded: onPlaybackEnded,
+                onPlaybackFailed: nil
+            )
+        }
+    }
+
+    private var seekStep: Double {
+        let saved = UserDefaults.standard.integer(forKey: HawkConfig.PLAY_TIME_STEP)
+        return Double(saved > 0 ? saved : 10)
+    }
+
+    private var volumeStep: Int { 10 }
+
+    private var progressUpperBound: Double {
+        max(controller.durationSeconds, max(controller.currentTimeSeconds, 1))
+    }
+
+    private var currentDisplaySeconds: Double {
+        isDraggingProgress ? draggingSeconds : controller.currentTimeSeconds
+    }
+
+    private var totalDisplayText: String {
+        controller.hasValidDuration ? controller.durationSeconds.durationString : "--:--"
     }
 }
 
