@@ -197,6 +197,12 @@ struct ContentView: View {
                 }
                 .tag(3)
             
+            HistoryView()
+                .tabItem {
+                    Label("历史", systemImage: "clock.fill")
+                }
+                .tag(5)
+            
             SettingsView()
                 .tabItem {
                     Label("设置", systemImage: "gearshape.fill")

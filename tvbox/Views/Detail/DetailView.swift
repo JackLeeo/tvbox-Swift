@@ -534,7 +534,7 @@ struct DetailView: View {
             UIViewController.attemptRotationToDeviceOrientation()
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
             showFullScreen = true
             isFullScreenTransitioning = false
         }
