@@ -137,20 +137,22 @@ struct DetailView: View {
             LandscapeFullScreenPresenter(
                 isPresented: $showFullScreen,
                 content: {
-                    if let url = viewModel.playUrl {
-                        FullScreenPlayerView(
-                            urlString: url,
-                            startPosition: viewModel.currentPlaybackSeconds(),
-                            onProgressChanged: handlePlaybackProgress,
-                            onPlaybackEnded: playNextEpisodeIfNeeded,
-                            canPlayNext: canPlayNextEpisode,
-                            onPlayNext: playNextEpisodeIfNeeded,
-                            systemController: sharedSystemController,
-                            vlcController: sharedVLCController,
-                            onCloseRequested: {
-                                showFullScreen = false
-                            }
-                        )
+                    Group {
+                        if let url = viewModel.playUrl {
+                            FullScreenPlayerView(
+                                urlString: url,
+                                startPosition: viewModel.currentPlaybackSeconds(),
+                                onProgressChanged: handlePlaybackProgress,
+                                onPlaybackEnded: playNextEpisodeIfNeeded,
+                                canPlayNext: canPlayNextEpisode,
+                                onPlayNext: playNextEpisodeIfNeeded,
+                                systemController: sharedSystemController,
+                                vlcController: sharedVLCController,
+                                onCloseRequested: {
+                                    showFullScreen = false
+                                }
+                            )
+                        }
                     }
                 }
             )
@@ -598,9 +600,9 @@ struct FullScreenPlayerView: View {
 }
 
 #if os(iOS)
-private struct LandscapeFullScreenPresenter<Content: View>: UIViewControllerRepresentable {
+private struct LandscapeFullScreenPresenter: UIViewControllerRepresentable {
     @Binding var isPresented: Bool
-    let content: () -> Content
+    let content: () -> AnyView
 
     func makeUIViewController(context: Context) -> UIViewController {
         let vc = UIViewController()
@@ -659,10 +661,10 @@ private struct LandscapeFullScreenPresenter<Content: View>: UIViewControllerRepr
     }
 
     class Coordinator {
-        var hostingController: LandscapeHostingController<Content>?
+        var hostingController: LandscapeHostingController?
     }
 
-    private class LandscapeHostingController<Content: View>: UIHostingController<Content> {
+    private class LandscapeHostingController: UIHostingController<AnyView> {
         override var supportedInterfaceOrientations: UIInterfaceOrientationMask {
             .landscape
         }
