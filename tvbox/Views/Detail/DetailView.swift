@@ -1,6 +1,8 @@
 import SwiftUI
 #if os(macOS)
 import AppKit
+#else
+import UIKit
 #endif
 
 /// 详情页 - 对应 Android 版 DetailActivity
@@ -21,23 +23,28 @@ struct DetailView: View {
         ScrollView {
             VStack(spacing: 0) {
                 // 播放器区域
-                if !showFullScreen, viewModel.isPlaying, let url = viewModel.playUrl {
-                    PlayerView(
-                        urlString: url,
-                        startPosition: viewModel.currentPlaybackSeconds(),
-                        onProgressChanged: handlePlaybackProgress,
-                        onPlaybackEnded: playNextEpisodeIfNeeded,
-                        onToggleFullScreen: {
-                            openFullScreenPlayer()
-                        },
-                        canPlayNext: canPlayNextEpisode,
-                        onPlayNext: playNextEpisodeIfNeeded,
-                        systemController: sharedSystemController,
-                        vlcController: sharedVLCController
-                    )
-                        .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
-                        .aspectRatio(16/9, contentMode: .fit)
-                        .background(Color.black)
+                if viewModel.isPlaying, let url = viewModel.playUrl {
+                    if showFullScreen {
+                        Color.black
+                            .aspectRatio(16/9, contentMode: .fit)
+                    } else {
+                        PlayerView(
+                            urlString: url,
+                            startPosition: viewModel.currentPlaybackSeconds(),
+                            onProgressChanged: handlePlaybackProgress,
+                            onPlaybackEnded: playNextEpisodeIfNeeded,
+                            onToggleFullScreen: {
+                                openFullScreenPlayer()
+                            },
+                            canPlayNext: canPlayNextEpisode,
+                            onPlayNext: playNextEpisodeIfNeeded,
+                            systemController: sharedSystemController,
+                            vlcController: sharedVLCController
+                        )
+                            .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
+                            .aspectRatio(16/9, contentMode: .fit)
+                            .background(Color.black)
+                    }
                 }
                 
                 // 视频信息
@@ -96,6 +103,8 @@ struct DetailView: View {
             #if os(macOS)
             pendingMacWindowFullScreen = false
             appState.exitPlayerFullScreen()
+            #elseif os(iOS)
+            rotateToPortrait()
             #endif
         }
         #if os(macOS)
@@ -131,8 +140,8 @@ struct DetailView: View {
         }
         #endif
         #if os(iOS)
-        .fullScreenCover(isPresented: $showFullScreen) {
-            if let url = viewModel.playUrl {
+        .overlay {
+            if showFullScreen, let url = viewModel.playUrl {
                 FullScreenPlayerView(
                     urlString: url,
                     startPosition: viewModel.currentPlaybackSeconds(),
@@ -141,8 +150,12 @@ struct DetailView: View {
                     canPlayNext: canPlayNextEpisode,
                     onPlayNext: playNextEpisodeIfNeeded,
                     systemController: sharedSystemController,
-                    vlcController: sharedVLCController
+                    vlcController: sharedVLCController,
+                    onCloseRequested: closeIOSFullScreenOverlay
                 )
+                .ignoresSafeArea()
+                .transition(.opacity)
+                .zIndex(2)
             }
         }
         #endif
@@ -505,6 +518,7 @@ struct DetailView: View {
     
     private func openFullScreenPlayer() {
         #if os(iOS)
+        rotateToLandscape()
         showFullScreen = true
         #else
         guard viewModel.playUrl != nil else { return }
@@ -544,6 +558,23 @@ struct DetailView: View {
         appState.exitPlayerFullScreen()
     }
     #endif
+
+    #if os(iOS)
+    private func rotateToLandscape() {
+        UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
+        UIViewController.attemptRotationToDeviceOrientation()
+    }
+
+    private func rotateToPortrait() {
+        UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
+        UIViewController.attemptRotationToDeviceOrientation()
+    }
+
+    private func closeIOSFullScreenOverlay() {
+        showFullScreen = false
+        rotateToPortrait()
+    }
+    #endif
 }
 
 /// 全屏播放器
@@ -557,8 +588,7 @@ struct FullScreenPlayerView: View {
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
     var onCloseRequested: (() -> Void)? = nil
-    @Environment(\.dismiss) private var dismiss
-    
+
     var body: some View {
         ZStack {
             Color.black.ignoresSafeArea()
@@ -569,11 +599,7 @@ struct FullScreenPlayerView: View {
                 onProgressChanged: onProgressChanged,
                 onPlaybackEnded: onPlaybackEnded,
                 onToggleFullScreen: {
-                    if let onCloseRequested {
-                        onCloseRequested()
-                    } else {
-                        dismiss()
-                    }
+                    onCloseRequested?()
                 },
                 canPlayNext: canPlayNext,
                 onPlayNext: onPlayNext,
