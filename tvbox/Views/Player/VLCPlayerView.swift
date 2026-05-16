@@ -50,6 +50,9 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
     private var lastDrawableContainerIdentifier: ObjectIdentifier?
     private var lastDrawableContainerSize: CGSize = .zero
     private var lastDrawableRebindAt: Date = .distantPast
+    #if os(iOS)
+    private weak var preferredDrawableContainer: UIView?
+    #endif
     
     var hasValidDuration: Bool {
         durationSeconds > 0
@@ -313,6 +316,15 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
     }
     #else
     func attachDrawable(to container: UIView) {
+        #if os(iOS)
+        if let preferred = preferredDrawableContainer,
+           preferred !== container {
+            if preferred.superview != nil, preferred.window != nil {
+                return
+            }
+            preferredDrawableContainer = nil
+        }
+        #endif
         let containerIdentifier = ObjectIdentifier(container)
         let containerSize = container.bounds.size
         let containerChanged = lastDrawableContainerIdentifier != containerIdentifier
@@ -353,6 +365,19 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
         cancelScheduledRebinds()
         if persistentDrawableView.superview === container {
             persistentDrawableView.removeFromSuperview()
+        }
+        #if os(iOS)
+        if preferredDrawableContainer === container {
+            preferredDrawableContainer = nil
+        }
+        #endif
+    }
+
+    #if os(iOS)
+    func setPreferredDrawableContainer(_ container: UIView?) {
+        preferredDrawableContainer = container
+        if let container = container {
+            attachDrawable(to: container)
         }
     }
     #endif
@@ -806,6 +831,7 @@ struct VLCVodPlayerView: View {
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
     var sharedController: VLCPlayerController? = nil
+    var isFullScreenMode: Bool = false
     @StateObject private var ownedController = VLCPlayerController()
     @State private var isDraggingProgress = false
     @State private var draggingSeconds: Double = 0
@@ -819,7 +845,7 @@ struct VLCVodPlayerView: View {
 
     var body: some View {
         ZStack {
-            VLCDrawableView(controller: controller)
+            VLCDrawableView(controller: controller, isFullScreenMode: isFullScreenMode)
                 .background(Color.black)
 
             if controller.isPreparing {
@@ -887,6 +913,11 @@ struct VLCVodPlayerView: View {
             if sharedController == nil {
                 controller.stop()
             }
+            #if os(iOS)
+            if isFullScreenMode {
+                controller.setPreferredDrawableContainer(nil)
+            }
+            #endif
             controlsTimer?.invalidate()
         }
     }
@@ -1236,12 +1267,13 @@ struct VLCLivePlayerView: View {
 
 private struct VLCDrawableView: View {
     let controller: VLCPlayerController
-    
+    var isFullScreenMode: Bool = false
+
     var body: some View {
         #if os(macOS)
         VLCMacDrawableView(controller: controller)
         #else
-        VLCIOSDrawableView(controller: controller)
+        VLCIOSDrawableView(controller: controller, isFullScreenMode: isFullScreenMode)
         #endif
     }
 }
@@ -1449,32 +1481,39 @@ private final class MacKeyCaptureNSView: NSView {
 #else
 private struct VLCIOSDrawableView: UIViewRepresentable {
     let controller: VLCPlayerController
-    
+    var isFullScreenMode: Bool = false
+
     final class Coordinator {
         let controller: VLCPlayerController
-        
+
         init(controller: VLCPlayerController) {
             self.controller = controller
         }
     }
-    
+
     func makeCoordinator() -> Coordinator {
         Coordinator(controller: controller)
     }
-    
+
     func makeUIView(context: Context) -> VLCOutputUIView {
         let view = VLCOutputUIView(frame: .zero)
         view.backgroundColor = .black
         view.onLifecycle = { container in
             context.coordinator.controller.attachDrawable(to: container)
         }
+        if isFullScreenMode {
+            controller.setPreferredDrawableContainer(view)
+        }
         view.requestLifecycleUpdate()
         return view
     }
-    
+
     func updateUIView(_ uiView: VLCOutputUIView, context: Context) {
         uiView.onLifecycle = { container in
             context.coordinator.controller.attachDrawable(to: container)
+        }
+        if isFullScreenMode {
+            controller.setPreferredDrawableContainer(uiView)
         }
         uiView.requestLifecycleUpdate()
     }

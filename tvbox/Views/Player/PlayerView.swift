@@ -99,6 +99,7 @@ struct PlayerView: View {
     var onPlayNext: (() -> Void)? = nil
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
+    var isFullScreenMode: Bool = false
     @AppStorage(HawkConfig.PLAY_TYPE_VOD) private var vodPlayTypeRaw = -1
     @AppStorage(HawkConfig.PLAY_TYPE) private var legacyPlayTypeRaw = PlayerEngine.system.rawValue
 
@@ -138,7 +139,8 @@ struct PlayerView: View {
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
-                    sharedController: vlcController
+                    sharedController: vlcController,
+                    isFullScreenMode: isFullScreenMode
                 )
             }
         }
