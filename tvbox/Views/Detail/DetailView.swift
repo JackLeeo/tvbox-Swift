@@ -145,21 +145,23 @@ struct DetailView: View {
                 isPresented: $showFullScreen,
                 rotateToPortrait: { rotateToPortrait() },
                 content: {
-                    if let url = viewModel.playUrl {
-                        FullScreenPlayerView(
-                            urlString: url,
-                            startPosition: viewModel.currentPlaybackSeconds(),
-                            onProgressChanged: handlePlaybackProgress,
-                            onPlaybackEnded: playNextEpisodeIfNeeded,
-                            canPlayNext: canPlayNextEpisode,
-                            onPlayNext: playNextEpisodeIfNeeded,
-                            systemController: sharedSystemController,
-                            vlcController: sharedVLCController,
-                            onCloseRequested: {
-                                showFullScreen = false
-                                rotateToPortrait()
-                            }
-                        )
+                    Group {
+                        if let url = viewModel.playUrl {
+                            FullScreenPlayerView(
+                                urlString: url,
+                                startPosition: viewModel.currentPlaybackSeconds(),
+                                onProgressChanged: handlePlaybackProgress,
+                                onPlaybackEnded: playNextEpisodeIfNeeded,
+                                canPlayNext: canPlayNextEpisode,
+                                onPlayNext: playNextEpisodeIfNeeded,
+                                systemController: sharedSystemController,
+                                vlcController: sharedVLCController,
+                                onCloseRequested: {
+                                    showFullScreen = false
+                                    rotateToPortrait()
+                                }
+                            )
+                        }
                     }
                 }
             )
@@ -567,12 +569,21 @@ struct DetailView: View {
     #if os(iOS)
     private func rotateToLandscape() {
         UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
-        UIViewController.attemptRotationToDeviceOrientation()
+        requestOrientationUpdate()
     }
 
     private func rotateToPortrait() {
         UIDevice.current.setValue(UIInterfaceOrientation.portrait.rawValue, forKey: "orientation")
-        UIViewController.attemptRotationToDeviceOrientation()
+        requestOrientationUpdate()
+    }
+
+    private func requestOrientationUpdate() {
+        if #available(iOS 16.0, *) {
+            let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+            scene?.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+        } else {
+            UIViewController.attemptRotationToDeviceOrientation()
+        }
     }
     #endif
 }
@@ -651,7 +662,12 @@ private struct LandscapeFullScreenPresenter<Content: View>: UIViewControllerRepr
 
                 DispatchQueue.main.async {
                     UIDevice.current.setValue(UIInterfaceOrientation.landscapeRight.rawValue, forKey: "orientation")
-                    UIViewController.attemptRotationToDeviceOrientation()
+                    if #available(iOS 16.0, *) {
+                        let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene
+                        scene?.windows.first?.rootViewController?.setNeedsUpdateOfSupportedInterfaceOrientations()
+                    } else {
+                        UIViewController.attemptRotationToDeviceOrientation()
+                    }
                     uiViewController.present(hostingVC, animated: true)
                 }
             }
