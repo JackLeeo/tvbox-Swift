@@ -272,33 +272,56 @@ class AppState: ObservableObject {
         guard hasSpiderSource else { return }
 
         let spiderPort = NodeJSManager.shared().getSpiderPort()
-        let needsRestart: Bool
+        let nodeIsRunning = NodeJSManager.shared().isRunning
 
-        if spiderPort <= 0 || !NodeJSManager.shared().isRunning {
-            needsRestart = true
-        } else {
-            needsRestart = !(await checkSpiderHealth(spiderPort: Int(spiderPort)))
+        if spiderPort > 0 && nodeIsRunning {
+            let healthy = await checkSpiderHealth(spiderPort: Int(spiderPort))
+            if healthy { return }
         }
-
-        guard needsRestart else { return }
 
         loadingPhase = .reconnecting
         SpiderService.shared.invalidateSession()
         NetworkManager.shared.invalidateSession()
 
-        NodeJSManager.shared().stopNodeJS()
-        nodeJSStarted = false
+        if !nodeIsRunning {
+            nodeJSStarted = false
+            await ensureNodeJSAndLoadSource()
+        } else {
+            await waitForSpiderServiceRecovery()
+        }
 
-        try? await Task.sleep(nanoseconds: 500_000_000)
-
-        await ensureNodeJSAndLoadSource()
-
-        if nodeJSStarted {
+        if nodeJSStarted || NodeJSManager.shared().isRunning {
             loadingPhase = .completed
             NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
         } else {
             loadingPhase = .failed("服务重连失败")
         }
+    }
+
+    private func waitForSpiderServiceRecovery() async {
+        let maxWait: TimeInterval = 15
+        let startTime = Date()
+
+        while Date().timeIntervalSince(startTime) < maxWait {
+            let port = NodeJSManager.shared().getSpiderPort()
+            if port > 0 {
+                let healthy = await checkSpiderHealth(spiderPort: Int(port))
+                if healthy {
+                    nodeJSStarted = true
+                    return
+                }
+            }
+
+            if !NodeJSManager.shared().isRunning {
+                nodeJSStarted = false
+                await ensureNodeJSAndLoadSource()
+                return
+            }
+
+            try? await Task.sleep(nanoseconds: 1_000_000_000)
+        }
+
+        nodeJSStarted = false
     }
 
     private func checkSpiderHealth(spiderPort: Int) async -> Bool {
