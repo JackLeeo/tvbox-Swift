@@ -6,6 +6,7 @@ enum SpiderError: LocalizedError {
     case invalidResponse
     case httpError(Int)
     case timeout
+    case connectionRefused
     case decodingError(String)
 
     var errorDescription: String? {
@@ -14,7 +15,8 @@ enum SpiderError: LocalizedError {
         case .nodeNotReady: return "Node.js未就绪"
         case .invalidResponse: return "无效的响应"
         case .httpError(let code): return "HTTP错误: \(code)"
-        case .timeout: return "请求超时"
+        case .timeout: return "请求超时，请检查网络"
+        case .connectionRefused: return "无法连接到本地服务，请稍后重试"
         case .decodingError(let msg): return "解码错误: \(msg)"
         }
     }
@@ -23,7 +25,7 @@ enum SpiderError: LocalizedError {
 class SpiderService {
     static let shared = SpiderService()
 
-    private let session: URLSession
+    private var session: URLSession
     private let maxRetries = 3
     private let timeoutInterval: TimeInterval = 30
 
@@ -44,6 +46,14 @@ class SpiderService {
         self.currentKey = key
         self.currentType = type
         self.currentApiBase = apiBase
+    }
+
+    func invalidateSession() {
+        session.invalidateAndCancel()
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 30
+        session = URLSession(configuration: config)
     }
 
     // MARK: - 端口与状态
@@ -126,16 +136,19 @@ class SpiderService {
                 throw error
             } catch {
                 let nsError = error as NSError
-                let isTimeout = nsError.domain == NSURLErrorDomain && nsError.code == NSURLErrorTimedOut
+                let isRetryable = Self.isRetryableNetworkError(nsError)
 
-                if isTimeout && attempt < totalAttempts - 1 {
+                if isRetryable && attempt < totalAttempts - 1 {
                     lastError = error
                     let delay = TimeInterval(attempt + 1)
                     try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
                     continue
                 }
 
-                if isTimeout {
+                if isRetryable {
+                    if nsError.code == NSURLErrorCannotConnectToHost || nsError.code == NSURLErrorCannotFindHost {
+                        throw SpiderError.connectionRefused
+                    }
                     throw SpiderError.timeout
                 }
                 throw error
@@ -143,6 +156,19 @@ class SpiderService {
         }
 
         throw lastError ?? SpiderError.timeout
+    }
+
+    private static func isRetryableNetworkError(_ nsError: NSError) -> Bool {
+        guard nsError.domain == NSURLErrorDomain else { return false }
+        switch nsError.code {
+        case NSURLErrorTimedOut,
+             NSURLErrorCannotFindHost,
+             NSURLErrorCannotConnectToHost,
+             NSURLErrorNetworkConnectionLost:
+            return true
+        default:
+            return false
+        }
     }
 
     // MARK: - Spider API

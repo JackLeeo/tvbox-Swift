@@ -33,9 +33,11 @@ class HomeViewModel: ObservableObject {
     /// 标记上次加载是否因网络错误失败（用于网络恢复自动重试）。
     private var lastLoadFailedDueToNetwork = false
     private var networkRestoredCancellable: AnyCancellable?
+    private var reconnectCancellable: AnyCancellable?
     
     init() {
         setupNetworkRestoredAutoRetry()
+        setupReconnectAutoRetry()
     }
     
     /// 加载分类列表
@@ -55,7 +57,7 @@ class HomeViewModel: ObservableObject {
                 selectedSort = sorts.first
             }
         } catch {
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyErrorMessage(from: error)
             lastLoadFailedDueToNetwork = error.isNetworkConnectionError
         }
         
@@ -73,6 +75,44 @@ class HomeViewModel: ObservableObject {
                     await self.refresh()
                 }
             }
+    }
+
+    private func setupReconnectAutoRetry() {
+        reconnectCancellable = NotificationCenter.default.publisher(for: .spiderServiceDidReconnect)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    await self.refresh()
+                }
+            }
+    }
+
+    private static func friendlyErrorMessage(from error: Error) -> String {
+        if let spiderError = error as? SpiderError {
+            return spiderError.localizedDescription
+        }
+        let nsError = error as NSError
+        if nsError.domain == NSURLErrorDomain {
+            switch nsError.code {
+            case NSURLErrorCannotConnectToHost, NSURLErrorCannotFindHost:
+                return "无法连接到本地服务，请稍后重试"
+            case NSURLErrorTimedOut:
+                return "请求超时，请检查网络"
+            case NSURLErrorNotConnectedToInternet:
+                return "网络未连接，请检查网络设置"
+            case NSURLErrorNetworkConnectionLost:
+                return "网络连接中断，请稍后重试"
+            case NSURLErrorDNSLookupFailed:
+                return "DNS解析失败，请检查网络设置"
+            default:
+                break
+            }
+        }
+        if error.isNetworkConnectionError {
+            return "网络连接异常，请稍后重试"
+        }
+        return error.localizedDescription
     }
     
     /// 选择分类
@@ -114,7 +154,7 @@ class HomeViewModel: ObservableObject {
             hasMore = !videos.isEmpty
         } catch {
             guard selectedSort?.id == sort.id else { return }
-            errorMessage = error.localizedDescription
+            errorMessage = Self.friendlyErrorMessage(from: error)
         }
     }
     

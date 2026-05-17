@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var categoryScrollAnchorId: String?
     @State private var categoryDragTranslation: CGFloat = 0
     @State private var safariUrl: URL?
+    @State private var isReconnecting = false
     
     // 网格布局
     #if os(iOS)
@@ -50,6 +51,37 @@ struct HomeView: View {
         }
         .sheet(item: $safariUrl) { url in
             SafariWebView(url: url)
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .spiderServiceDidReconnect)) { _ in
+            isReconnecting = false
+            Task { await viewModel.refresh() }
+        }
+        .onChange(of: appState.loadingPhase) { newPhase in
+            if newPhase == .reconnecting {
+                isReconnecting = true
+            } else if isReconnecting {
+                if newPhase == .completed || newPhase.isFailed {
+                    isReconnecting = false
+                }
+            }
+        }
+        .overlay {
+            if isReconnecting {
+                VStack(spacing: 12) {
+                    ProgressView()
+                        .scaleEffect(1.2)
+                        .tint(.orange)
+                    Text("正在重连服务...")
+                        .font(.subheadline)
+                        .foregroundColor(.white.opacity(0.8))
+                }
+                .padding(.horizontal, 24)
+                .padding(.vertical, 16)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.black.opacity(0.7))
+                )
+            }
         }
     }
     

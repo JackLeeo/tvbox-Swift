@@ -40,7 +40,7 @@ class NetworkManager {
     ]
     
     /// 内部会话对象，统一超时与连接上限配置。
-    private let session: URLSession
+    private var session: URLSession
     /// JSON 解码器。
     private let decoder = JSONDecoder()
     
@@ -52,6 +52,16 @@ class NetworkManager {
         config.httpMaximumConnectionsPerHost = 5
         config.waitsForConnectivity = true
         self.session = URLSession(configuration: config)
+    }
+
+    func invalidateSession() {
+        session.invalidateAndCancel()
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 15
+        config.timeoutIntervalForResource = 30
+        config.httpMaximumConnectionsPerHost = 5
+        config.waitsForConnectivity = true
+        session = URLSession(configuration: config)
     }
     
     /// GET 请求获取字符串，支持自动重试。
