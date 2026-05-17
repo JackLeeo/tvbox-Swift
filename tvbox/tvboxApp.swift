@@ -275,8 +275,7 @@ class AppState: ObservableObject {
         let nodeIsRunning = NodeJSManager.shared().isRunning
 
         if spiderPort > 0 && nodeIsRunning {
-            let healthy = await checkSpiderHealth(spiderPort: Int(spiderPort))
-            if healthy { return }
+            if await checkLocalPort(Int(spiderPort)) { return }
         }
 
         loadingPhase = .reconnecting
@@ -294,37 +293,38 @@ class AppState: ObservableObject {
             loadingPhase = .completed
             NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
         } else {
-            loadingPhase = .failed("服务重连失败")
+            loadingPhase = .failed("服务重连失败，请重启应用")
         }
     }
 
     private func recoverSpiderService() async {
-        let managementPort = NodeJSManager.shared().getManagementPort()
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
 
-        if managementPort > 0 {
-            let mgmtHealthy = await checkServiceHealth(port: Int(managementPort))
-            if mgmtHealthy {
-                await reloadSourceViaManagementPort(Int(managementPort))
-                return
-            }
-        }
-
-        for _ in 0..<5 {
-            try? await Task.sleep(nanoseconds: 2_000_000_000)
-
+        for attempt in 0..<6 {
             if !NodeJSManager.shared().isRunning {
                 nodeJSStarted = false
                 await ensureNodeJSAndLoadSource()
                 return
             }
 
-            let mPort = NodeJSManager.shared().getManagementPort()
-            if mPort > 0 {
-                let healthy = await checkServiceHealth(port: Int(mPort))
-                if healthy {
-                    await reloadSourceViaManagementPort(Int(mPort))
+            let spiderPort = NodeJSManager.shared().getSpiderPort()
+            if spiderPort > 0 {
+                if await checkLocalPort(Int(spiderPort)) {
+                    nodeJSStarted = true
                     return
                 }
+            }
+
+            let managementPort = NodeJSManager.shared().getManagementPort()
+            if managementPort > 0 {
+                if await checkLocalPort(Int(managementPort)) {
+                    await reloadSourceViaManagementPort(Int(managementPort))
+                    if nodeJSStarted { return }
+                }
+            }
+
+            if attempt < 5 {
+                try? await Task.sleep(nanoseconds: 3_000_000_000)
             }
         }
 
@@ -332,12 +332,6 @@ class AppState: ObservableObject {
     }
 
     private func reloadSourceViaManagementPort(_ port: Int) async {
-        guard let spiderSource = ApiConfig.shared.sourceBeanList.first(where: { $0.isSpiderSource }),
-              !spiderSource.api.isEmpty else {
-            nodeJSStarted = false
-            return
-        }
-
         let sourcePath = NodeJSManager.shared().getDocumentsSourcePath()
         guard !sourcePath.isEmpty else {
             nodeJSStarted = false
@@ -362,15 +356,17 @@ class AppState: ObservableObject {
         request.httpBody = requestBody
         request.timeoutInterval = 15
 
+        let session = URLSession(configuration: .ephemeral)
+        defer { session.finishTasksAndInvalidate() }
+
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (_, response) = try await session.data(for: request)
             if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
 
                 let newSpiderPort = NodeJSManager.shared().getSpiderPort()
                 if newSpiderPort > 0 {
-                    let spiderHealthy = await checkSpiderHealth(spiderPort: Int(newSpiderPort))
-                    if spiderHealthy {
+                    if await checkLocalPort(Int(newSpiderPort)) {
                         nodeJSStarted = true
                         return
                     }
@@ -392,30 +388,22 @@ class AppState: ObservableObject {
         nodeJSStarted = false
     }
 
-    private func checkServiceHealth(port: Int) async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/check") else { return false }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.timeoutInterval = 5
-        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
-                return true
-            }
-        } catch {}
-        return false
-    }
+    private func checkLocalPort(_ port: Int) async -> Bool {
+        guard let url = URL(string: "http://127.0.0.1:\(port)/") else { return false }
 
-    private func checkSpiderHealth(spiderPort: Int) async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:\(spiderPort)/config") else { return false }
+        let config = URLSessionConfiguration.ephemeral
+        config.timeoutIntervalForRequest = 5
+        config.timeoutIntervalForResource = 5
+        let session = URLSession(configuration: config)
+        defer { session.finishTasksAndInvalidate() }
+
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 5
-        request.cachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse, (200...299).contains(httpResponse.statusCode) {
+            let (_, response) = try await session.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse {
                 return true
             }
         } catch {}
