@@ -393,7 +393,7 @@ class AppState: ObservableObject {
     }
 
     private func checkServiceHealth(port: Int) async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:\(port)/check")!) else { return false }
+        guard let url = URL(string: "http://127.0.0.1:\(port)/check") else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 5
@@ -408,7 +408,7 @@ class AppState: ObservableObject {
     }
 
     private func checkSpiderHealth(spiderPort: Int) async -> Bool {
-        guard let url = URL(string: "http://127.0.0.1:\(spiderPort)/config")!) else { return false }
+        guard let url = URL(string: "http://127.0.0.1:\(spiderPort)/config") else { return false }
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.timeoutInterval = 5
