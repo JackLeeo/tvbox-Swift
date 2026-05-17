@@ -286,7 +286,11 @@ class AppState: ObservableObject {
         SpiderService.shared.invalidateSession()
         NetworkManager.shared.invalidateSession()
 
+        NodeJSManager.shared().stopNodeJS()
         nodeJSStarted = false
+
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
         await ensureNodeJSAndLoadSource()
 
         if nodeJSStarted {
