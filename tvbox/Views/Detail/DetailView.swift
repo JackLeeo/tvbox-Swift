@@ -25,7 +25,7 @@ struct DetailView: View {
                 if viewModel.isPlaying, let url = viewModel.playUrl {
                     PlayerView(
                         urlString: url,
-                        startPosition: viewModel.currentPlaybackSeconds(),
+                        startPosition: viewModel.resumeSeconds,
                         onProgressChanged: handlePlaybackProgress,
                         onPlaybackEnded: playNextEpisodeIfNeeded,
                         onToggleFullScreen: {
@@ -106,7 +106,7 @@ struct DetailView: View {
             if showFullScreen, let url = viewModel.playUrl {
                 FullScreenPlayerView(
                     urlString: url,
-                    startPosition: viewModel.currentPlaybackSeconds(),
+                    startPosition: viewModel.resumeSeconds,
                     onProgressChanged: handlePlaybackProgress,
                     onPlaybackEnded: playNextEpisodeIfNeeded,
                     canPlayNext: canPlayNextEpisode,
@@ -137,7 +137,7 @@ struct DetailView: View {
         .fullScreenCover(isPresented: $showFullScreen) {
             FullScreenPlayerView(
                 urlString: viewModel.playUrl ?? "",
-                startPosition: viewModel.currentPlaybackSeconds(),
+                startPosition: viewModel.resumeSeconds,
                 onProgressChanged: handlePlaybackProgress,
                 onPlaybackEnded: playNextEpisodeIfNeeded,
                 canPlayNext: canPlayNextEpisode,
