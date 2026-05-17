@@ -277,7 +277,7 @@ class AppState: ObservableObject {
         if spiderPort <= 0 || !NodeJSManager.shared().isRunning {
             needsRestart = true
         } else {
-            needsRestart = !(await checkSpiderHealth(spiderPort: spiderPort))
+            needsRestart = !(await checkSpiderHealth(spiderPort: Int(spiderPort)))
         }
 
         guard needsRestart else { return }
