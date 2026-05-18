@@ -14,6 +14,7 @@ struct ContentView: View {
     @State private var setupInputTarget: ApiInputTarget = .vod
     @StateObject private var searchVM = SearchViewModel()
     @State private var hasSavedConfig = false
+    @State private var showSearch = false
 
     var body: some View {
         Group {
@@ -33,7 +34,7 @@ struct ContentView: View {
         .onChange(of: appState.pendingSearchKeyword) { keyword in
             if let keyword, !keyword.isEmpty {
                 searchVM.keyword = keyword
-                selectedTab = 2
+                showSearch = true
                 Task { await searchVM.search() }
                 appState.pendingSearchKeyword = nil
             }
@@ -137,11 +138,11 @@ struct ContentView: View {
         #if os(iOS)
         ZStack(alignment: .bottom) {
             TabView(selection: $selectedTab) {
-                HomeView(onSearchTap: { selectedTab = 2 })
+                HomeView(onSearchTap: { showSearch = true })
                     .tag(0)
                 LiveView()
                     .tag(1)
-                SearchView(viewModel: searchVM)
+                HistoryView()
                     .tag(2)
                 FavoritesView()
                     .tag(3)
@@ -150,6 +151,9 @@ struct ContentView: View {
             }
             .tint(AppTheme.accentColor)
             .toolbar(.hidden, for: .tabBar)
+            .sheet(isPresented: $showSearch) {
+                SearchView(viewModel: searchVM)
+            }
             
             floatingNavBar
         }
@@ -160,12 +164,10 @@ struct ContentView: View {
                     .tag(0)
                 Label("直播", systemImage: "tv.fill")
                     .tag(1)
-                Label("搜索", systemImage: "magnifyingglass")
+                Label("历史", systemImage: "clock.fill")
                     .tag(2)
                 Label("收藏", systemImage: "heart.fill")
                     .tag(3)
-                Label("历史", systemImage: "clock.fill")
-                    .tag(5)
                 Label("设置", systemImage: "gearshape.fill")
                     .tag(4)
             }
@@ -173,12 +175,11 @@ struct ContentView: View {
             .listStyle(.sidebar)
         } detail: {
             switch selectedTab {
-            case 0: HomeView(onSearchTap: { selectedTab = 2 })
+            case 0: HomeView(onSearchTap: { showSearch = true })
             case 1: LiveView()
-            case 2: SearchView(viewModel: searchVM)
+            case 2: HistoryView()
             case 3: FavoritesView()
             case 4: SettingsView()
-            case 5: HistoryView()
             default: HomeView()
             }
         }
@@ -189,7 +190,7 @@ struct ContentView: View {
         HStack(spacing: 0) {
             navBarItem(icon: "house", selectedIcon: "house.fill", title: "首页", tag: 0)
             navBarItem(icon: "tv", selectedIcon: "tv.fill", title: "直播", tag: 1)
-            navBarItem(icon: "magnifyingglass", selectedIcon: "magnifyingglass", title: "搜索", tag: 2)
+            navBarItem(icon: "clock", selectedIcon: "clock.fill", title: "历史", tag: 2)
             navBarItem(icon: "heart", selectedIcon: "heart.fill", title: "收藏", tag: 3)
             navBarItem(icon: "gearshape", selectedIcon: "gearshape.fill", title: "设置", tag: 4)
         }
