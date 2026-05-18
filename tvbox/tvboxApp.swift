@@ -421,7 +421,7 @@ class AppState: ObservableObject {
 
         do {
             let (_, response) = try await session.data(for: request)
-            if let httpResponse = response as? HTTPURLResponse {
+            if response is HTTPURLResponse {
                 return true
             }
         } catch {}

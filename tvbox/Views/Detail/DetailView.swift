@@ -27,7 +27,6 @@ struct DetailView: View {
                     PlayerView(
                         urlString: url,
                         startPosition: viewModel.resumeSeconds,
-                        httpHeaders: viewModel.playHeaders,
                         onProgressChanged: handlePlaybackProgress,
                         onPlaybackEnded: playNextEpisodeIfNeeded,
                         onToggleFullScreen: {
@@ -36,7 +35,8 @@ struct DetailView: View {
                         canPlayNext: canPlayNextEpisode,
                         onPlayNext: playNextEpisodeIfNeeded,
                         systemController: sharedSystemController,
-                        vlcController: sharedVLCController
+                        vlcController: sharedVLCController,
+                        httpHeaders: viewModel.playHeaders
                     )
                     .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
                     .aspectRatio(16/9, contentMode: .fit)
@@ -109,13 +109,13 @@ struct DetailView: View {
                 FullScreenPlayerView(
                     urlString: url,
                     startPosition: viewModel.resumeSeconds,
-                    httpHeaders: viewModel.playHeaders,
                     onProgressChanged: handlePlaybackProgress,
                     onPlaybackEnded: playNextEpisodeIfNeeded,
                     canPlayNext: canPlayNextEpisode,
                     onPlayNext: playNextEpisodeIfNeeded,
                     systemController: sharedSystemController,
                     vlcController: sharedVLCController,
+                    httpHeaders: viewModel.playHeaders,
                     onCloseRequested: closeMacFullScreenOverlay
                 )
                 .ignoresSafeArea()
@@ -141,13 +141,13 @@ struct DetailView: View {
             FullScreenPlayerView(
                 urlString: viewModel.playUrl ?? "",
                 startPosition: viewModel.resumeSeconds,
-                httpHeaders: viewModel.playHeaders,
                 onProgressChanged: handlePlaybackProgress,
                 onPlaybackEnded: playNextEpisodeIfNeeded,
                 canPlayNext: canPlayNextEpisode,
                 onPlayNext: playNextEpisodeIfNeeded,
                 systemController: sharedSystemController,
                 vlcController: sharedVLCController,
+                httpHeaders: viewModel.playHeaders,
                 onCloseRequested: {
                     showFullScreen = false
                 }
@@ -582,13 +582,13 @@ struct DetailView: View {
 struct FullScreenPlayerView: View {
     let urlString: String
     var startPosition: Double = 0
-    var httpHeaders: [String: String] = [:]
     var onProgressChanged: ((Double, Double?) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
+    var httpHeaders: [String: String] = [:]
     var onCloseRequested: (() -> Void)? = nil
 
     var body: some View {
@@ -598,7 +598,6 @@ struct FullScreenPlayerView: View {
             PlayerView(
                 urlString: urlString,
                 startPosition: startPosition,
-                httpHeaders: httpHeaders,
                 onProgressChanged: onProgressChanged,
                 onPlaybackEnded: onPlaybackEnded,
                 onToggleFullScreen: {
@@ -608,7 +607,8 @@ struct FullScreenPlayerView: View {
                 onPlayNext: onPlayNext,
                 systemController: systemController,
                 vlcController: vlcController,
-                isFullScreenMode: true
+                isFullScreenMode: true,
+                httpHeaders: httpHeaders
             )
         }
         #if os(iOS)
