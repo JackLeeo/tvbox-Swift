@@ -104,6 +104,7 @@ struct PlayerView: View {
     var vlcController: VLCPlayerController? = nil
     var isFullScreenMode: Bool = false
     var httpHeaders: [String: String] = [:]
+    @State private var fallbackToVLC = false
     @AppStorage(HawkConfig.PLAY_TYPE_VOD) private var vodPlayTypeRaw = -1
     @AppStorage(HawkConfig.PLAY_TYPE) private var legacyPlayTypeRaw = PlayerEngine.system.rawValue
 
@@ -121,6 +122,9 @@ struct PlayerView: View {
     }
 
     private var effectiveEngine: PlayerEngine {
+        if fallbackToVLC, PlayerEngine.isVLCAvailable {
+            return .vlc
+        }
         return selectedEngine
     }
 
@@ -137,7 +141,12 @@ struct PlayerView: View {
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
-                    sharedController: systemController
+                    sharedController: systemController,
+                    onPlaybackFailed: {
+                        if !httpHeaders.isEmpty, PlayerEngine.isVLCAvailable {
+                            fallbackToVLC = true
+                        }
+                    }
                 )
             case .vlc:
                 VLCVodPlayerView(
@@ -163,6 +172,9 @@ struct PlayerView: View {
                 vlcController?.stop()
             }
         }
+        .onChange(of: urlString) { _ in
+            fallbackToVLC = false
+        }
         .onChange(of: selectedEngine) { newValue in
             if newValue != .system {
                 systemController?.stop()
@@ -182,14 +194,18 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
     private var _taskToRequest: [Int: AVAssetResourceLoadingRequest] = [:]
     private var _requestToTask: [ObjectIdentifier: URLSessionDataTask] = [:]
 
-    static let customScheme = "streaming"
+    static let customScheme = "tvboxstream"
 
     init(originalScheme: String, httpHeaders: [String: String]) {
         self.originalScheme = originalScheme
         self.httpHeaders = httpHeaders
         super.init()
-        let config = URLSessionConfiguration.default
-        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        let config = URLSessionConfiguration.ephemeral
+        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
+        config.httpCookieStorage = nil
+        config.httpShouldSetCookies = false
+        config.timeoutIntervalForRequest = 30
+        config.timeoutIntervalForResource = 300
         self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
@@ -248,6 +264,12 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
         lock.unlock()
     }
 
+    private func applyCustomHeaders(to request: inout URLRequest) {
+        for (key, value) in httpHeaders {
+            request.setValue(value, forHTTPHeaderField: key)
+        }
+    }
+
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         guard let customURL = loadingRequest.request.url,
               let realURL = restoreOriginalURL(from: customURL) else {
@@ -255,10 +277,18 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
             return false
         }
 
-        var request = URLRequest(url: realURL)
-        for (key, value) in httpHeaders {
-            request.setValue(value, forHTTPHeaderField: key)
+        if loadingRequest.contentInformationRequest != nil && loadingRequest.dataRequest == nil {
+            var headRequest = URLRequest(url: realURL)
+            headRequest.httpMethod = "HEAD"
+            applyCustomHeaders(to: &headRequest)
+            let task = session.dataTask(with: headRequest)
+            storeTask(task, for: loadingRequest)
+            task.resume()
+            return true
         }
+
+        var request = URLRequest(url: realURL)
+        applyCustomHeaders(to: &request)
 
         if let dataRequest = loadingRequest.dataRequest {
             let offset = dataRequest.requestedOffset
@@ -294,9 +324,7 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
         }
 
         var request = URLRequest(url: realURL)
-        for (key, value) in httpHeaders {
-            request.setValue(value, forHTTPHeaderField: key)
-        }
+        applyCustomHeaders(to: &request)
 
         let task = session.dataTask(with: request)
         storeTask(task, for: renewalRequest)
@@ -307,9 +335,7 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
 
     func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
         var newRequest = request
-        for (key, value) in httpHeaders {
-            newRequest.setValue(value, forHTTPHeaderField: key)
-        }
+        applyCustomHeaders(to: &newRequest)
         completionHandler(newRequest)
     }
 
@@ -389,6 +415,7 @@ struct AVPlayerContentView: View {
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
     var sharedController: SystemPlayerSessionController? = nil
+    var onPlaybackFailed: (() -> Void)? = nil
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
@@ -685,7 +712,7 @@ struct AVPlayerContentView: View {
     }
 
     private func bindPlayerObservers(for player: AVPlayer) {
-        playerObservers = [
+        var observers = [
             player.observe(\.timeControlStatus, options: [.new]) { p, _ in
                 DispatchQueue.main.async { isPlaying = p.timeControlStatus == .playing }
             },
@@ -707,6 +734,18 @@ struct AVPlayerContentView: View {
                 }
             }
         ]
+
+        if let item = player.currentItem {
+            observers.append(item.observe(\.status, options: [.new]) { [self] item, _ in
+                if item.status == .failed {
+                    DispatchQueue.main.async {
+                        onPlaybackFailed?()
+                    }
+                }
+            })
+        }
+
+        playerObservers = observers
         observePlaybackProgress(for: player)
         observePlaybackEnd(for: player)
         isPlaying = player.timeControlStatus == .playing
