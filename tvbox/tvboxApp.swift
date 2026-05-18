@@ -126,6 +126,9 @@ class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     init() {
+        if UserDefaults.standard.bool(forKey: "app_restart_pending") {
+            UserDefaults.standard.set(false, forKey: "app_restart_pending")
+        }
         setupNetworkRestoredAutoRetry()
         ApiConfig.shared.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -293,14 +296,24 @@ class AppState: ObservableObject {
             loadingPhase = .completed
             NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
         } else {
-            loadingPhase = .failed("服务重连失败，请重启应用")
+            restartApp()
+        }
+    }
+
+    private func restartApp() {
+        loadingPhase = .failed("服务重连失败，即将重启应用...")
+        UserDefaults.standard.set(true, forKey: "app_restart_pending")
+        UserDefaults.standard.synchronize()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+            exit(0)
         }
     }
 
     private func recoverSpiderService() async {
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        try? await Task.sleep(nanoseconds: 1_500_000_000)
 
-        for attempt in 0..<6 {
+        for attempt in 0..<3 {
             if !NodeJSManager.shared().isRunning {
                 nodeJSStarted = false
                 await ensureNodeJSAndLoadSource()
@@ -323,8 +336,8 @@ class AppState: ObservableObject {
                 }
             }
 
-            if attempt < 5 {
-                try? await Task.sleep(nanoseconds: 3_000_000_000)
+            if attempt < 2 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }
 
