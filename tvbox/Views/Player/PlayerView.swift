@@ -174,12 +174,13 @@ struct PlayerView: View {
     }
 }
 
-final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate {
+final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate, URLSessionTaskDelegate {
     private let originalScheme: String
     private let httpHeaders: [String: String]
     private var session: URLSession!
     private let lock = NSLock()
     private var _taskToRequest: [Int: AVAssetResourceLoadingRequest] = [:]
+    private var _requestToTask: [ObjectIdentifier: URLSessionDataTask] = [:]
 
     static let customScheme = "streaming"
 
@@ -187,7 +188,9 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
         self.originalScheme = originalScheme
         self.httpHeaders = httpHeaders
         super.init()
-        self.session = URLSession(configuration: .default, delegate: self, delegateQueue: nil)
+        let config = URLSessionConfiguration.default
+        config.requestCachePolicy = .reloadIgnoringLocalCacheData
+        self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
     }
 
     deinit {
@@ -209,6 +212,7 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
     private func storeTask(_ task: URLSessionDataTask, for request: AVAssetResourceLoadingRequest) {
         lock.lock()
         _taskToRequest[task.taskIdentifier] = request
+        _requestToTask[ObjectIdentifier(request)] = task
         lock.unlock()
     }
 
@@ -219,16 +223,35 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
         return request
     }
 
+    private func taskForRequest(_ request: AVAssetResourceLoadingRequest) -> URLSessionDataTask? {
+        lock.lock()
+        let task = _requestToTask[ObjectIdentifier(request)]
+        lock.unlock()
+        return task
+    }
+
     private func removeTask(_ task: URLSessionDataTask) {
         lock.lock()
+        if let request = _taskToRequest[task.taskIdentifier] {
+            _requestToTask.removeValue(forKey: ObjectIdentifier(request))
+        }
         _taskToRequest.removeValue(forKey: task.taskIdentifier)
+        lock.unlock()
+    }
+
+    private func removeRequest(_ request: AVAssetResourceLoadingRequest) {
+        lock.lock()
+        if let task = _requestToTask[ObjectIdentifier(request)] {
+            _taskToRequest.removeValue(forKey: task.taskIdentifier)
+        }
+        _requestToTask.removeValue(forKey: ObjectIdentifier(request))
         lock.unlock()
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
         guard let customURL = loadingRequest.request.url,
               let realURL = restoreOriginalURL(from: customURL) else {
-            loadingRequest.finishLoading(with: NSError(domain: "CustomHeaderResourceLoader", code: -1))
+            loadingRequest.finishLoading(with: NSError(domain: "CustomHeaderResourceLoader", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法还原真实URL"]))
             return false
         }
 
@@ -257,12 +280,16 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
+        if let task = taskForRequest(loadingRequest) {
+            task.cancel()
+            removeRequest(loadingRequest)
+        }
     }
 
     func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForRenewalOfRequestedResource renewalRequest: AVAssetResourceRenewalRequest) -> Bool {
         guard let customURL = renewalRequest.request.url,
               let realURL = restoreOriginalURL(from: customURL) else {
-            renewalRequest.finishLoading(with: NSError(domain: "CustomHeaderResourceLoader", code: -1))
+            renewalRequest.finishLoading(with: NSError(domain: "CustomHeaderResourceLoader", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法还原真实URL"]))
             return false
         }
 
@@ -278,31 +305,51 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
         return true
     }
 
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
+        var newRequest = request
+        for (key, value) in httpHeaders {
+            newRequest.setValue(value, forHTTPHeaderField: key)
+        }
+        completionHandler(newRequest)
+    }
+
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let loadingRequest = requestForTask(dataTask),
-              let httpResponse = response as? HTTPURLResponse else {
+        guard let loadingRequest = requestForTask(dataTask) else {
+            completionHandler(.cancel)
+            return
+        }
+
+        guard let httpResponse = response as? HTTPURLResponse else {
             completionHandler(.allow)
             return
         }
 
+        guard (200...299).contains(httpResponse.statusCode) else {
+            let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadServerResponse, userInfo: [
+                NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"
+            ])
+            loadingRequest.finishLoading(with: error)
+            removeTask(dataTask)
+            completionHandler(.cancel)
+            return
+        }
+
         if let contentRequest = loadingRequest.contentInformationRequest {
-            if httpResponse.statusCode == 200 || httpResponse.statusCode == 206 {
-                contentRequest.isByteRangeAccessSupported = true
+            contentRequest.isByteRangeAccessSupported = true
 
-                if httpResponse.statusCode == 206,
-                   let contentRange = httpResponse.value(forHTTPHeaderField: "Content-Range") {
-                    let parts = contentRange.split(separator: "/")
-                    if let totalStr = parts.last, let total = Int64(totalStr) {
-                        contentRequest.contentLength = total
-                    }
-                } else if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length"),
-                          let length = Int64(contentLength) {
-                    contentRequest.contentLength = length
+            if httpResponse.statusCode == 206,
+               let contentRange = httpResponse.value(forHTTPHeaderField: "Content-Range") {
+                let parts = contentRange.split(separator: "/")
+                if let totalStr = parts.last, let total = Int64(totalStr) {
+                    contentRequest.contentLength = total
                 }
+            } else if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length"),
+                      let length = Int64(contentLength) {
+                contentRequest.contentLength = length
+            }
 
-                if let contentType = httpResponse.mimeType {
-                    contentRequest.contentType = contentType
-                }
+            if let contentType = httpResponse.mimeType {
+                contentRequest.contentType = contentType
             }
         }
 
@@ -320,6 +367,10 @@ final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderD
         removeTask(dataTask)
 
         if let error = error {
+            let nsError = error as NSError
+            if nsError.code == NSURLErrorCancelled {
+                return
+            }
             loadingRequest.finishLoading(with: error)
         } else {
             loadingRequest.finishLoading()
@@ -342,6 +393,7 @@ struct AVPlayerContentView: View {
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
     @State private var timeObserverToken: Any?
+    @State private var retainedResourceLoaderDelegate: CustomHeaderResourceLoaderDelegate?
 
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
@@ -622,6 +674,7 @@ struct AVPlayerContentView: View {
         if #available(iOS 17.0, *) {
             newPlayer.defaultRate = preferredRate
         }
+        retainedResourceLoaderDelegate = delegate
         if let sharedController {
             sharedController.setPlayer(newPlayer, urlString: targetURLString, resourceLoaderDelegate: delegate)
         }
@@ -690,7 +743,9 @@ struct AVPlayerContentView: View {
         if sharedController?.player === currentPlayer {
             sharedController?.player = nil
             sharedController?.mediaURLString = nil
+            sharedController?.resourceLoaderDelegate = nil
         }
+        retainedResourceLoaderDelegate = nil
         player = nil
     }
 
