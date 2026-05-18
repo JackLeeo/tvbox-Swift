@@ -24,7 +24,7 @@ struct SearchView: View {
                     GeometryReader { geo in
                         HStack(spacing: 0) {
                             siteListPanel
-                                .frame(width: min(max(geo.size.width * 0.2, 100), 180))
+                                .frame(width: min(max(geo.size.width * 0.28, 120), 220))
                             Divider()
                             resultsPanel
                         }
