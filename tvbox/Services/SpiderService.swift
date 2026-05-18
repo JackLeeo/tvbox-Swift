@@ -128,8 +128,7 @@ class SpiderService {
                 }
 
                 guard (200...299).contains(httpResponse.statusCode) else {
-                    let responseBody = data.flatMap { String(data: $0, encoding: .utf8) }
-                    let detail = responseBody ?? ""
+                    let detail = String(data: data, encoding: .utf8) ?? ""
                     throw SpiderError.httpError(httpResponse.statusCode, detail)
                 }
 
@@ -193,7 +192,7 @@ class SpiderService {
             throw SpiderError.invalidResponse
         }
         guard (200...299).contains(httpResponse.statusCode) else {
-            let responseBody = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            let responseBody = String(data: data, encoding: .utf8) ?? ""
             throw SpiderError.httpError(httpResponse.statusCode, responseBody)
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -298,7 +297,7 @@ class SpiderService {
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                let responseBody = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                let responseBody = String(data: data, encoding: .utf8) ?? ""
                 let detail = responseBody.isEmpty ? "" : " - \(responseBody)"
                 completion(false, "HTTP错误: \(httpResponse.statusCode)\(detail)")
                 return

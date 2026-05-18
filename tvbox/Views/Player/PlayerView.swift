@@ -71,16 +71,14 @@ private struct IOSPlayerView: UIViewControllerRepresentable {
 final class SystemPlayerSessionController: ObservableObject {
     fileprivate var player: AVPlayer?
     fileprivate var mediaURLString: String?
-    fileprivate var resourceLoaderDelegate: CustomHeaderResourceLoaderDelegate?
 
-    func setPlayer(_ newPlayer: AVPlayer, urlString: String, resourceLoaderDelegate: CustomHeaderResourceLoaderDelegate? = nil) {
+    func setPlayer(_ newPlayer: AVPlayer, urlString: String) {
         if player !== newPlayer {
             player?.pause()
             player?.replaceCurrentItem(with: nil)
         }
         player = newPlayer
         mediaURLString = urlString
-        self.resourceLoaderDelegate = resourceLoaderDelegate
     }
 
     func stop() {
@@ -88,7 +86,6 @@ final class SystemPlayerSessionController: ObservableObject {
         player?.replaceCurrentItem(with: nil)
         player = nil
         mediaURLString = nil
-        resourceLoaderDelegate = nil
     }
 }
 
@@ -104,7 +101,6 @@ struct PlayerView: View {
     var vlcController: VLCPlayerController? = nil
     var isFullScreenMode: Bool = false
     var httpHeaders: [String: String] = [:]
-    @State private var fallbackToVLC = false
     @AppStorage(HawkConfig.PLAY_TYPE_VOD) private var vodPlayTypeRaw = -1
     @AppStorage(HawkConfig.PLAY_TYPE) private var legacyPlayTypeRaw = PlayerEngine.system.rawValue
 
@@ -122,7 +118,7 @@ struct PlayerView: View {
     }
 
     private var effectiveEngine: PlayerEngine {
-        if fallbackToVLC, PlayerEngine.isVLCAvailable {
+        if !httpHeaders.isEmpty, PlayerEngine.isVLCAvailable {
             return .vlc
         }
         return selectedEngine
@@ -135,18 +131,12 @@ struct PlayerView: View {
                 AVPlayerContentView(
                     urlString: urlString,
                     startPosition: startPosition,
-                    httpHeaders: httpHeaders,
                     onProgressChanged: onProgressChanged,
                     onPlaybackEnded: onPlaybackEnded,
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
-                    sharedController: systemController,
-                    onPlaybackFailed: {
-                        if !httpHeaders.isEmpty, PlayerEngine.isVLCAvailable {
-                            fallbackToVLC = true
-                        }
-                    }
+                    sharedController: systemController
                 )
             case .vlc:
                 VLCVodPlayerView(
@@ -172,9 +162,6 @@ struct PlayerView: View {
                 vlcController?.stop()
             }
         }
-        .onChange(of: urlString) { _ in
-            fallbackToVLC = false
-        }
         .onChange(of: selectedEngine) { newValue in
             if newValue != .system {
                 systemController?.stop()
@@ -186,241 +173,20 @@ struct PlayerView: View {
     }
 }
 
-final class CustomHeaderResourceLoaderDelegate: NSObject, AVAssetResourceLoaderDelegate, URLSessionDataDelegate, URLSessionTaskDelegate {
-    private let originalScheme: String
-    private let httpHeaders: [String: String]
-    private var session: URLSession!
-    private let lock = NSLock()
-    private var _taskToRequest: [Int: AVAssetResourceLoadingRequest] = [:]
-    private var _requestToTask: [ObjectIdentifier: URLSessionDataTask] = [:]
-
-    static let customScheme = "tvboxstream"
-
-    init(originalScheme: String, httpHeaders: [String: String]) {
-        self.originalScheme = originalScheme
-        self.httpHeaders = httpHeaders
-        super.init()
-        let config = URLSessionConfiguration.ephemeral
-        config.requestCachePolicy = .reloadIgnoringLocalAndRemoteCacheData
-        config.httpCookieStorage = nil
-        config.httpShouldSetCookies = false
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 300
-        self.session = URLSession(configuration: config, delegate: self, delegateQueue: nil)
-    }
-
-    deinit {
-        session.invalidateAndCancel()
-    }
-
-    static func makeCustomSchemeURL(from originalURL: URL) -> URL? {
-        var components = URLComponents(url: originalURL, resolvingAgainstBaseURL: false)
-        components?.scheme = customScheme
-        return components?.url
-    }
-
-    private func restoreOriginalURL(from customURL: URL) -> URL? {
-        var components = URLComponents(url: customURL, resolvingAgainstBaseURL: false)
-        components?.scheme = originalScheme
-        return components?.url
-    }
-
-    private func storeTask(_ task: URLSessionDataTask, for request: AVAssetResourceLoadingRequest) {
-        lock.lock()
-        _taskToRequest[task.taskIdentifier] = request
-        _requestToTask[ObjectIdentifier(request)] = task
-        lock.unlock()
-    }
-
-    private func requestForTask(_ task: URLSessionDataTask) -> AVAssetResourceLoadingRequest? {
-        lock.lock()
-        let request = _taskToRequest[task.taskIdentifier]
-        lock.unlock()
-        return request
-    }
-
-    private func taskForRequest(_ request: AVAssetResourceLoadingRequest) -> URLSessionDataTask? {
-        lock.lock()
-        let task = _requestToTask[ObjectIdentifier(request)]
-        lock.unlock()
-        return task
-    }
-
-    private func removeTask(_ task: URLSessionDataTask) {
-        lock.lock()
-        if let request = _taskToRequest[task.taskIdentifier] {
-            _requestToTask.removeValue(forKey: ObjectIdentifier(request))
-        }
-        _taskToRequest.removeValue(forKey: task.taskIdentifier)
-        lock.unlock()
-    }
-
-    private func removeRequest(_ request: AVAssetResourceLoadingRequest) {
-        lock.lock()
-        if let task = _requestToTask[ObjectIdentifier(request)] {
-            _taskToRequest.removeValue(forKey: task.taskIdentifier)
-        }
-        _requestToTask.removeValue(forKey: ObjectIdentifier(request))
-        lock.unlock()
-    }
-
-    private func applyCustomHeaders(to request: inout URLRequest) {
-        for (key, value) in httpHeaders {
-            request.setValue(value, forHTTPHeaderField: key)
-        }
-    }
-
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForLoadingOfRequestedResource loadingRequest: AVAssetResourceLoadingRequest) -> Bool {
-        guard let customURL = loadingRequest.request.url,
-              let realURL = restoreOriginalURL(from: customURL) else {
-            loadingRequest.finishLoading(with: NSError(domain: "CustomHeaderResourceLoader", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法还原真实URL"]))
-            return false
-        }
-
-        if loadingRequest.contentInformationRequest != nil && loadingRequest.dataRequest == nil {
-            var headRequest = URLRequest(url: realURL)
-            headRequest.httpMethod = "HEAD"
-            applyCustomHeaders(to: &headRequest)
-            let task = session.dataTask(with: headRequest)
-            storeTask(task, for: loadingRequest)
-            task.resume()
-            return true
-        }
-
-        var request = URLRequest(url: realURL)
-        applyCustomHeaders(to: &request)
-
-        if let dataRequest = loadingRequest.dataRequest {
-            let offset = dataRequest.requestedOffset
-            let length = Int64(dataRequest.requestedLength)
-            if dataRequest.requestsAllDataToEndOfResource {
-                if offset > 0 {
-                    request.setValue("bytes=\(offset)-", forHTTPHeaderField: "Range")
-                }
-            } else {
-                request.setValue("bytes=\(offset)-\(offset + length - 1)", forHTTPHeaderField: "Range")
-            }
-        }
-
-        let task = session.dataTask(with: request)
-        storeTask(task, for: loadingRequest)
-        task.resume()
-
-        return true
-    }
-
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, didCancel loadingRequest: AVAssetResourceLoadingRequest) {
-        if let task = taskForRequest(loadingRequest) {
-            task.cancel()
-            removeRequest(loadingRequest)
-        }
-    }
-
-    func resourceLoader(_ resourceLoader: AVAssetResourceLoader, shouldWaitForRenewalOfRequestedResource renewalRequest: AVAssetResourceRenewalRequest) -> Bool {
-        guard let customURL = renewalRequest.request.url,
-              let realURL = restoreOriginalURL(from: customURL) else {
-            renewalRequest.finishLoading(with: NSError(domain: "CustomHeaderResourceLoader", code: -1, userInfo: [NSLocalizedDescriptionKey: "无法还原真实URL"]))
-            return false
-        }
-
-        var request = URLRequest(url: realURL)
-        applyCustomHeaders(to: &request)
-
-        let task = session.dataTask(with: request)
-        storeTask(task, for: renewalRequest)
-        task.resume()
-
-        return true
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse, newRequest request: URLRequest, completionHandler: @escaping (URLRequest?) -> Void) {
-        var newRequest = request
-        applyCustomHeaders(to: &newRequest)
-        completionHandler(newRequest)
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive response: URLResponse, completionHandler: @escaping (URLSession.ResponseDisposition) -> Void) {
-        guard let loadingRequest = requestForTask(dataTask) else {
-            completionHandler(.cancel)
-            return
-        }
-
-        guard let httpResponse = response as? HTTPURLResponse else {
-            completionHandler(.allow)
-            return
-        }
-
-        guard (200...299).contains(httpResponse.statusCode) else {
-            let error = NSError(domain: NSURLErrorDomain, code: NSURLErrorBadServerResponse, userInfo: [
-                NSLocalizedDescriptionKey: "HTTP \(httpResponse.statusCode)"
-            ])
-            loadingRequest.finishLoading(with: error)
-            removeTask(dataTask)
-            completionHandler(.cancel)
-            return
-        }
-
-        if let contentRequest = loadingRequest.contentInformationRequest {
-            contentRequest.isByteRangeAccessSupported = true
-
-            if httpResponse.statusCode == 206,
-               let contentRange = httpResponse.value(forHTTPHeaderField: "Content-Range") {
-                let parts = contentRange.split(separator: "/")
-                if let totalStr = parts.last, let total = Int64(totalStr) {
-                    contentRequest.contentLength = total
-                }
-            } else if let contentLength = httpResponse.value(forHTTPHeaderField: "Content-Length"),
-                      let length = Int64(contentLength) {
-                contentRequest.contentLength = length
-            }
-
-            if let contentType = httpResponse.mimeType {
-                contentRequest.contentType = contentType
-            }
-        }
-
-        completionHandler(.allow)
-    }
-
-    func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
-        guard let loadingRequest = requestForTask(dataTask) else { return }
-        loadingRequest.dataRequest?.respond(with: data)
-    }
-
-    func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
-        guard let dataTask = task as? URLSessionDataTask else { return }
-        guard let loadingRequest = requestForTask(dataTask) else { return }
-        removeTask(dataTask)
-
-        if let error = error {
-            let nsError = error as NSError
-            if nsError.code == NSURLErrorCancelled {
-                return
-            }
-            loadingRequest.finishLoading(with: error)
-        } else {
-            loadingRequest.finishLoading()
-        }
-    }
-}
-
 struct AVPlayerContentView: View {
     private static let supportedPlaybackRates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
     let urlString: String
     var startPosition: Double = 0
-    var httpHeaders: [String: String] = [:]
     var onProgressChanged: ((Double, Double?) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     var onToggleFullScreen: (() -> Void)? = nil
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
     var sharedController: SystemPlayerSessionController? = nil
-    var onPlaybackFailed: (() -> Void)? = nil
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
     @State private var timeObserverToken: Any?
-    @State private var retainedResourceLoaderDelegate: CustomHeaderResourceLoaderDelegate?
 
     @State private var isPlaying = false
     @State private var currentTime: Double = 0
@@ -677,33 +443,13 @@ struct AVPlayerContentView: View {
 
         cleanupPlayer()
 
-        let playerItem: AVPlayerItem
-        var delegate: CustomHeaderResourceLoaderDelegate?
-
-        if !httpHeaders.isEmpty,
-           let customSchemeURL = CustomHeaderResourceLoaderDelegate.makeCustomSchemeURL(from: url) {
-            let resourceLoaderDelegate = CustomHeaderResourceLoaderDelegate(
-                originalScheme: url.scheme ?? "https",
-                httpHeaders: httpHeaders
-            )
-            let asset = AVURLAsset(url: customSchemeURL)
-            asset.resourceLoader.setDelegate(
-                resourceLoaderDelegate,
-                queue: DispatchQueue(label: "com.tvbox.resourceloader")
-            )
-            playerItem = AVPlayerItem(asset: asset)
-            delegate = resourceLoaderDelegate
-        } else {
-            playerItem = AVPlayerItem(url: url)
-        }
-
+        let playerItem = AVPlayerItem(url: url)
         let newPlayer = AVPlayer(playerItem: playerItem)
         if #available(iOS 17.0, *) {
             newPlayer.defaultRate = preferredRate
         }
-        retainedResourceLoaderDelegate = delegate
         if let sharedController {
-            sharedController.setPlayer(newPlayer, urlString: targetURLString, resourceLoaderDelegate: delegate)
+            sharedController.setPlayer(newPlayer, urlString: targetURLString)
         }
 
         player = newPlayer
@@ -734,16 +480,6 @@ struct AVPlayerContentView: View {
                 }
             }
         ]
-
-        if let item = player.currentItem {
-            observers.append(item.observe(\.status, options: [.new]) { [self] item, _ in
-                if item.status == .failed {
-                    DispatchQueue.main.async {
-                        onPlaybackFailed?()
-                    }
-                }
-            })
-        }
 
         playerObservers = observers
         observePlaybackProgress(for: player)
@@ -782,9 +518,7 @@ struct AVPlayerContentView: View {
         if sharedController?.player === currentPlayer {
             sharedController?.player = nil
             sharedController?.mediaURLString = nil
-            sharedController?.resourceLoaderDelegate = nil
         }
-        retainedResourceLoaderDelegate = nil
         player = nil
     }
 
