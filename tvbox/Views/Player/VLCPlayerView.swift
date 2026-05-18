@@ -120,7 +120,8 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
         isLive: Bool,
         onProgressChanged: ((Double, Double?) -> Void)?,
         onPlaybackEnded: (() -> Void)?,
-        onPlaybackFailed: (() -> Void)?
+        onPlaybackFailed: (() -> Void)?,
+        httpHeaders: [String: String] = [:]
     ) {
         let targetURLString = url.absoluteString
         let isNewMedia = currentMediaURLString != targetURLString || currentMediaIsLive != isLive
@@ -188,6 +189,17 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
         }
         
         media.addOptions(mediaOptions)
+        if !httpHeaders.isEmpty {
+            if let cookie = httpHeaders["Cookie"] ?? httpHeaders["cookie"] {
+                media.addOption(":http-cookie=\(cookie)")
+            }
+            if let referer = httpHeaders["Referer"] ?? httpHeaders["referer"] ?? httpHeaders["Referrer"] ?? httpHeaders["referrer"] {
+                media.addOption(":http-referrer=\(referer)")
+            }
+            if let ua = httpHeaders["User-Agent"] ?? httpHeaders["user-agent"] ?? httpHeaders["UserAgent"] {
+                media.addOption(":http-user-agent=\(ua)")
+            }
+        }
         // 对布尔型选项使用显式 no- 前缀，避免 0/1 在不同 libvlc 版本下解释不一致。
         media.addOption(enableFrameDrop ? "drop-late-frames" : "no-drop-late-frames")
         media.addOption(enableSkipFrames ? "skip-frames" : "no-skip-frames")
@@ -830,6 +842,7 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
 struct VLCVodPlayerView: View {
     let urlString: String
     var startPosition: Double = 0
+    var httpHeaders: [String: String] = [:]
     var onProgressChanged: ((Double, Double?) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     var onToggleFullScreen: (() -> Void)? = nil
@@ -1141,7 +1154,8 @@ struct VLCVodPlayerView: View {
                 isLive: false,
                 onProgressChanged: onProgressChanged,
                 onPlaybackEnded: onPlaybackEnded,
-                onPlaybackFailed: nil
+                onPlaybackFailed: nil,
+                httpHeaders: httpHeaders
             )
         }
     }

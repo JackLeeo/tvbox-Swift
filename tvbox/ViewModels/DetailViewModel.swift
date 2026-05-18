@@ -37,6 +37,8 @@ class DetailViewModel: ObservableObject {
     @Published var isPlaying = false
     /// 当前实际播放地址（可能是原始地址，也可能是清晰度切换后的子流地址）。
     @Published var playUrl: String?
+    @Published var playHeaders: [String: String] = [:]
+    @Published var shouldUseVLCForHeaders: Bool = false
     /// 续播起始位置（秒）。
     @Published var resumeSeconds: Double = 0
     /// 当前可选清晰度列表。
@@ -135,6 +137,8 @@ class DetailViewModel: ObservableObject {
                 resolveSpiderPlayUrl(flag: selectedFlag, id: episode.url)
             } else {
                 playUrl = selectedPlayableURL(fallback: episode.url)
+                playHeaders = [:]
+                shouldUseVLCForHeaders = false
             }
         }
     }
@@ -249,8 +253,35 @@ class DetailViewModel: ObservableObject {
         Task {
             do {
                 let result = try await SpiderService.shared.getPlayUrl(flag: flag, id: id)
+                
+                var resolvedUrl: String?
+                var headers: [String: String] = [:]
+                
+                if let headerDict = result["header"] as? [String: String] {
+                    headers = headerDict
+                } else if let headerDict = result["header"] as? [String: Any] {
+                    for (k, v) in headerDict {
+                        headers[k] = String(describing: v)
+                    }
+                }
+                
                 if let url = result["url"] as? String, !url.isEmpty {
+                    resolvedUrl = url
+                } else if let urlArray = result["url"] as? [Any], urlArray.count >= 2 {
+                    for i in stride(from: 0, to: urlArray.count - 1, by: 2) {
+                        guard i + 1 < urlArray.count else { break }
+                        let urlStr = String(describing: urlArray[i + 1])
+                        if !urlStr.isEmpty {
+                            resolvedUrl = urlStr
+                            break
+                        }
+                    }
+                }
+                
+                if let url = resolvedUrl, !url.isEmpty {
                     playUrl = url
+                    playHeaders = headers
+                    shouldUseVLCForHeaders = !headers.isEmpty
                     isPlaying = true
                 } else {
                     errorMessage = "Spider播放地址解析失败"

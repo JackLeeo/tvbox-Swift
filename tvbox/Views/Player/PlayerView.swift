@@ -92,6 +92,8 @@ final class SystemPlayerSessionController: ObservableObject {
 struct PlayerView: View {
     let urlString: String
     var startPosition: Double = 0
+    var httpHeaders: [String: String] = [:]
+    var forceVLC: Bool = false
     var onProgressChanged: ((Double, Double?) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     var onToggleFullScreen: (() -> Void)? = nil
@@ -116,9 +118,16 @@ struct PlayerView: View {
         return PlayerEngine.fromStoredValue(rawValue)
     }
 
+    private var effectiveEngine: PlayerEngine {
+        if forceVLC || !httpHeaders.isEmpty {
+            return PlayerEngine.isVLCAvailable ? .vlc : .system
+        }
+        return selectedEngine
+    }
+
     var body: some View {
         Group {
-            switch selectedEngine {
+            switch effectiveEngine {
             case .system:
                 AVPlayerContentView(
                     urlString: urlString,
@@ -134,6 +143,7 @@ struct PlayerView: View {
                 VLCVodPlayerView(
                     urlString: urlString,
                     startPosition: startPosition,
+                    httpHeaders: httpHeaders,
                     onProgressChanged: onProgressChanged,
                     onPlaybackEnded: onPlaybackEnded,
                     onToggleFullScreen: onToggleFullScreen,

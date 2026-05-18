@@ -27,6 +27,8 @@ struct DetailView: View {
                     PlayerView(
                         urlString: url,
                         startPosition: viewModel.resumeSeconds,
+                        httpHeaders: viewModel.playHeaders,
+                        forceVLC: viewModel.shouldUseVLCForHeaders,
                         onProgressChanged: handlePlaybackProgress,
                         onPlaybackEnded: playNextEpisodeIfNeeded,
                         onToggleFullScreen: {
@@ -108,6 +110,8 @@ struct DetailView: View {
                 FullScreenPlayerView(
                     urlString: url,
                     startPosition: viewModel.resumeSeconds,
+                    httpHeaders: viewModel.playHeaders,
+                    forceVLC: viewModel.shouldUseVLCForHeaders,
                     onProgressChanged: handlePlaybackProgress,
                     onPlaybackEnded: playNextEpisodeIfNeeded,
                     canPlayNext: canPlayNextEpisode,
@@ -139,6 +143,8 @@ struct DetailView: View {
             FullScreenPlayerView(
                 urlString: viewModel.playUrl ?? "",
                 startPosition: viewModel.resumeSeconds,
+                httpHeaders: viewModel.playHeaders,
+                forceVLC: viewModel.shouldUseVLCForHeaders,
                 onProgressChanged: handlePlaybackProgress,
                 onPlaybackEnded: playNextEpisodeIfNeeded,
                 canPlayNext: canPlayNextEpisode,
@@ -579,6 +585,8 @@ struct DetailView: View {
 struct FullScreenPlayerView: View {
     let urlString: String
     var startPosition: Double = 0
+    var httpHeaders: [String: String] = [:]
+    var forceVLC: Bool = false
     var onProgressChanged: ((Double, Double?) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     var canPlayNext: Bool = false
@@ -594,6 +602,8 @@ struct FullScreenPlayerView: View {
             PlayerView(
                 urlString: urlString,
                 startPosition: startPosition,
+                httpHeaders: httpHeaders,
+                forceVLC: forceVLC,
                 onProgressChanged: onProgressChanged,
                 onPlaybackEnded: onPlaybackEnded,
                 onToggleFullScreen: {
