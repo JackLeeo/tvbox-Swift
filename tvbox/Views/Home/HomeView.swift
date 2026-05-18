@@ -283,41 +283,38 @@ struct HomeView: View {
     }
 
     private var filterBar: some View {
-        ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: AppTheme.spacingSM) {
-                ForEach(viewModel.currentFilters, id: \.key) { filter in
-                    HStack(spacing: AppTheme.spacingSM) {
-                        Text(filter.name)
-                            .font(.system(size: AppTheme.fontCaption, weight: .medium))
-                            .foregroundColor(AppTheme.textSecondary)
-                            .frame(width: 36, alignment: .leading)
+        VStack(spacing: AppTheme.spacingSM) {
+            ForEach(viewModel.currentFilters, id: \.key) { filter in
+                HStack(spacing: AppTheme.spacingSM) {
+                    Text(filter.name)
+                        .font(.system(size: AppTheme.fontCaption, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary)
+                        .frame(width: 36, alignment: .leading)
 
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: AppTheme.spacingSM) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: AppTheme.spacingSM) {
+                            SelectableChip(
+                                title: "全部",
+                                isSelected: viewModel.selectedFilters[filter.key] == nil
+                            ) {
+                                viewModel.selectFilter(key: filter.key, value: "")
+                            }
+
+                            ForEach(filter.values, id: \.v) { value in
                                 SelectableChip(
-                                    title: "全部",
-                                    isSelected: viewModel.selectedFilters[filter.key] == nil
+                                    title: value.n,
+                                    isSelected: viewModel.selectedFilters[filter.key] == value.v
                                 ) {
-                                    viewModel.selectFilter(key: filter.key, value: "")
-                                }
-
-                                ForEach(filter.values, id: \.v) { value in
-                                    SelectableChip(
-                                        title: value.n,
-                                        isSelected: viewModel.selectedFilters[filter.key] == value.v
-                                    ) {
-                                        viewModel.selectFilter(key: filter.key, value: value.v)
-                                    }
+                                    viewModel.selectFilter(key: filter.key, value: value.v)
                                 }
                             }
                         }
                     }
                 }
             }
-            .padding(.horizontal, AppTheme.spacingLG)
-            .padding(.vertical, AppTheme.spacingXS)
         }
-        .frame(maxHeight: 120)
+        .padding(.horizontal, AppTheme.spacingLG)
+        .padding(.vertical, AppTheme.spacingXS)
     }
 
     private var contentArea: some View {
