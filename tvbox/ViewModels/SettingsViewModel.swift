@@ -82,7 +82,9 @@ class SettingsViewModel: ObservableObject {
         loadApiHistory()
         let hasLegacyPlayer = defaults.object(forKey: HawkConfig.PLAY_TYPE) != nil
         let legacyPlayerRaw = defaults.integer(forKey: HawkConfig.PLAY_TYPE)
-        let defaultVodRaw = PlayerEngine.system.rawValue
+        let defaultVodRaw = PlayerEngine.isVLCAvailable
+            ? PlayerEngine.vlc.rawValue
+            : PlayerEngine.system.rawValue
         let defaultLiveRaw = PlayerEngine.isVLCAvailable
             ? PlayerEngine.vlc.rawValue
             : PlayerEngine.system.rawValue

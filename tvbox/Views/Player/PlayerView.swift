@@ -112,7 +112,7 @@ struct PlayerView: View {
         } else if defaults.object(forKey: HawkConfig.PLAY_TYPE) != nil {
             rawValue = legacyPlayTypeRaw
         } else {
-            rawValue = PlayerEngine.system.rawValue
+            rawValue = PlayerEngine.isVLCAvailable ? PlayerEngine.vlc.rawValue : PlayerEngine.system.rawValue
         }
         return PlayerEngine.fromStoredValue(rawValue)
     }
@@ -458,7 +458,7 @@ struct AVPlayerContentView: View {
     }
 
     private func bindPlayerObservers(for player: AVPlayer) {
-        var observers = [
+        let observers = [
             player.observe(\.timeControlStatus, options: [.new]) { p, _ in
                 DispatchQueue.main.async { isPlaying = p.timeControlStatus == .playing }
             },

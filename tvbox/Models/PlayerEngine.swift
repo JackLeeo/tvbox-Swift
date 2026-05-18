@@ -41,7 +41,7 @@ enum PlayerEngine: Int, CaseIterable, Identifiable {
     /// 从持久化值恢复播放器选项，并自动兜底到可用引擎。
     static func fromStoredValue(_ rawValue: Int) -> PlayerEngine {
         guard let engine = PlayerEngine(rawValue: rawValue) else {
-            return .system
+            return isVLCAvailable ? .vlc : .system
         }
         
         if engine == .vlc && !isVLCAvailable {
