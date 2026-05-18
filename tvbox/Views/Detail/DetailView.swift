@@ -47,35 +47,35 @@ struct DetailView: View {
                 }
                 
                 videoInfoSection
-                    .padding(.horizontal, 20)
-                    .padding(.top, 16)
+                    .padding(.horizontal, AppTheme.spacingXL)
+                    .padding(.top, AppTheme.spacingLG)
                 
                 if viewModel.flags.count > 1 {
                     flagSelector
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
+                        .padding(.horizontal, AppTheme.spacingXL)
+                        .padding(.top, AppTheme.spacingLG)
                 }
                 
                 if viewModel.hasQualityChoices {
                     qualitySelector
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
+                        .padding(.horizontal, AppTheme.spacingXL)
+                        .padding(.top, AppTheme.spacingLG)
                 }
                 
                 if !viewModel.currentEpisodes.isEmpty {
                     episodeSection
-                        .padding(.top, 16)
+                        .padding(.top, AppTheme.spacingLG)
                 }
                 
                 if let info = viewModel.vodInfo, !info.des.isEmpty {
                     descriptionSection(info.des)
-                        .padding(.horizontal, 20)
-                        .padding(.top, 16)
+                        .padding(.horizontal, AppTheme.spacingXL)
+                        .padding(.top, AppTheme.spacingLG)
                 }
             }
-            .padding(.bottom, 40)
+            .padding(.bottom, AppTheme.spacingXXL + AppTheme.spacingLG)
         }
-        .background(AppTheme.primaryGradient)
+        .background(AppBackground())
         .navigationTitle(video.name)
         #if os(macOS)
         .toolbar((showFullScreen || pendingMacWindowFullScreen) ? .hidden : .visible, for: .windowToolbar)
@@ -175,15 +175,15 @@ struct DetailView: View {
     
     @ViewBuilder
     private var videoInfoSection: some View {
-        HStack(alignment: .top, spacing: 20) {
-            videoPoster
-            
-            videoDetails
-            
-            Spacer()
+        AppCard(cornerRadius: AppTheme.radiusLG) {
+            HStack(alignment: .top, spacing: AppTheme.spacingXL) {
+                videoPoster
+                
+                videoDetails
+                
+                Spacer()
+            }
         }
-        .padding(15)
-        .glassCard(cornerRadius: AppTheme.glassRadius)
     }
 
     @ViewBuilder
@@ -192,25 +192,25 @@ struct DetailView: View {
             image.resizable().aspectRatio(2/3, contentMode: .fill)
         } placeholder: {
             ZStack {
-                Color.white.opacity(0.05)
-                Image(systemName: "film.fill").foregroundColor(.white.opacity(0.2))
+                AppTheme.backgroundTertiary
+                Image(systemName: "film.fill").foregroundColor(AppTheme.textTertiary)
             }
             .aspectRatio(2/3, contentMode: .fill)
         }
         .frame(width: 130)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.cardRadius))
+        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusMD))
         .shadow(color: .black.opacity(0.5), radius: 10, x: 0, y: 5)
     }
 
     @ViewBuilder
     private var videoDetails: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: AppTheme.spacingSM) {
             Text(viewModel.vodInfo?.name ?? video.name)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(.white)
+                .font(.system(size: AppTheme.fontTitle2, weight: .bold))
+                .foregroundColor(AppTheme.textPrimary)
             
             if let info = viewModel.vodInfo {
-                VStack(alignment: .leading, spacing: 6) {
+                VStack(alignment: .leading, spacing: AppTheme.spacingXS + AppTheme.spacingSM) {
                     infoRow("年份", info.year)
                     infoRow("地区", info.area)
                     infoRow("类型", info.typeName)
@@ -219,9 +219,9 @@ struct DetailView: View {
                 }
             }
             
-            Spacer(minLength: 10)
+            Spacer(minLength: AppTheme.spacingSM)
             
-            HStack(spacing: 10) {
+            HStack(spacing: AppTheme.spacingSM) {
                 playButton
                 collectButton
             }
@@ -235,17 +235,17 @@ struct DetailView: View {
                 viewModel.selectEpisode(index: 0)
                 saveHistoryForCurrentEpisode()
             } label: {
-                HStack(spacing: 8) {
+                HStack(spacing: AppTheme.spacingSM) {
                     Image(systemName: "play.fill")
                     Text("立即播放")
                 }
-                .font(.system(size: 16, weight: .bold))
+                .font(.system(size: AppTheme.fontHeadline, weight: .bold))
                 .foregroundColor(.white)
-                .padding(.horizontal, 28)
-                .padding(.vertical, 14)
+                .padding(.horizontal, AppTheme.spacingXL + AppTheme.spacingSM)
+                .padding(.vertical, AppTheme.spacingLG - AppTheme.spacingSM)
                 .background(AppTheme.accentGradient)
                 .clipShape(Capsule())
-                .shadow(color: .red.opacity(0.4), radius: 10, x: 0, y: 5)
+                .shadow(color: AppTheme.accentColor.opacity(0.4), radius: 10, x: 0, y: 5)
             }
             .buttonStyle(.plain)
         }
@@ -255,27 +255,27 @@ struct DetailView: View {
         Button {
             toggleCollect()
         } label: {
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.spacingSM) {
                 Image(systemName: isCollected ? "heart.fill" : "heart")
                 Text(isCollected ? "已收藏" : "收藏")
             }
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
+            .font(.system(size: AppTheme.fontSubhead, weight: .semibold))
+            .foregroundColor(isCollected ? .white : AppTheme.textSecondary)
+            .padding(.horizontal, AppTheme.spacingLG)
+            .padding(.vertical, AppTheme.spacingMD)
             .background(
                 Group {
                     if isCollected {
                         AppTheme.accentGradient
                     } else {
-                        Color.white.opacity(0.08)
+                        AppTheme.backgroundElevated
                     }
                 }
             )
             .clipShape(Capsule())
             .overlay(
                 Capsule()
-                    .stroke(Color.white.opacity(isCollected ? 0 : 0.2), lineWidth: 1)
+                    .stroke(isCollected ? Color.clear : AppTheme.borderMedium, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
@@ -284,14 +284,14 @@ struct DetailView: View {
     @ViewBuilder
     private func infoRow(_ label: String, _ value: String) -> some View {
         if !value.isEmpty {
-            HStack(alignment: .top, spacing: 4) {
+            HStack(alignment: .top, spacing: AppTheme.spacingXS) {
                 Text(label)
-                    .font(.caption)
-                    .foregroundColor(.gray)
+                    .font(.system(size: AppTheme.fontCaption))
+                    .foregroundColor(AppTheme.textTertiary)
                     .frame(width: 36, alignment: .leading)
                 Text(value)
-                    .font(.caption)
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: AppTheme.fontCaption))
+                    .foregroundColor(AppTheme.textSecondary)
                     .lineLimit(2)
             }
         }
@@ -299,111 +299,69 @@ struct DetailView: View {
     
     @ViewBuilder
     private var flagSelector: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("播放线路")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
-            
-            flagScrollView
+        AppCard(cornerRadius: AppTheme.radiusLG) {
+            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                AppSectionHeader(title: "播放线路", icon: "antenna.radiowaves.left")
+                
+                flagScrollView
+            }
         }
-        .padding(15)
-        .glassCard(cornerRadius: AppTheme.glassRadius)
     }
 
     @ViewBuilder
     private var flagScrollView: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 10) {
+            HStack(spacing: AppTheme.spacingSM + AppTheme.spacingXS) {
                 ForEach(viewModel.flags, id: \.self) { flag in
-                    flagButton(flag)
+                    SelectableChip(
+                        title: flag,
+                        isSelected: viewModel.selectedFlag == flag,
+                        action: {
+                            withAnimation {
+                                viewModel.selectFlag(flag)
+                            }
+                            if viewModel.isPlaying {
+                                saveHistoryForCurrentEpisode()
+                            }
+                        }
+                    )
                 }
             }
         }
-    }
-
-    @ViewBuilder
-    private func flagButton(_ flag: String) -> some View {
-        Button {
-            withAnimation {
-                viewModel.selectFlag(flag)
-            }
-            if viewModel.isPlaying {
-                saveHistoryForCurrentEpisode()
-            }
-        } label: {
-            Text(flag)
-                .font(.system(size: 14, weight: viewModel.selectedFlag == flag ? .bold : .medium))
-                .foregroundColor(viewModel.selectedFlag == flag ? .white : .white.opacity(0.6))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(
-                    ZStack {
-                        if viewModel.selectedFlag == flag {
-                            AppTheme.accentGradient
-                        } else {
-                            Color.white.opacity(0.05)
-                        }
-                    }
-                )
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
     
     @ViewBuilder
     private var qualitySelector: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("视频清晰度")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 10) {
-                    ForEach(viewModel.qualityOptions) { option in
-                        qualityButton(option)
+        AppCard(cornerRadius: AppTheme.radiusLG) {
+            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                AppSectionHeader(title: "视频清晰度", icon: "sparkles")
+                
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: AppTheme.spacingSM + AppTheme.spacingXS) {
+                        ForEach(viewModel.qualityOptions) { option in
+                            SelectableChip(
+                                title: option.name,
+                                isSelected: viewModel.selectedQualityId == option.id,
+                                action: {
+                                    withAnimation {
+                                        viewModel.selectQuality(option)
+                                    }
+                                    if viewModel.isPlaying {
+                                        saveHistoryForCurrentEpisode()
+                                    }
+                                }
+                            )
+                        }
                     }
                 }
             }
         }
-        .padding(15)
-        .glassCard(cornerRadius: AppTheme.glassRadius)
-    }
-    
-    @ViewBuilder
-    private func qualityButton(_ option: PlaybackQualityOption) -> some View {
-        Button {
-            withAnimation {
-                viewModel.selectQuality(option)
-            }
-            if viewModel.isPlaying {
-                saveHistoryForCurrentEpisode()
-            }
-        } label: {
-            Text(option.name)
-                .font(.system(size: 14, weight: viewModel.selectedQualityId == option.id ? .bold : .medium))
-                .foregroundColor(viewModel.selectedQualityId == option.id ? .white : .white.opacity(0.6))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .background(
-                    ZStack {
-                        if viewModel.selectedQualityId == option.id {
-                            AppTheme.accentGradient
-                        } else {
-                            Color.white.opacity(0.05)
-                        }
-                    }
-                )
-                .clipShape(Capsule())
-        }
-        .buttonStyle(.plain)
     }
     
     private var episodeSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("选集播放")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
-                .padding(.horizontal, 20)
+        VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+            AppSectionHeader(title: "选集播放", icon: "list.bullet")
+                .padding(.horizontal, AppTheme.spacingXL)
             
             EpisodeListView(
                 episodes: viewModel.currentEpisodes,
@@ -419,19 +377,17 @@ struct DetailView: View {
     }
     
     private func descriptionSection(_ des: String) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("影片简介")
-                .font(.system(size: 16, weight: .bold))
-                .foregroundColor(.white)
-            
-            Text(des)
-                .font(.system(size: 14))
-                .foregroundColor(.white.opacity(0.6))
-                .lineSpacing(4)
-                .lineLimit(nil)
+        AppCard(cornerRadius: AppTheme.radiusLG) {
+            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                AppSectionHeader(title: "影片简介", icon: "doc.text")
+                
+                Text(des)
+                    .font(.system(size: AppTheme.fontBody))
+                    .foregroundColor(AppTheme.textSecondary)
+                    .lineSpacing(AppTheme.spacingXS)
+                    .lineLimit(nil)
+            }
         }
-        .padding(15)
-        .glassCard(cornerRadius: AppTheme.glassRadius)
     }
 
     private var canPlayNextEpisode: Bool {

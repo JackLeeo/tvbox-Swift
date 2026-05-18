@@ -1,24 +1,16 @@
 import SwiftUI
 
-/// 根视图 - 对应 Android 版 HomeActivity 的 TabView 导航
 struct ContentView: View {
-    /// 首次配置页点击“最近使用”时，当前要写入的输入框目标。
     private enum ApiInputTarget {
         case vod
         case live
     }
     
-    /// 全局状态（配置加载、分栏状态等）。
     @EnvironmentObject var appState: AppState
-    /// 网络连接状态。
     @EnvironmentObject var networkMonitor: NetworkMonitor
-    /// 设置页 ViewModel。根视图复用它处理首次配置与多仓库选择。
     @StateObject private var settingsVM = SettingsViewModel()
-    /// 当前主标签索引。
     @State private var selectedTab = 0
-    /// 预留：控制首次配置页显隐（当前逻辑由 `appState.isConfigLoaded` 驱动）。
     @State private var showSetup = false
-    /// 首次配置页历史回填目标输入框。
     @State private var setupInputTarget: ApiInputTarget = .vod
     @StateObject private var searchVM = SearchViewModel()
     @State private var hasSavedConfig = false
@@ -67,7 +59,7 @@ struct ContentView: View {
             VStack {
                 HStack {
                     Circle()
-                        .fill(Color.orange.opacity(0.15))
+                        .fill(AppTheme.accentColor.opacity(0.15))
                         .frame(width: 300, height: 300)
                         .blur(radius: 80)
                         .offset(x: -100, y: -100)
@@ -85,7 +77,7 @@ struct ContentView: View {
             }
             .ignoresSafeArea()
 
-            VStack(spacing: 32) {
+            VStack(spacing: AppTheme.spacingXXL + AppTheme.spacingSM) {
                 ZStack {
                     Circle()
                         .fill(AppTheme.accentGradient)
@@ -101,42 +93,18 @@ struct ContentView: View {
 
                 Text("TVBox")
                     .font(.system(size: 48, weight: .heavy, design: .rounded))
-                    .foregroundColor(.white)
+                    .foregroundColor(AppTheme.textPrimary)
                     .tracking(2)
 
-                VStack(spacing: 16) {
-                    if appState.loadingPhase.isLoading {
-                        ProgressView()
-                            .scaleEffect(1.2)
-                            .tint(.orange)
-                    } else if case .failed = appState.loadingPhase {
-                        Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 36))
-                            .foregroundColor(.orange)
-                    }
-
-                    Text(appState.loadingPhase.displayText)
-                        .font(.system(size: 16))
-                        .foregroundColor(.white.opacity(0.7))
-                        .multilineTextAlignment(.center)
-                        .animation(.easeInOut(duration: 0.3), value: appState.loadingPhase.displayText)
-                }
-                .padding(.top, 8)
-
-                if case .failed = appState.loadingPhase {
-                    Button {
-                        hasSavedConfig = false
-                    } label: {
-                        Text("返回配置页")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 10)
-                            .background(Color.orange.opacity(0.3))
-                            .cornerRadius(20)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.top, 8)
+                if appState.loadingPhase.isLoading {
+                    AppLoadingView(message: appState.loadingPhase.displayText)
+                        .padding(.top, AppTheme.spacingSM)
+                } else if case .failed = appState.loadingPhase {
+                    AppErrorView(
+                        message: appState.loadingPhase.displayText,
+                        onRetry: { hasSavedConfig = false }
+                    )
+                    .padding(.top, AppTheme.spacingSM)
                 }
             }
         }
@@ -144,7 +112,6 @@ struct ContentView: View {
 
     @ViewBuilder
     private var multiRepoSelectionOverlay: some View {
-        // 若配置地址解析出“多仓库入口”，在根层统一弹窗，避免被子页面导航遮挡。
         if let pending = settingsVM.pendingMultiRepoSelection {
             SelectionModal(
                 title: "选择\(pending.target.title)仓库",
@@ -167,9 +134,6 @@ struct ContentView: View {
         }
     }
     
-    // MARK: - 主界面
-    
-    /// 主体导航容器：iOS 使用 TabView，macOS 使用 NavigationSplitView。
     private var mainTabView: some View {
         #if os(iOS)
         TabView(selection: $selectedTab) {
@@ -203,7 +167,7 @@ struct ContentView: View {
                 }
                 .tag(4)
         }
-        .tint(.orange)
+        .tint(AppTheme.accentColor)
         #else
         NavigationSplitView(columnVisibility: $appState.splitViewVisibility) {
             List(selection: $selectedTab) {
@@ -236,20 +200,15 @@ struct ContentView: View {
         #endif
     }
     
-    // MARK: - 首次配置页面
-    
-    /// 首次启动或未加载配置时的引导页面。
     private var setupView: some View {
         ZStack {
-            // 背景装饰
             AppTheme.primaryGradient
                 .ignoresSafeArea()
             
-            // 装饰性光晕
             VStack {
                 HStack {
                     Circle()
-                        .fill(Color.orange.opacity(0.15))
+                        .fill(AppTheme.accentColor.opacity(0.15))
                         .frame(width: 300, height: 300)
                         .blur(radius: 80)
                         .offset(x: -100, y: -100)
@@ -268,9 +227,8 @@ struct ContentView: View {
             .ignoresSafeArea()
             
             ScrollView {
-                VStack(spacing: 32) {
-                    // Logo 区域
-                    VStack(spacing: 20) {
+                VStack(spacing: AppTheme.spacingXXL + AppTheme.spacingSM) {
+                    VStack(spacing: AppTheme.spacingXL) {
                         ZStack {
                             Circle()
                                 .fill(AppTheme.accentGradient)
@@ -280,40 +238,37 @@ struct ContentView: View {
                             
                             Image(systemName: "play.tv.fill")
                                 .font(.system(size: 80))
-                                .foregroundStyle(
-                                    AppTheme.accentGradient
-                                )
+                                .foregroundStyle(AppTheme.accentGradient)
                                 .shadow(color: .red.opacity(0.3), radius: 15, x: 0, y: 10)
                         }
                         
-                        VStack(spacing: 8) {
+                        VStack(spacing: AppTheme.spacingSM) {
                             Text("TVBox")
                                 .font(.system(size: 48, weight: .heavy, design: .rounded))
-                                .foregroundColor(.white)
+                                .foregroundColor(AppTheme.textPrimary)
                                 .tracking(2)
                             
                             Text("极致视听 · 简洁至上")
-                                .font(.subheadline)
-                                .foregroundColor(.white.opacity(0.6))
+                                .font(.system(size: AppTheme.fontSubhead))
+                                .foregroundColor(AppTheme.textSecondary)
                                 .tracking(4)
                         }
                     }
                     .padding(.top, 60)
                     
-                    // 输入表单
-                    VStack(spacing: 24) {
-                        VStack(alignment: .leading, spacing: 12) {
+                    VStack(spacing: AppTheme.spacingXXL) {
+                        VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
                             Text("接口配置")
-                                .font(.headline)
-                                .foregroundColor(.white)
-                                .padding(.leading, 4)
+                                .font(.system(size: AppTheme.fontHeadline))
+                                .foregroundColor(AppTheme.textPrimary)
+                                .padding(.leading, AppTheme.spacingXS)
                             
                             HStack {
                                 Image(systemName: "link")
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(AppTheme.accentColor)
                                 TextField("请输入点播接口地址 (URL)", text: $settingsVM.vodApiUrl)
                                     .textFieldStyle(.plain)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(AppTheme.textPrimary)
                                     .onTapGesture {
                                         setupInputTarget = .vod
                                     }
@@ -328,7 +283,7 @@ struct ContentView: View {
                                     }
                                 } label: {
                                     Image(systemName: "doc.on.clipboard")
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(AppTheme.accentColor)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -337,10 +292,10 @@ struct ContentView: View {
                             
                             HStack {
                                 Image(systemName: "tv")
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(AppTheme.accentColor)
                                 TextField("请输入直播接口地址 (URL，可留空跟随点播)", text: $settingsVM.liveApiUrl)
                                     .textFieldStyle(.plain)
-                                    .foregroundColor(.white)
+                                    .foregroundColor(AppTheme.textPrimary)
                                     .onTapGesture {
                                         setupInputTarget = .live
                                     }
@@ -355,7 +310,7 @@ struct ContentView: View {
                                     }
                                 } label: {
                                     Image(systemName: "doc.on.clipboard")
-                                        .foregroundColor(.orange)
+                                        .foregroundColor(AppTheme.accentColor)
                                 }
                                 .buttonStyle(.plain)
                             }
@@ -363,7 +318,6 @@ struct ContentView: View {
                             .glassCard(cornerRadius: 15)
                         }
                         
-                        // 确认按钮
                         Button {
                             Task {
                                 await settingsVM.loadConfig()
@@ -376,17 +330,17 @@ struct ContentView: View {
                                 if settingsVM.isLoadingConfig {
                                     ProgressView()
                                         .tint(.white)
-                                        .padding(.trailing, 8)
+                                        .padding(.trailing, AppTheme.spacingSM)
                                 }
                                 Text(settingsVM.isLoadingConfig ? "正在解析配置..." : "开启影音之旅")
                                     .fontWeight(.bold)
                             }
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 16)
+                            .padding(.vertical, AppTheme.spacingLG)
                             .background(AppTheme.accentGradient)
-                            .foregroundColor(.white)
+                            .foregroundColor(AppTheme.textPrimary)
                             .clipShape(Capsule())
-                            .shadow(color: .red.opacity(0.4), radius: 12, x: 0, y: 6)
+                            .shadow(color: .red.opacity(0.4), radius: AppTheme.spacingMD, x: 0, y: 6)
                         }
                         .buttonStyle(.plain)
                         .disabled(
@@ -394,13 +348,12 @@ struct ContentView: View {
                             || settingsVM.vodApiUrl.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         )
                         
-                        // 历史记录
                         if !settingsVM.apiHistory.isEmpty {
-                            VStack(alignment: .leading, spacing: 12) {
+                            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
                                 Text("最近使用")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.5))
-                                    .padding(.horizontal, 4)
+                                    .font(.system(size: AppTheme.fontCaption))
+                                    .foregroundColor(AppTheme.textTertiary)
+                                    .padding(.horizontal, AppTheme.spacingXS)
                                 
                                 ForEach(settingsVM.apiHistory.prefix(3), id: \.self) { url in
                                     Button {
@@ -413,17 +366,17 @@ struct ContentView: View {
                                     } label: {
                                         HStack {
                                             Image(systemName: "clock.arrow.2.circlepath")
-                                                .font(.caption)
+                                                .font(.system(size: AppTheme.fontCaption))
                                             Text(url)
-                                                .font(.caption)
+                                                .font(.system(size: AppTheme.fontCaption))
                                                 .lineLimit(1)
                                             Spacer()
                                             Image(systemName: "chevron.right")
                                                 .font(.system(size: 8))
                                         }
                                         .padding(.vertical, 10)
-                                        .padding(.horizontal, 16)
-                                        .foregroundColor(.white.opacity(0.7))
+                                        .padding(.horizontal, AppTheme.spacingLG)
+                                        .foregroundColor(AppTheme.textSecondary)
                                         .glassCard(cornerRadius: 10)
                                     }
                                     .buttonStyle(.plain)
@@ -433,13 +386,12 @@ struct ContentView: View {
                     }
                     .padding(.horizontal, 30)
                     
-                    // 错误提示
                     if let error = settingsVM.configError {
                         HStack {
                             Image(systemName: "exclamationmark.circle.fill")
                             Text(error)
                         }
-                        .font(.caption)
+                        .font(.system(size: AppTheme.fontCaption))
                         .foregroundColor(.red)
                         .padding()
                         .glassCard(cornerRadius: 10)
@@ -452,30 +404,29 @@ struct ContentView: View {
         }
     }
     
-    /// 网络断开时在顶部显示提示条。
     @ViewBuilder
     private var networkStatusBanner: some View {
         if !networkMonitor.isConnected {
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.spacingSM) {
                 Image(systemName: "wifi.slash")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: AppTheme.fontSubhead, weight: .semibold))
                 Text("网络连接已断开")
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: AppTheme.fontSubhead, weight: .medium))
                 if appState.isRetryingConfig {
                     ProgressView()
                         .scaleEffect(0.7)
                         .tint(.white)
                 }
             }
-            .foregroundColor(.white)
-            .padding(.horizontal, 16)
-            .padding(.vertical, 8)
+            .foregroundColor(AppTheme.textPrimary)
+            .padding(.horizontal, AppTheme.spacingLG)
+            .padding(.vertical, AppTheme.spacingSM)
             .background(
                 Capsule()
                     .fill(Color.red.opacity(0.85))
             )
-            .shadow(color: .black.opacity(0.3), radius: 8, y: 4)
-            .padding(.top, 8)
+            .shadow(color: .black.opacity(0.3), radius: AppTheme.spacingSM, y: AppTheme.spacingXS)
+            .padding(.top, AppTheme.spacingSM)
             .transition(.move(edge: .top).combined(with: .opacity))
             .animation(.easeInOut(duration: 0.3), value: networkMonitor.isConnected)
         }
@@ -485,7 +436,6 @@ struct ContentView: View {
         #if os(iOS)
         UIPasteboard.general.string
         #else
-        // macOS 下通过 NSPasteboard 读取纯文本。
         NSPasteboard.general.string(forType: .string)
         #endif
     }

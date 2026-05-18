@@ -5,11 +5,11 @@ struct SearchView: View {
 
     #if os(iOS)
     private let columns = [
-        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: 12)
+        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: AppTheme.spacingMD)
     ]
     #else
     private let columns = [
-        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 16)
+        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: AppTheme.spacingLG)
     ]
     #endif
 
@@ -21,14 +21,17 @@ struct SearchView: View {
                 if viewModel.activeSites.isEmpty && !viewModel.isSearching {
                     searchHistorySection
                 } else {
-                    HStack(spacing: 0) {
-                        siteListPanel
-                        Divider()
-                        resultsPanel
+                    GeometryReader { geo in
+                        HStack(spacing: 0) {
+                            siteListPanel
+                                .frame(width: min(max(geo.size.width * 0.2, 100), 180))
+                            Divider()
+                            resultsPanel
+                        }
                     }
                 }
             }
-            .background(Color(red: 0.08, green: 0.08, blue: 0.1))
+            .background(AppBackground())
             .navigationTitle("搜索")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -37,16 +40,16 @@ struct SearchView: View {
     }
 
     private var searchBar: some View {
-        HStack(spacing: 12) {
-            HStack(spacing: 10) {
+        HStack(spacing: AppTheme.spacingMD) {
+            HStack(spacing: AppTheme.spacingSM + AppTheme.spacingXS) {
                 Image(systemName: "magnifyingglass")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(.white.opacity(0.8))
+                    .font(.system(size: AppTheme.fontHeadline, weight: .semibold))
+                    .foregroundColor(AppTheme.textPrimary)
 
                 TextField("搜索影片...", text: $viewModel.keyword)
                     .textFieldStyle(.plain)
-                    .font(.system(size: 16))
-                    .foregroundColor(.white)
+                    .font(.system(size: AppTheme.fontHeadline))
+                    .foregroundColor(AppTheme.textPrimary)
                     .submitLabel(.search)
                     .onSubmit {
                         Task { await viewModel.search() }
@@ -68,49 +71,48 @@ struct SearchView: View {
                         }
                     } label: {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.white.opacity(0.4))
+                            .foregroundColor(AppTheme.textTertiary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 12)
-            .background(Color.white.opacity(0.05))
-            .cornerRadius(16)
+            .padding(.horizontal, AppTheme.spacingLG)
+            .padding(.vertical, AppTheme.spacingMD)
+            .background(AppTheme.backgroundElevated)
+            .cornerRadius(AppTheme.radiusLG)
             .overlay(
-                RoundedRectangle(cornerRadius: 16)
-                    .stroke(LinearGradient(colors: [.orange.opacity(0.5), .clear], startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1)
+                RoundedRectangle(cornerRadius: AppTheme.radiusLG)
+                    .stroke(AppTheme.borderActive, lineWidth: 1)
             )
 
             Button {
                 Task { await viewModel.search() }
             } label: {
                 Text("搜索")
-                    .font(.system(size: 15, weight: .bold))
+                    .font(.system(size: AppTheme.fontHeadline, weight: .bold))
                     .foregroundColor(.white)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .background(LinearGradient(colors: [.orange, .red], startPoint: .leading, endPoint: .trailing))
-                    .cornerRadius(14)
+                    .padding(.horizontal, AppTheme.spacingLG)
+                    .padding(.vertical, AppTheme.spacingMD)
+                    .background(AppTheme.accentGradient)
+                    .cornerRadius(AppTheme.radiusMD)
             }
             .buttonStyle(.plain)
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 20)
-        .padding(.bottom, 10)
+        .padding(.horizontal, AppTheme.spacingXL)
+        .padding(.top, AppTheme.spacingXL)
+        .padding(.bottom, AppTheme.spacingMD)
     }
 
     private var siteListPanel: some View {
         ScrollView {
-            LazyVStack(spacing: 2) {
+            LazyVStack(spacing: AppTheme.spacingXS) {
                 ForEach(viewModel.activeSites) { site in
                     siteRow(site)
                 }
             }
-            .padding(.vertical, 8)
+            .padding(.vertical, AppTheme.spacingSM)
         }
-        .frame(width: 180)
-        .background(Color(red: 0.1, green: 0.1, blue: 0.12))
+        .background(AppTheme.backgroundSecondary)
     }
 
     private func siteRow(_ site: SourceBean) -> some View {
@@ -121,58 +123,70 @@ struct SearchView: View {
         return Button {
             viewModel.selectSite(site.key)
         } label: {
-            HStack(spacing: 8) {
-                VStack(alignment: .leading, spacing: 4) {
+            HStack(spacing: AppTheme.spacingSM) {
+                VStack(alignment: .leading, spacing: AppTheme.spacingXS) {
                     Text(site.name)
-                        .font(.system(size: 13))
-                        .foregroundColor(isSelected ? .white : .white.opacity(0.7))
+                        .font(.system(size: AppTheme.fontSubhead))
+                        .foregroundColor(isSelected ? AppTheme.textPrimary : AppTheme.textSecondary)
                         .lineLimit(1)
 
-                    HStack(spacing: 4) {
+                    HStack(spacing: AppTheme.spacingXS) {
                         if isSearching {
                             ProgressView()
                                 .scaleEffect(0.6)
-                                .tint(.gray)
+                                .tint(AppTheme.textTertiary)
                             Text("搜索中...")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
+                                .font(.system(size: AppTheme.fontCaption))
+                                .foregroundColor(AppTheme.textTertiary)
                         } else {
                             Text("\(count) 条结果")
-                                .font(.system(size: 11))
-                                .foregroundColor(.gray)
+                                .font(.system(size: AppTheme.fontCaption))
+                                .foregroundColor(AppTheme.textTertiary)
                         }
                     }
                 }
 
                 Spacer()
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 10)
-            .background(isSelected ? Color.orange.opacity(0.2) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .padding(.horizontal, AppTheme.spacingMD)
+            .padding(.vertical, AppTheme.spacingSM + AppTheme.spacingXS)
+            .background(isSelected ? AppTheme.accentColor.opacity(0.2) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusSM))
             .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(isSelected ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 1)
+                RoundedRectangle(cornerRadius: AppTheme.radiusSM)
+                    .stroke(isSelected ? AppTheme.borderActive : Color.clear, lineWidth: 1)
             )
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, 8)
+        .padding(.horizontal, AppTheme.spacingSM)
     }
 
     private var resultsPanel: some View {
         Group {
             if viewModel.selectedSiteKey == nil {
-                emptyState(icon: "magnifyingglass", text: "请输入搜索关键词")
+                VStack {
+                    Spacer()
+                    AppErrorView(message: "请输入搜索关键词")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.isCurrentSiteSearching && viewModel.currentResults.isEmpty {
-                Spacer()
-                ProgressView("搜索中...")
-                    .tint(.orange)
-                Spacer()
+                VStack {
+                    Spacer()
+                    AppLoadingView(message: "搜索中...")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.currentResults.isEmpty {
-                emptyState(icon: "magnifyingglass", text: "暂无搜索结果")
+                VStack {
+                    Spacer()
+                    AppErrorView(message: "暂无搜索结果")
+                    Spacer()
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: AppTheme.spacingLG) {
                         ForEach(viewModel.currentResults) { video in
                             NavigationLink(value: video) {
                                 VodCardView(video: video)
@@ -180,8 +194,8 @@ struct SearchView: View {
                             .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
+                    .padding(.horizontal, AppTheme.spacingXL)
+                    .padding(.vertical, AppTheme.spacingMD)
                 }
                 .navigationDestination(for: Movie.Video.self) { video in
                     DetailView(video: video)
@@ -191,80 +205,54 @@ struct SearchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func emptyState(icon: String, text: String) -> some View {
-        VStack(spacing: 8) {
-            Spacer()
-            Image(systemName: icon)
-                .font(.system(size: 48))
-                .foregroundColor(.gray)
-            Text(text)
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-            Spacer()
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-    }
-
     private var searchHistorySection: some View {
-        VStack(alignment: .leading, spacing: 12) {
+        VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
             if !viewModel.searchHistory.isEmpty {
                 HStack {
                     Text("搜索历史")
-                        .font(.headline)
-                        .foregroundColor(.white)
+                        .font(.system(size: AppTheme.fontHeadline, weight: .bold))
+                        .foregroundColor(AppTheme.textPrimary)
                     Spacer()
                     Button {
                         viewModel.clearHistory()
                     } label: {
-                        HStack(spacing: 4) {
+                        HStack(spacing: AppTheme.spacingXS) {
                             Image(systemName: "trash")
                             Text("清空")
                         }
-                        .font(.caption)
-                        .foregroundColor(.gray)
+                        .font(.system(size: AppTheme.fontCaption))
+                        .foregroundColor(AppTheme.textTertiary)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.top, 16)
+                .padding(.horizontal, AppTheme.spacingXL)
+                .padding(.top, AppTheme.spacingLG)
 
                 if #available(iOS 16.0, *) {
-                    FlowLayout(spacing: 8) {
+                    FlowLayout(spacing: AppTheme.spacingSM) {
                         ForEach(viewModel.searchHistory, id: \.self) { keyword in
-                            Button {
+                            SelectableChip(
+                                title: keyword,
+                                isSelected: false
+                            ) {
                                 viewModel.keyword = keyword
                                 Task { await viewModel.search() }
-                            } label: {
-                                Text(keyword)
-                                    .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.8))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 7)
-                                    .background(Color.white.opacity(0.1))
-                                    .cornerRadius(16)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, AppTheme.spacingXL)
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: 8) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 80))], spacing: AppTheme.spacingSM) {
                         ForEach(viewModel.searchHistory, id: \.self) { keyword in
-                            Button {
+                            SelectableChip(
+                                title: keyword,
+                                isSelected: false
+                            ) {
                                 viewModel.keyword = keyword
                                 Task { await viewModel.search() }
-                            } label: {
-                                Text(keyword)
-                                    .font(.subheadline)
-                                    .foregroundColor(.white.opacity(0.8))
-                                    .padding(.horizontal, 14)
-                                    .padding(.vertical, 7)
-                                    .background(Color.white.opacity(0.1))
-                                    .cornerRadius(16)
                             }
-                            .buttonStyle(.plain)
                         }
                     }
-                    .padding(.horizontal, 20)
+                    .padding(.horizontal, AppTheme.spacingXL)
                 }
             }
 
@@ -275,7 +263,7 @@ struct SearchView: View {
 
 @available(iOS 16.0, *)
 struct FlowLayout: Layout {
-    var spacing: CGFloat = 8
+    var spacing: CGFloat = AppTheme.spacingSM
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
         let result = arrangement(proposal: proposal, subviews: subviews)

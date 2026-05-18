@@ -5,11 +5,11 @@ struct FavoritesView: View {
 
     #if os(iOS)
     private let columns = [
-        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: 12)
+        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: AppTheme.spacingMD)
     ]
     #else
     private let columns = [
-        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 16)
+        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: AppTheme.spacingLG)
     ]
     #endif
 
@@ -21,10 +21,11 @@ struct FavoritesView: View {
         NavigationStack {
             Group {
                 if sortedFavorites.isEmpty {
-                    emptyState
+                    AppErrorView(message: "暂无收藏\n遇到喜欢的影片别忘了点下收藏按钮哦！")
+                        .padding(AppTheme.spacingXXL * 2)
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 16) {
+                        LazyVGrid(columns: columns, spacing: AppTheme.spacingLG) {
                             ForEach(sortedFavorites) { item in
                                 NavigationLink(value: movieVideo(from: item)) {
                                     favoriteCard(item)
@@ -39,12 +40,12 @@ struct FavoritesView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, AppTheme.spacingXL)
+                        .padding(.vertical, AppTheme.spacingMD)
                     }
                 }
             }
-            .background(Color(red: 0.08, green: 0.08, blue: 0.1))
+            .background(AppBackground())
             .navigationTitle("收藏")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -55,29 +56,20 @@ struct FavoritesView: View {
         }
     }
 
-    private var emptyState: some View {
-        EmptyStateView(
-            icon: "heart.text.square",
-            title: "暂无收藏",
-            message: "遇到喜欢的影片别忘了点下收藏按钮哦！"
-        )
-        .padding(40)
-    }
-
     private func favoriteCard(_ item: VodCollect) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppTheme.spacingXS + 2) {
             CachedAsyncImage(url: URL.posterURL(from: item.vodPic)) { image in
                 image.resizable().aspectRatio(2/3, contentMode: .fill)
             } placeholder: {
-                Rectangle().fill(Color.gray.opacity(0.3))
+                Rectangle().fill(AppTheme.backgroundTertiary)
                     .aspectRatio(2/3, contentMode: .fill)
-                    .overlay(Image(systemName: "film").foregroundColor(.gray))
+                    .overlay(Image(systemName: "film").foregroundColor(AppTheme.textTertiary))
             }
-            .clipShape(RoundedRectangle(cornerRadius: 8))
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusSM))
 
             Text(item.vodName)
-                .font(.caption)
-                .foregroundColor(.white)
+                .font(.system(size: AppTheme.fontCaption))
+                .foregroundColor(AppTheme.textPrimary)
                 .lineLimit(2)
         }
     }

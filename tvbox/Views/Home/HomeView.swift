@@ -1,6 +1,5 @@
 import SwiftUI
 
-/// 首页 - 对应 Android 版 HomeActivity + UserFragment
 struct HomeView: View {
     @StateObject private var viewModel = HomeViewModel()
     @EnvironmentObject var appState: AppState
@@ -8,37 +7,33 @@ struct HomeView: View {
     @State private var categoryDragTranslation: CGFloat = 0
     @State private var safariUrl: URL?
     @State private var isReconnecting = false
-    
-    // 网格布局
+
     #if os(iOS)
     private let columns = [
-        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: 12)
+        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: AppTheme.cardSpacing)
     ]
     #else
     private let columns = [
-        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 16)
+        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: AppTheme.cardSpacing)
     ]
     #endif
-    
+
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // 顶部栏
                 headerBar
-                
-                // 分类标签栏
+
                 if !viewModel.sorts.isEmpty {
                     categoryTabBar
                 }
-                
+
                 if !viewModel.currentFilters.isEmpty {
                     filterBar
                 }
-                
-                // 内容区
+
                 contentArea
             }
-            .background(AppTheme.primaryGradient)
+            .background { AppBackground() }
         }
         .task {
             await viewModel.loadSorts()
@@ -67,29 +62,26 @@ struct HomeView: View {
         }
         .overlay {
             if isReconnecting {
-                VStack(spacing: 12) {
+                VStack(spacing: AppTheme.spacingMD) {
                     ProgressView()
                         .scaleEffect(1.2)
-                        .tint(.orange)
+                        .tint(AppTheme.accentColor)
                     Text("正在重连服务...")
-                        .font(.subheadline)
-                        .foregroundColor(.white.opacity(0.8))
+                        .font(.system(size: AppTheme.fontSubhead))
+                        .foregroundColor(AppTheme.textSecondary)
                 }
-                .padding(.horizontal, 24)
-                .padding(.vertical, 16)
+                .padding(.horizontal, AppTheme.spacingXXL)
+                .padding(.vertical, AppTheme.spacingLG)
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.black.opacity(0.7))
+                    RoundedRectangle(cornerRadius: AppTheme.radiusMD)
+                        .fill(AppTheme.backgroundElevated)
                 )
             }
         }
     }
-    
-    // MARK: - 顶部栏
-    
+
     private var headerBar: some View {
-        HStack(spacing: 15) {
-            // 应用名（可切换源）
+        HStack(spacing: AppTheme.spacingLG) {
             Menu {
                 ForEach(ApiConfig.shared.sourceBeanList) { source in
                     Button {
@@ -105,85 +97,63 @@ struct HomeView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 6) {
+                HStack(spacing: AppTheme.spacingSM) {
                     Image(systemName: "sparkles")
-                        .foregroundColor(.orange)
+                        .foregroundColor(AppTheme.accentColor)
                     Text(ApiConfig.shared.homeSourceBean?.name ?? "TVBox")
-                        .font(.system(size: 15, weight: .bold))
-                        .foregroundColor(.white)
+                        .font(.system(size: AppTheme.fontHeadline, weight: .bold))
+                        .foregroundColor(AppTheme.textPrimary)
                         .lineLimit(1)
                     Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundColor(.white.opacity(0.5))
-                        .padding(.leading, 2)
+                        .font(.system(size: AppTheme.fontCaption, weight: .bold))
+                        .foregroundColor(AppTheme.textTertiary)
+                        .padding(.leading, AppTheme.spacingXS)
                 }
-                .padding(.horizontal, 14)
-                .padding(.vertical, 8)
-                .background(Color.white.opacity(0.1))
+                .padding(.horizontal, AppTheme.spacingLG)
+                .padding(.vertical, AppTheme.spacingSM)
+                .background(AppTheme.backgroundElevated)
                 .clipShape(Capsule())
-                .overlay(Capsule().stroke(Color.white.opacity(0.1), lineWidth: 0.5))
+                .overlay(Capsule().stroke(AppTheme.borderLight, lineWidth: 0.5))
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
-            
+
             Spacer()
-            
-            // 日期时间
+
             HomeClockView()
         }
-        .padding(.horizontal, 20)
-        .padding(.top, 15)
-        .padding(.bottom, 10)
+        .padding(.horizontal, AppTheme.spacingXL)
+        .padding(.top, AppTheme.spacingLG)
+        .padding(.bottom, AppTheme.spacingSM)
     }
-    
-    // MARK: - 分类标签栏
-    
+
     private var categoryTabBar: some View {
         ScrollViewReader { proxy in
-            HStack(spacing: 8) {
+            HStack(spacing: AppTheme.spacingSM) {
                 categoryMoveButton(
                     systemName: "chevron.left",
                     enabled: canMoveCategory(by: -1)
                 ) {
                     moveCategoryTabs(by: -3, proxy: proxy)
                 }
-                
+
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 12) {
+                    HStack(spacing: AppTheme.spacingMD) {
                         ForEach(viewModel.sorts) { sort in
-                            Button {
+                            SelectableChip(
+                                title: sort.name,
+                                isSelected: viewModel.selectedSort?.id == sort.id
+                            ) {
                                 withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
                                     viewModel.selectSort(sort)
                                 }
                                 categoryScrollAnchorId = sort.id
                                 scrollCategoryBar(to: sort.id, proxy: proxy)
-                            } label: {
-                                Text(sort.name)
-                                    .font(.system(size: 14, weight: viewModel.selectedSort?.id == sort.id ? .bold : .medium))
-                                    .foregroundColor(viewModel.selectedSort?.id == sort.id ? .orange : .white.opacity(0.8))
-                                    .padding(.horizontal, 18)
-                                    .padding(.vertical, 10)
-                                    .background(
-                                        ZStack {
-                                            if viewModel.selectedSort?.id == sort.id {
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .fill(Color.orange.opacity(0.15))
-                                                    .overlay(
-                                                        RoundedRectangle(cornerRadius: 12)
-                                                            .stroke(Color.orange.opacity(0.5), lineWidth: 1)
-                                                    )
-                                            } else {
-                                                RoundedRectangle(cornerRadius: 12)
-                                                    .fill(Color.white.opacity(0.05))
-                                            }
-                                        }
-                                    )
                             }
-                            .buttonStyle(.plain)
                             .id(sort.id)
                         }
                     }
-                    .padding(.horizontal, 8)
+                    .padding(.horizontal, AppTheme.spacingSM)
                 }
                 .simultaneousGesture(categoryDragGesture(proxy: proxy))
                 .onAppear {
@@ -199,7 +169,7 @@ struct HomeView: View {
                     categoryScrollAnchorId = newId
                     scrollCategoryBar(to: newId, proxy: proxy)
                 }
-                
+
                 categoryMoveButton(
                     systemName: "chevron.right",
                     enabled: canMoveCategory(by: 1)
@@ -207,24 +177,24 @@ struct HomeView: View {
                     moveCategoryTabs(by: 3, proxy: proxy)
                 }
             }
-            .padding(.horizontal, 14)
+            .padding(.horizontal, AppTheme.spacingLG)
         }
-        .padding(.vertical, 8)
+        .padding(.vertical, AppTheme.spacingSM)
     }
-    
+
     private func categoryMoveButton(systemName: String, enabled: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(.white.opacity(enabled ? 0.9 : 0.35))
+                .font(.system(size: AppTheme.fontFootnote, weight: .semibold))
+                .foregroundColor(enabled ? AppTheme.textPrimary : AppTheme.textDisabled)
                 .frame(width: 26, height: 26)
-                .background(Color.white.opacity(0.08))
+                .background(AppTheme.backgroundElevated)
                 .clipShape(Circle())
         }
         .buttonStyle(.plain)
         .disabled(!enabled)
     }
-    
+
     private func canMoveCategory(by direction: Int) -> Bool {
         guard !viewModel.sorts.isEmpty else { return false }
         let currentIndex = categoryIndex(for: categoryScrollAnchorId) ?? 0
@@ -233,46 +203,46 @@ struct HomeView: View {
         }
         return currentIndex < viewModel.sorts.count - 1
     }
-    
+
     private func categoryIndex(for id: String?) -> Int? {
         guard let id else { return nil }
         return viewModel.sorts.firstIndex(where: { $0.id == id })
     }
-    
+
     private func syncCategoryScrollAnchorIfNeeded() {
         guard !viewModel.sorts.isEmpty else {
             categoryScrollAnchorId = nil
             return
         }
-        
+
         if let selectedId = viewModel.selectedSort?.id,
            viewModel.sorts.contains(where: { $0.id == selectedId }) {
             categoryScrollAnchorId = selectedId
             return
         }
-        
+
         if let anchorId = categoryScrollAnchorId,
            viewModel.sorts.contains(where: { $0.id == anchorId }) {
             return
         }
-        
+
         categoryScrollAnchorId = viewModel.sorts.first?.id
     }
-    
+
     private func moveCategoryTabs(by delta: Int, proxy: ScrollViewProxy) {
         guard !viewModel.sorts.isEmpty else { return }
         let currentIndex = categoryIndex(for: categoryScrollAnchorId) ?? 0
         let newIndex = min(max(0, currentIndex + delta), viewModel.sorts.count - 1)
         guard newIndex != currentIndex else { return }
-        
+
         let targetId = viewModel.sorts[newIndex].id
         categoryScrollAnchorId = targetId
         scrollCategoryBar(to: targetId, proxy: proxy)
     }
-    
+
     private func scrollCategoryBar(to id: String?, proxy: ScrollViewProxy, animated: Bool = true) {
         guard let id else { return }
-        
+
         if animated {
             withAnimation(.easeInOut(duration: 0.2)) {
                 proxy.scrollTo(id, anchor: .center)
@@ -281,7 +251,7 @@ struct HomeView: View {
             proxy.scrollTo(id, anchor: .center)
         }
     }
-    
+
     private func categoryDragGesture(proxy: ScrollViewProxy) -> some Gesture {
         DragGesture(minimumDistance: 12)
             .onChanged { value in
@@ -298,118 +268,74 @@ struct HomeView: View {
                 categoryDragTranslation = 0
             }
     }
-    
+
     private var filterBar: some View {
         ScrollView(.vertical, showsIndicators: false) {
-            VStack(spacing: 6) {
+            VStack(spacing: AppTheme.spacingSM) {
                 ForEach(viewModel.currentFilters, id: \.key) { filter in
-                    HStack(spacing: 6) {
+                    HStack(spacing: AppTheme.spacingSM) {
                         Text(filter.name)
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(.white.opacity(0.6))
+                            .font(.system(size: AppTheme.fontCaption, weight: .medium))
+                            .foregroundColor(AppTheme.textSecondary)
                             .frame(width: 36, alignment: .leading)
-                        
+
                         ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: 6) {
-                                filterChip(
+                            HStack(spacing: AppTheme.spacingSM) {
+                                SelectableChip(
                                     title: "全部",
-                                    isSelected: viewModel.selectedFilters[filter.key] == nil,
-                                    action: { viewModel.selectFilter(key: filter.key, value: "") }
-                                )
-                                
+                                    isSelected: viewModel.selectedFilters[filter.key] == nil
+                                ) {
+                                    viewModel.selectFilter(key: filter.key, value: "")
+                                }
+
                                 ForEach(filter.values, id: \.v) { value in
-                                    filterChip(
+                                    SelectableChip(
                                         title: value.n,
-                                        isSelected: viewModel.selectedFilters[filter.key] == value.v,
-                                        action: { viewModel.selectFilter(key: filter.key, value: value.v) }
-                                    )
+                                        isSelected: viewModel.selectedFilters[filter.key] == value.v
+                                    ) {
+                                        viewModel.selectFilter(key: filter.key, value: value.v)
+                                    }
                                 }
                             }
                         }
                     }
                 }
             }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 4)
+            .padding(.horizontal, AppTheme.spacingLG)
+            .padding(.vertical, AppTheme.spacingXS)
         }
         .frame(maxHeight: 120)
     }
-    
-    private func filterChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(title)
-                .font(.system(size: 11, weight: isSelected ? .bold : .regular))
-                .foregroundColor(isSelected ? .orange : .white.opacity(0.7))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
-                .background(
-                    Capsule()
-                        .fill(isSelected ? Color.orange.opacity(0.2) : Color.white.opacity(0.06))
-                )
-                .overlay(
-                    Capsule()
-                        .stroke(isSelected ? Color.orange.opacity(0.5) : Color.clear, lineWidth: 0.5)
-                )
-        }
-        .buttonStyle(.plain)
-    }
-    
-    // MARK: - 内容区
-    
+
     private var contentArea: some View {
         Group {
             if viewModel.isLoading && viewModel.categoryVideos.isEmpty && viewModel.homeVideos.isEmpty {
                 VStack {
                     Spacer()
-                    ProgressView()
-                        .scaleEffect(1.5)
-                        .tint(.orange)
-                    Text("加载中...")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-                        .padding(.top, 12)
+                    AppLoadingView()
                     Spacer()
                 }
             } else if let error = viewModel.errorMessage, viewModel.categoryVideos.isEmpty {
-                VStack(spacing: 12) {
+                VStack {
                     Spacer()
-                    Image(systemName: "exclamationmark.triangle")
-                        .font(.largeTitle)
-                        .foregroundColor(.orange)
-                    
                     if let source = ApiConfig.shared.homeSourceBean, source.isIndexSite {
-                        Text("该线路为索引服务，请点击影视跳转搜索")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
+                        AppErrorView(message: "该线路为索引服务，请点击影视跳转搜索")
                     } else {
-                        Text(error)
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                            .multilineTextAlignment(.center)
-                            .padding(.horizontal, 40)
+                        AppErrorView(message: error, onRetry: { Task { await viewModel.refresh() } })
                     }
-                    
-                    // 如果是不支持的源类型，显示类型信息
+
                     if let source = ApiConfig.shared.homeSourceBean, !source.isSupportedInSwift {
                         Text("当前源类型: \(source.typeDescription)")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
+                            .font(.system(size: AppTheme.fontCaption))
+                            .foregroundColor(AppTheme.textSecondary)
                     }
-                    
-                    Button("重试") {
-                        Task { await viewModel.refresh() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
                     Spacer()
                 }
             } else {
                 let videos = viewModel.categoryVideos
-                
+
                 ScrollView {
-                    LazyVGrid(columns: columns, spacing: 16) {
+                    LazyVGrid(columns: columns, spacing: AppTheme.cardSpacing) {
                         ForEach(videos) { video in
                             Group {
                                 if let source = ApiConfig.shared.homeSourceBean, source.isIndexSite {
@@ -438,10 +364,9 @@ struct HomeView: View {
                             }
                         }
                     }
-                    .padding(.horizontal, 20)
-                    .padding(.vertical, 12)
-                    
-                    // 加载更多
+                    .padding(.horizontal, AppTheme.spacingXL)
+                    .padding(.vertical, AppTheme.spacingMD)
+
                     if viewModel.hasMore {
                         ProgressView()
                             .padding()
@@ -456,11 +381,11 @@ struct HomeView: View {
             DetailView(video: video)
         }
     }
-    
+
     private func navigateToSearch(with keyword: String) {
         appState.pendingSearchKeyword = keyword
     }
-    
+
     private func openConfigCenterUrl(from video: Movie.Video) {
         var openUrl: String?
         if video.pic.hasPrefix("http") {
@@ -477,7 +402,7 @@ struct HomeView: View {
                 }
             }
         }
-        
+
         if let urlString = openUrl, let url = URL(string: urlString) {
             safariUrl = url
         }
@@ -488,11 +413,11 @@ private struct HomeClockView: View {
     var body: some View {
         TimelineView(.periodic(from: .now, by: 1)) { timeline in
             Text(timeline.date.homeDateString)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.6))
-                .padding(.horizontal, 16)
-                .padding(.vertical, 10)
-                .glassCard(cornerRadius: 12)
+                .font(.system(size: AppTheme.fontFootnote, weight: .medium, design: .monospaced))
+                .foregroundColor(AppTheme.textSecondary)
+                .padding(.horizontal, AppTheme.spacingLG)
+                .padding(.vertical, AppTheme.spacingMD)
+                .glassCard(cornerRadius: AppTheme.radiusMD)
         }
     }
 }

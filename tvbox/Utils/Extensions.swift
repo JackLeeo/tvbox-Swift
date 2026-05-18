@@ -108,8 +108,52 @@ struct AppTheme {
         endPoint: .trailing
     )
     
+    static let accentColor = Color.orange
+    
+    static let backgroundPrimary = Color(hex: "0f0f1a")
+    static let backgroundSecondary = Color(hex: "1a1a2e")
+    static let backgroundTertiary = Color.white.opacity(0.06)
+    static let backgroundElevated = Color.white.opacity(0.08)
+    
+    static let textPrimary = Color.white.opacity(0.95)
+    static let textSecondary = Color.white.opacity(0.6)
+    static let textTertiary = Color.white.opacity(0.4)
+    static let textDisabled = Color.white.opacity(0.25)
+    
+    static let borderLight = Color.white.opacity(0.08)
+    static let borderMedium = Color.white.opacity(0.15)
+    static let borderActive = Color.orange.opacity(0.5)
+    
+    static let spacingXS: CGFloat = 4
+    static let spacingSM: CGFloat = 8
+    static let spacingMD: CGFloat = 12
+    static let spacingLG: CGFloat = 16
+    static let spacingXL: CGFloat = 20
+    static let spacingXXL: CGFloat = 24
+    
+    static let radiusSM: CGFloat = 8
+    static let radiusMD: CGFloat = 12
+    static let radiusLG: CGFloat = 16
+    static let radiusXL: CGFloat = 20
+    static let radiusFull: CGFloat = 999
+    
+    static let cardRadius: CGFloat = 12
+    static let cardSpacing: CGFloat = 8
+    static let cardPadding: CGFloat = 10
+    
+    static let fontCaption: CGFloat = 11
+    static let fontFootnote: CGFloat = 12
+    static let fontSubhead: CGFloat = 13
+    static let fontBody: CGFloat = 14
+    static let fontHeadline: CGFloat = 16
+    static let fontTitle3: CGFloat = 18
+    static let fontTitle2: CGFloat = 20
+    
+    static let animationFast: Double = 0.15
+    static let animationNormal: Double = 0.25
+    static let animationSlow: Double = 0.35
+    
     static let glassBackgroud = Color.white.opacity(0.1)
-    static let cardRadius: CGFloat = 16
     static let glassRadius: CGFloat = 20
 }
 
@@ -175,6 +219,133 @@ struct VisualEffectView: NSViewRepresentable {
 extension View {
     func glassCard(cornerRadius: CGFloat = AppTheme.glassRadius) -> some View {
         self.modifier(GlassBackground(cornerRadius: cornerRadius))
+    }
+}
+
+// MARK: - Common Components
+
+struct SelectableChip: View {
+    let title: String
+    let isSelected: Bool
+    let action: () -> Void
+    
+    var body: some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: AppTheme.fontSubhead, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? .white : AppTheme.textSecondary)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 7)
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusMD)
+                        .fill(isSelected ? Color.orange.opacity(0.2) : AppTheme.backgroundTertiary)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.radiusMD)
+                        .stroke(isSelected ? AppTheme.borderActive : Color.clear, lineWidth: 1)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+struct AppBackground: View {
+    var body: some View {
+        AppTheme.primaryGradient
+            .ignoresSafeArea()
+    }
+}
+
+struct AppCard<Content: View>: View {
+    let content: Content
+    var cornerRadius: CGFloat = AppTheme.cardRadius
+    
+    init(cornerRadius: CGFloat = AppTheme.cardRadius, @ViewBuilder content: () -> Content) {
+        self.cornerRadius = cornerRadius
+        self.content = content()
+    }
+    
+    var body: some View {
+        content
+            .padding(AppTheme.cardPadding)
+            .background(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .fill(AppTheme.backgroundElevated)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: cornerRadius)
+                    .stroke(AppTheme.borderLight, lineWidth: 0.5)
+            )
+    }
+}
+
+struct AppSectionHeader: View {
+    let title: String
+    var icon: String? = nil
+    
+    var body: some View {
+        HStack(spacing: 6) {
+            if let icon {
+                Image(systemName: icon)
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(AppTheme.accentColor)
+            }
+            Text(title)
+                .font(.system(size: AppTheme.fontHeadline, weight: .semibold))
+                .foregroundColor(AppTheme.textPrimary)
+        }
+    }
+}
+
+struct AppLoadingView: View {
+    var message: String = "加载中..."
+    
+    var body: some View {
+        VStack(spacing: AppTheme.spacingMD) {
+            ProgressView()
+                .tint(AppTheme.accentColor)
+            Text(message)
+                .font(.system(size: AppTheme.fontSubhead))
+                .foregroundColor(AppTheme.textSecondary)
+        }
+    }
+}
+
+struct AppErrorView: View {
+    let message: String
+    var onRetry: (() -> Void)? = nil
+    
+    var body: some View {
+        VStack(spacing: AppTheme.spacingLG) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 40))
+                .foregroundColor(AppTheme.accentColor.opacity(0.6))
+            
+            Text(message)
+                .font(.system(size: AppTheme.fontSubhead))
+                .foregroundColor(AppTheme.textSecondary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal, 40)
+            
+            if let onRetry {
+                Button(action: onRetry) {
+                    Text("重试")
+                        .font(.system(size: AppTheme.fontBody, weight: .medium))
+                        .foregroundColor(.white)
+                        .padding(.horizontal, 32)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: AppTheme.radiusMD)
+                                .fill(AppTheme.accentColor.opacity(0.2))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: AppTheme.radiusMD)
+                                .stroke(AppTheme.accentColor.opacity(0.4), lineWidth: 1)
+                        )
+                }
+                .buttonStyle(.plain)
+            }
+        }
     }
 }
 

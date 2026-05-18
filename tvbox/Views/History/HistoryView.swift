@@ -5,11 +5,11 @@ struct HistoryView: View {
 
     #if os(iOS)
     private let columns = [
-        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: 12)
+        GridItem(.adaptive(minimum: 120, maximum: 160), spacing: AppTheme.spacingMD)
     ]
     #else
     private let columns = [
-        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: 16)
+        GridItem(.adaptive(minimum: 140, maximum: 180), spacing: AppTheme.spacingLG)
     ]
     #endif
 
@@ -21,10 +21,11 @@ struct HistoryView: View {
         NavigationStack {
             Group {
                 if sortedRecords.isEmpty {
-                    emptyState
+                    AppErrorView(message: "暂无播放记录\n您还没有看任何视频，赶快去首页探索吧！")
+                        .padding(AppTheme.spacingXXL * 2)
                 } else {
                     ScrollView {
-                        LazyVGrid(columns: columns, spacing: 16) {
+                        LazyVGrid(columns: columns, spacing: AppTheme.spacingLG) {
                             ForEach(sortedRecords) { item in
                                 NavigationLink(value: movieVideo(from: item)) {
                                     recordCard(item)
@@ -39,12 +40,12 @@ struct HistoryView: View {
                                 }
                             }
                         }
-                        .padding(.horizontal, 20)
-                        .padding(.vertical, 12)
+                        .padding(.horizontal, AppTheme.spacingXL)
+                        .padding(.vertical, AppTheme.spacingMD)
                     }
                 }
             }
-            .background(Color(red: 0.08, green: 0.08, blue: 0.1))
+            .background(AppBackground())
             .navigationTitle("历史记录")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -56,7 +57,7 @@ struct HistoryView: View {
                             store.clearHistory()
                         } label: {
                             Text("清空")
-                                .foregroundColor(.orange)
+                                .foregroundColor(AppTheme.accentColor)
                         }
                     }
                 }
@@ -67,47 +68,38 @@ struct HistoryView: View {
         }
     }
 
-    private var emptyState: some View {
-        EmptyStateView(
-            icon: "clock.arrow.circlepath",
-            title: "暂无播放记录",
-            message: "您还没有看任何视频，赶快去首页探索吧！"
-        )
-        .padding(40)
-    }
-
     private func recordCard(_ item: VodRecord) -> some View {
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: AppTheme.spacingXS + 2) {
             ZStack(alignment: .bottomLeading) {
                 CachedAsyncImage(url: URL.posterURL(from: item.vodPic)) { image in
                     image.resizable().aspectRatio(2/3, contentMode: .fill)
                 } placeholder: {
-                    Rectangle().fill(Color.gray.opacity(0.3))
+                    Rectangle().fill(AppTheme.backgroundTertiary)
                         .aspectRatio(2/3, contentMode: .fill)
-                        .overlay(Image(systemName: "film").foregroundColor(.gray))
+                        .overlay(Image(systemName: "film").foregroundColor(AppTheme.textTertiary))
                 }
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusSM))
 
                 if !item.playNote.isEmpty {
                     Text(item.playNote)
-                        .font(.system(size: 9))
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 6)
-                        .padding(.vertical, 3)
-                        .background(Color.black.opacity(0.7))
-                        .cornerRadius(4)
-                        .padding(4)
+                        .font(.system(size: AppTheme.fontCaption - 2))
+                        .foregroundColor(AppTheme.textPrimary)
+                        .padding(.horizontal, AppTheme.spacingXS + 2)
+                        .padding(.vertical, AppTheme.spacingXS - 1)
+                        .background(AppTheme.backgroundPrimary.opacity(0.7))
+                        .cornerRadius(AppTheme.spacingXS)
+                        .padding(AppTheme.spacingXS)
                 }
             }
 
             Text(item.vodName)
-                .font(.caption)
-                .foregroundColor(.white)
+                .font(.system(size: AppTheme.fontCaption))
+                .foregroundColor(AppTheme.textPrimary)
                 .lineLimit(2)
 
             Text(item.updateTime.displayString)
-                .font(.system(size: 10))
-                .foregroundColor(.gray)
+                .font(.system(size: AppTheme.fontCaption - 1))
+                .foregroundColor(AppTheme.textTertiary)
         }
     }
 

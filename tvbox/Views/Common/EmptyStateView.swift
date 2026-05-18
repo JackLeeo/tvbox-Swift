@@ -1,49 +1,40 @@
 import SwiftUI
 
-/// 通用空状态组件。
-/// 在收藏、历史等页面复用，统一空页面视觉风格。
 struct EmptyStateView: View {
-    /// SF Symbol 图标名。
     let icon: String
-    /// 主标题。
     let title: String
-    /// 可选说明文字，为空时不渲染副文案区域。
     var message: String? = nil
     
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: AppTheme.spacingXL) {
             ZStack {
                 Circle()
-                    .fill(Color.orange.opacity(0.15))
+                    .fill(AppTheme.accentColor.opacity(0.15))
                     .frame(width: 120, height: 120)
                     .overlay(
-                        Circle().stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                        Circle().stroke(AppTheme.accentColor.opacity(0.3), lineWidth: 1)
                     )
                 
                 Image(systemName: icon)
                     .font(.system(size: 46, weight: .light))
-                    .foregroundStyle(
-                        LinearGradient(colors: [.orange, .red.opacity(0.8)], startPoint: .topLeading, endPoint: .bottomTrailing)
-                    )
+                    .foregroundStyle(AppTheme.accentGradient)
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, AppTheme.spacingSM)
             
-            // 标题强调当前页面状态，例如“暂无收藏”“暂无播放记录”。
             Text(title)
-                .font(.title3.bold())
-                .foregroundColor(.white.opacity(0.9))
+                .font(.system(size: AppTheme.fontTitle3, weight: .bold))
+                .foregroundColor(AppTheme.textPrimary.opacity(0.9))
                 .tracking(1)
             
-            // 副文案用于提供下一步引导，不参与核心逻辑判断。
             if let message = message {
                 Text(message)
-                    .font(.callout)
-                    .foregroundColor(.white.opacity(0.5))
+                    .font(.system(size: AppTheme.fontBody))
+                    .foregroundColor(AppTheme.textTertiary)
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 32)
+                    .padding(.horizontal, AppTheme.spacingXXL + AppTheme.spacingSM)
             }
         }
-        .padding(40)
+        .padding(AppTheme.spacingXXL + AppTheme.spacingLG)
         .glassCard(cornerRadius: 30)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }

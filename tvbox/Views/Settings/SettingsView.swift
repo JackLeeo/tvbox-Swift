@@ -1,18 +1,17 @@
 import SwiftUI
 
-/// 设置页 - 对应 Android 版 SettingActivity + ModelSettingFragment
 struct SettingsView: View {
     enum ApiInputType {
         case vod
         case live
-        
+
         var title: String {
             switch self {
             case .vod: return "点播接口地址"
             case .live: return "直播接口地址"
             }
         }
-        
+
         var placeholder: String {
             switch self {
             case .vod: return "请输入点播接口地址"
@@ -20,7 +19,7 @@ struct SettingsView: View {
             }
         }
     }
-    
+
     @StateObject private var viewModel = SettingsViewModel()
     @StateObject private var apiConfig = ApiConfig.shared
     @EnvironmentObject var appState: AppState
@@ -31,7 +30,7 @@ struct SettingsView: View {
     @State private var showingPicker: PickerType = .none
     @State private var showHistorySheet = false
     @State private var showFavoritesSheet = false
-    
+
     enum PickerType {
         case none
         case vodPlayer
@@ -40,106 +39,126 @@ struct SettingsView: View {
         case vlcBuffer
         case playTimeStep
     }
-    
+
     var body: some View {
         NavigationStack {
             ScrollView {
-                VStack(spacing: 24) {
-                    // API 配置
-                    SectionCard(title: "数据源") {
-                        SettingsRow(
-                            icon: "film",
-                            title: "点播接口地址",
-                            value: viewModel.vodApiUrl.isEmpty ? "未配置" : viewModel.vodApiUrl
-                        ) {
-                            editingApiType = .vod
-                            showApiInput = true
-                        }
-                        Divider().background(Color.white.opacity(0.1))
-                        SettingsRow(
-                            icon: "tv",
-                            title: "直播接口地址",
-                            value: viewModel.liveApiUrl.isEmpty ? "跟随点播接口" : viewModel.liveApiUrl
-                        ) {
-                            editingApiType = .live
-                            showApiInput = true
-                        }
-                        Divider().background(Color.white.opacity(0.1))
-                        if !apiConfig.sourceBeanList.isEmpty {
-                            NavigationLink {
-                                sourcePickerView
-                            } label: {
-                                SettingsRow(icon: "server.rack", title: "主页数据源", value: apiConfig.homeSourceBean?.name ?? "", action: nil)
+                VStack(spacing: AppTheme.spacingXXL) {
+                    VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                        AppSectionHeader(title: "数据源")
+                        AppCard(cornerRadius: AppTheme.radiusLG) {
+                            VStack(spacing: 0) {
+                                SettingsRow(
+                                    icon: "film",
+                                    title: "点播接口地址",
+                                    value: viewModel.vodApiUrl.isEmpty ? "未配置" : viewModel.vodApiUrl
+                                ) {
+                                    editingApiType = .vod
+                                    showApiInput = true
+                                }
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(
+                                    icon: "tv",
+                                    title: "直播接口地址",
+                                    value: viewModel.liveApiUrl.isEmpty ? "跟随点播接口" : viewModel.liveApiUrl
+                                ) {
+                                    editingApiType = .live
+                                    showApiInput = true
+                                }
+                                Divider().background(AppTheme.borderLight)
+                                if !apiConfig.sourceBeanList.isEmpty {
+                                    NavigationLink {
+                                        sourcePickerView
+                                    } label: {
+                                        SettingsRow(icon: "server.rack", title: "主页数据源", value: apiConfig.homeSourceBean?.name ?? "", action: nil)
+                                    }
+                                }
                             }
                         }
                     }
-                    
-                    // 播放设置
-                    SectionCard(title: "播放设置") {
-                        SettingsRow(icon: "play.rectangle", title: "点播播放器", value: viewModel.vodPlayerEngine.title) {
-                            if viewModel.playerEngineOptions.count > 1 {
-                                showingPicker = .vodPlayer
+
+                    VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                        AppSectionHeader(title: "播放设置")
+                        AppCard(cornerRadius: AppTheme.radiusLG) {
+                            VStack(spacing: 0) {
+                                SettingsRow(icon: "play.rectangle", title: "点播播放器", value: viewModel.vodPlayerEngine.title) {
+                                    if viewModel.playerEngineOptions.count > 1 {
+                                        showingPicker = .vodPlayer
+                                    }
+                                }
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(icon: "dot.radiowaves.left.and.right", title: "直播播放器", value: viewModel.livePlayerEngine.title) {
+                                    if viewModel.playerEngineOptions.count > 1 {
+                                        showingPicker = .livePlayer
+                                    }
+                                }
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(icon: "cpu", title: "视频解码", value: viewModel.decodeMode.title) {
+                                    showingPicker = .decode
+                                }
+                                if PlayerEngine.isVLCAvailable {
+                                    Divider().background(AppTheme.borderLight)
+                                    SettingsRow(icon: "externaldrive.badge.wifi", title: "VLC缓冲", value: viewModel.vlcBufferMode.title) {
+                                        showingPicker = .vlcBuffer
+                                    }
+                                }
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(icon: "forward", title: "快进步长", value: "\(viewModel.playTimeStep)秒") {
+                                    showingPicker = .playTimeStep
+                                }
                             }
                         }
-                        Divider().background(Color.white.opacity(0.1))
-                        SettingsRow(icon: "dot.radiowaves.left.and.right", title: "直播播放器", value: viewModel.livePlayerEngine.title) {
-                            if viewModel.playerEngineOptions.count > 1 {
-                                showingPicker = .livePlayer
+                    }
+
+                    VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                        AppSectionHeader(title: "功能")
+                        AppCard(cornerRadius: AppTheme.radiusLG) {
+                            VStack(spacing: 0) {
+                                Button {
+                                    showHistorySheet = true
+                                } label: {
+                                    SettingsRow(icon: "clock", title: "播放历史", value: "", action: nil)
+                                }
+                                Divider().background(AppTheme.borderLight)
+                                Button {
+                                    showFavoritesSheet = true
+                                } label: {
+                                    SettingsRow(icon: "heart", title: "我的收藏", value: "", action: nil)
+                                }
                             }
                         }
-                        Divider().background(Color.white.opacity(0.1))
-                        SettingsRow(icon: "cpu", title: "视频解码", value: viewModel.decodeMode.title) {
-                            showingPicker = .decode
-                        }
-                        if PlayerEngine.isVLCAvailable {
-                            Divider().background(Color.white.opacity(0.1))
-                            SettingsRow(icon: "externaldrive.badge.wifi", title: "VLC缓冲", value: viewModel.vlcBufferMode.title) {
-                                showingPicker = .vlcBuffer
+                    }
+
+                    VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                        AppSectionHeader(title: "缓存")
+                        AppCard(cornerRadius: AppTheme.radiusLG) {
+                            VStack(spacing: 0) {
+                                SettingsRow(icon: "trash", title: "清除缓存", value: viewModel.cacheSizeString) {
+                                    viewModel.clearCache()
+                                }
                             }
                         }
-                        Divider().background(Color.white.opacity(0.1))
-                        SettingsRow(icon: "forward", title: "快进步长", value: "\(viewModel.playTimeStep)秒") {
-                            showingPicker = .playTimeStep
-                        }
                     }
-                    
-                    // 功能
-                    SectionCard(title: "功能") {
-                        Button {
-                            showHistorySheet = true
-                        } label: {
-                            SettingsRow(icon: "clock", title: "播放历史", value: "", action: nil)
+
+                    VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                        AppSectionHeader(title: "关于")
+                        AppCard(cornerRadius: AppTheme.radiusLG) {
+                            VStack(spacing: 0) {
+                                SettingsRow(icon: "info.circle", title: "版本", value: "1.0.0", action: nil)
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(icon: "globe", title: "站点数量", value: "\(apiConfig.sourceBeanList.count)", action: nil)
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(icon: "wand.and.stars", title: "解析数量", value: "\(apiConfig.parseBeanList.count)", action: nil)
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(icon: "tv", title: "直播分组", value: "\(apiConfig.liveChannelGroupList.count)", action: nil)
+                            }
                         }
-                        Divider().background(Color.white.opacity(0.1))
-                        Button {
-                            showFavoritesSheet = true
-                        } label: {
-                            SettingsRow(icon: "heart", title: "我的收藏", value: "", action: nil)
-                        }
-                    }
-                    
-                    // 缓存
-                    SectionCard(title: "缓存") {
-                        SettingsRow(icon: "trash", title: "清除缓存", value: viewModel.cacheSizeString) {
-                            viewModel.clearCache()
-                        }
-                    }
-                    
-                    // 关于
-                    SectionCard(title: "关于") {
-                        SettingsRow(icon: "info.circle", title: "版本", value: "1.0.0", action: nil)
-                        Divider().background(Color.white.opacity(0.1))
-                        SettingsRow(icon: "globe", title: "站点数量", value: "\(apiConfig.sourceBeanList.count)", action: nil)
-                        Divider().background(Color.white.opacity(0.1))
-                        SettingsRow(icon: "wand.and.stars", title: "解析数量", value: "\(apiConfig.parseBeanList.count)", action: nil)
-                        Divider().background(Color.white.opacity(0.1))
-                        SettingsRow(icon: "tv", title: "直播分组", value: "\(apiConfig.liveChannelGroupList.count)", action: nil)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 24)
+                .padding(.horizontal, AppTheme.spacingXL)
+                .padding(.vertical, AppTheme.spacingXXL)
             }
-            .background(AppTheme.primaryGradient.ignoresSafeArea())
+            .background(AppBackground())
             .navigationTitle("设置")
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -158,9 +177,7 @@ struct SettingsView: View {
         }
         .overlay(pickerOverlay)
     }
-    
-    // MARK: - 选择器 Overlay
-    
+
     @ViewBuilder
     private var pickerOverlay: some View {
         switch showingPicker {
@@ -233,15 +250,13 @@ struct SettingsView: View {
             EmptyView()
         }
     }
-    
-    // MARK: - API 输入弹窗
-    
+
     private var apiInputSheet: some View {
         NavigationStack {
-            VStack(spacing: 16) {
+            VStack(spacing: AppTheme.spacingLG) {
                 HStack {
                     Image(systemName: "link")
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AppTheme.textSecondary)
                     TextField(editingApiType.placeholder, text: currentApiBinding)
                         .textFieldStyle(.plain)
                         #if os(iOS)
@@ -249,11 +264,10 @@ struct SettingsView: View {
                         .keyboardType(.URL)
                         #endif
                 }
-                .padding()
-                .background(Color.secondary.opacity(0.1))
-                .cornerRadius(10)
-                
-                // 粘贴按钮
+                .padding(AppTheme.spacingMD)
+                .background(AppTheme.backgroundElevated)
+                .cornerRadius(AppTheme.radiusMD)
+
                 HStack {
                     Button {
                         if let text = readPasteboardText() {
@@ -261,57 +275,56 @@ struct SettingsView: View {
                         }
                     } label: {
                         Label("粘贴", systemImage: "doc.on.clipboard")
-                            .font(.subheadline)
+                            .font(.system(size: AppTheme.fontSubhead))
                     }
-                    
+
                     Spacer()
                 }
-                
-                // 历史记录
+
                 if !viewModel.apiHistory.isEmpty {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: AppTheme.spacingSM) {
                         Text("历史记录")
-                            .font(.caption)
-                            .foregroundColor(.secondary)
-                        
+                            .font(.system(size: AppTheme.fontCaption))
+                            .foregroundColor(AppTheme.textSecondary)
+
                         ForEach(viewModel.apiHistory, id: \.self) { url in
                             HStack {
                                 Button {
                                     currentApiBinding.wrappedValue = url
                                 } label: {
-                                    HStack {
+                                    HStack(spacing: AppTheme.spacingSM) {
                                         Image(systemName: "clock")
-                                            .font(.caption)
+                                            .font(.system(size: AppTheme.fontCaption))
                                         Text(url)
-                                            .font(.caption)
+                                            .font(.system(size: AppTheme.fontCaption))
                                             .lineLimit(1)
                                     }
-                                    .foregroundColor(.secondary)
+                                    .foregroundColor(AppTheme.textSecondary)
                                 }
-                                
+
                                 Spacer()
-                                
+
                                 Button {
                                     viewModel.removeApiHistory(url)
                                 } label: {
                                     Image(systemName: "xmark.circle")
-                                        .font(.caption)
-                                        .foregroundColor(.gray)
+                                        .font(.system(size: AppTheme.fontCaption))
+                                        .foregroundColor(AppTheme.textTertiary)
                                 }
                             }
                         }
                     }
                 }
-                
+
                 if let error = viewModel.configError {
                     Text(error)
-                        .font(.caption)
-                        .foregroundColor(.red)
+                        .font(.system(size: AppTheme.fontCaption))
+                        .foregroundColor(AppTheme.accentColor)
                 }
-                
+
                 Spacer()
             }
-            .padding()
+            .padding(AppTheme.spacingLG)
             .navigationTitle(editingApiType.title)
             #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -348,7 +361,7 @@ struct SettingsView: View {
         .presentationDetents([.medium, .large])
         #endif
     }
-    
+
     @ViewBuilder
     private var multiRepoSelectionOverlay: some View {
         if let pending = viewModel.pendingMultiRepoSelection {
@@ -373,7 +386,7 @@ struct SettingsView: View {
             )
         }
     }
-    
+
     private var currentApiBinding: Binding<String> {
         switch editingApiType {
         case .vod:
@@ -382,7 +395,7 @@ struct SettingsView: View {
             return $viewModel.liveApiUrl
         }
     }
-    
+
     private func readPasteboardText() -> String? {
         #if os(iOS)
         UIPasteboard.general.string
@@ -390,9 +403,7 @@ struct SettingsView: View {
         NSPasteboard.general.string(forType: .string)
         #endif
     }
-    
-    // MARK: - 源选择
-    
+
     private var filteredSources: [SourceBean] {
         let sources = apiConfig.sourceBeanList
         if sourceSearchText.isEmpty {
@@ -404,81 +415,84 @@ struct SettingsView: View {
 
     private var sourcePickerView: some View {
         VStack(spacing: 0) {
-            // 搜索栏
             HStack {
                 Image(systemName: "magnifyingglass")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.textSecondary)
                 TextField("搜索数据源", text: $sourceSearchText)
                     .textFieldStyle(.plain)
                 if !sourceSearchText.isEmpty {
                     Button(action: { sourceSearchText = "" }) {
                         Image(systemName: "xmark.circle.fill")
-                            .foregroundColor(.secondary)
+                            .foregroundColor(AppTheme.textSecondary)
                     }
                     .buttonStyle(.plain)
                 }
             }
-            .padding(12)
-            .glassCard(cornerRadius: 12)
-            .padding(.horizontal, 20)
-            .padding(.vertical, 12)
-            
+            .padding(AppTheme.spacingMD)
+            .background(AppTheme.backgroundElevated)
+            .cornerRadius(AppTheme.radiusMD)
+            .padding(.horizontal, AppTheme.spacingXL)
+            .padding(.vertical, AppTheme.spacingMD)
+
             ScrollView {
-                LazyVStack(spacing: 12) {
+                LazyVStack(spacing: AppTheme.spacingMD) {
                     ForEach(filteredSources) { source in
                         Button {
                             apiConfig.setHomeSource(source)
                             appState.currentSourceKey = source.key
                         } label: {
-                            HStack(alignment: .center, spacing: 16) {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    HStack(spacing: 8) {
+                            HStack(alignment: .center, spacing: AppTheme.spacingLG) {
+                                VStack(alignment: .leading, spacing: AppTheme.spacingSM) {
+                                    HStack(spacing: AppTheme.spacingSM) {
                                         Text(source.name)
-                                            .font(.system(size: 16, weight: .semibold))
-                                            .foregroundColor(.white)
-                                        
+                                            .font(.system(size: AppTheme.fontHeadline, weight: .semibold))
+                                            .foregroundColor(AppTheme.textPrimary)
+
                                         Text(source.typeDescription)
-                                            .font(.system(size: 10, weight: .bold))
-                                            .foregroundColor(.orange)
-                                            .padding(.horizontal, 6)
-                                            .padding(.vertical, 3)
+                                            .font(.system(size: AppTheme.fontCaption, weight: .bold))
+                                            .foregroundColor(AppTheme.accentColor)
+                                            .padding(.horizontal, AppTheme.spacingSM)
+                                            .padding(.vertical, AppTheme.spacingXS)
                                             .background(
-                                                Capsule().fill(Color.orange.opacity(0.2))
+                                                Capsule().fill(AppTheme.backgroundTertiary)
                                             )
                                     }
-                                    
+
                                     Text(source.api)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(.white.opacity(0.5))
+                                        .font(.system(size: AppTheme.fontFootnote))
+                                        .foregroundColor(AppTheme.textTertiary)
                                         .lineLimit(1)
                                 }
-                                
+
                                 Spacer()
-                                
-                                HStack(spacing: 12) {
+
+                                HStack(spacing: AppTheme.spacingMD) {
                                     if source.isSearchable {
                                         Image(systemName: "magnifyingglass")
-                                            .font(.system(size: 14, weight: .medium))
-                                            .foregroundColor(.green.opacity(0.8))
+                                            .font(.system(size: AppTheme.fontBody, weight: .medium))
+                                            .foregroundColor(AppTheme.textSecondary)
                                     }
-                                    
+
                                     if source.key == apiConfig.homeSourceBean?.key {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .font(.system(size: 20))
-                                            .foregroundColor(.orange)
+                                            .font(.system(size: AppTheme.fontTitle2))
+                                            .foregroundColor(AppTheme.accentColor)
                                     } else {
                                         Circle()
-                                            .strokeBorder(Color.white.opacity(0.2), lineWidth: 1)
-                                            .frame(width: 20, height: 20)
+                                            .strokeBorder(AppTheme.borderMedium, lineWidth: 1)
+                                            .frame(width: AppTheme.spacingXL, height: AppTheme.spacingXL)
                                     }
                                 }
                             }
-                            .padding(16)
-                            .glassCard(cornerRadius: 16)
+                            .padding(AppTheme.spacingLG)
+                            .background(
+                                RoundedRectangle(cornerRadius: AppTheme.radiusLG)
+                                    .fill(AppTheme.backgroundElevated)
+                            )
                             .overlay(
-                                RoundedRectangle(cornerRadius: 16)
+                                RoundedRectangle(cornerRadius: AppTheme.radiusLG)
                                     .stroke(
-                                        source.key == apiConfig.homeSourceBean?.key ? Color.orange.opacity(0.5) : Color.clear,
+                                        source.key == apiConfig.homeSourceBean?.key ? AppTheme.borderActive : Color.clear,
                                         lineWidth: 1
                                     )
                             )
@@ -486,37 +500,15 @@ struct SettingsView: View {
                         .buttonStyle(.plain)
                     }
                 }
-                .padding(.horizontal, 20)
-                .padding(.bottom, 24)
+                .padding(.horizontal, AppTheme.spacingXL)
+                .padding(.bottom, AppTheme.spacingXXL)
             }
         }
-        .background(AppTheme.primaryGradient.ignoresSafeArea())
+        .background(AppBackground())
         .navigationTitle("选择数据源")
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
         #endif
-    }
-}
-
-// MARK: - 辅助组件
-
-struct SectionCard<Content: View>: View {
-    let title: String
-    @ViewBuilder let content: () -> Content
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text(title)
-                .font(.subheadline)
-                .fontWeight(.bold)
-                .foregroundColor(.white.opacity(0.6))
-                .padding(.leading, 8)
-            
-            VStack(spacing: 0) {
-                content()
-            }
-            .glassCard(cornerRadius: 16)
-        }
     }
 }
 
@@ -525,7 +517,7 @@ struct SettingsRow: View {
     let title: String
     let value: String
     let action: (() -> Void)?
-    
+
     var body: some View {
         Group {
             if let action = action {
@@ -538,31 +530,31 @@ struct SettingsRow: View {
             }
         }
     }
-    
+
     private var rowContent: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: AppTheme.spacingLG) {
             Image(systemName: icon)
-                .font(.system(size: 16))
-                .foregroundColor(.orange)
-                .frame(width: 24)
-            
+                .font(.system(size: AppTheme.fontHeadline))
+                .foregroundColor(AppTheme.accentColor)
+                .frame(width: AppTheme.spacingLG + AppTheme.spacingSM)
+
             Text(title)
-                .font(.body)
-                .foregroundColor(.white.opacity(0.9))
-            
+                .font(.system(size: AppTheme.fontBody))
+                .foregroundColor(AppTheme.textPrimary)
+
             Spacer()
-            
+
             Text(value)
-                .font(.subheadline)
-                .foregroundColor(.white.opacity(0.5))
+                .font(.system(size: AppTheme.fontSubhead))
+                .foregroundColor(AppTheme.textSecondary)
                 .lineLimit(1)
-            
+
             Image(systemName: "chevron.right")
-                .font(.system(size: 12, weight: .bold))
-                .foregroundColor(.white.opacity(0.3))
+                .font(.system(size: AppTheme.fontFootnote, weight: .bold))
+                .foregroundColor(AppTheme.textDisabled)
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 14)
+        .padding(.horizontal, AppTheme.spacingSM)
+        .padding(.vertical, AppTheme.spacingSM)
         .contentShape(Rectangle())
     }
 }
