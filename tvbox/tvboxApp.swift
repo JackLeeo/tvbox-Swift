@@ -7,6 +7,7 @@ import AVFoundation
 #if os(iOS)
 final class AppDelegate: NSObject, UIApplicationDelegate {
     static var orientationLock = UIInterfaceOrientationMask.portrait
+    private var backgroundTask: UIBackgroundTaskIdentifier = .invalid
 
     func application(
         _ application: UIApplication,
@@ -26,6 +27,23 @@ final class AppDelegate: NSObject, UIApplicationDelegate {
             print("AVAudioSession setup failed: \(error)")
         }
         return true
+    }
+
+    func applicationDidEnterBackground(_ application: UIApplication) {
+        guard backgroundTask == .invalid else { return }
+        backgroundTask = application.beginBackgroundTask { [weak self] in
+            self?.endBackgroundTask()
+        }
+    }
+
+    func applicationWillEnterForeground(_ application: UIApplication) {
+        endBackgroundTask()
+    }
+
+    private func endBackgroundTask() {
+        guard backgroundTask != .invalid else { return }
+        UIApplication.shared.endBackgroundTask(backgroundTask)
+        backgroundTask = .invalid
     }
 }
 #endif
@@ -285,51 +303,33 @@ class AppState: ObservableObject {
         if !nodeIsRunning {
             nodeJSStarted = false
             await ensureNodeJSAndLoadSource()
+
+            if nodeJSStarted {
+                loadingPhase = .completed
+                NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
+            } else {
+                loadingPhase = .failed("服务重连失败，请下拉刷新重试")
+            }
         } else {
-            await recoverSpiderService()
-        }
-
-        if nodeJSStarted {
-            loadingPhase = .completed
-            NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
-        } else {
-            await forceRestartNodeJS()
-        }
-    }
-
-    private func forceRestartNodeJS() async {
-        loadingPhase = .reconnecting
-
-        NodeJSManager.shared().forceResetRunningState()
-        nodeJSStarted = false
-
-        try? await Task.sleep(nanoseconds: 500_000_000)
-
-        await ensureNodeJSAndLoadSource()
-
-        if nodeJSStarted {
-            loadingPhase = .completed
-            NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
-        } else {
-            loadingPhase = .failed("服务重连失败，请下拉刷新重试")
+            let recovered = await recoverSpiderService()
+            if recovered {
+                loadingPhase = .completed
+                NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
+            } else {
+                loadingPhase = .failed("服务已断开，请关闭应用后重新打开")
+            }
         }
     }
 
-    private func recoverSpiderService() async {
+    private func recoverSpiderService() async -> Bool {
         try? await Task.sleep(nanoseconds: 2_000_000_000)
 
         for attempt in 0..<4 {
-            if !NodeJSManager.shared().isRunning {
-                nodeJSStarted = false
-                await ensureNodeJSAndLoadSource()
-                return
-            }
-
             let spiderPort = NodeJSManager.shared().getSpiderPort()
             if spiderPort > 0 {
                 if await checkLocalPort(Int(spiderPort)) {
                     nodeJSStarted = true
-                    return
+                    return true
                 }
             }
 
@@ -337,7 +337,7 @@ class AppState: ObservableObject {
             if managementPort > 0 {
                 if await checkLocalPort(Int(managementPort)) {
                     await reloadSourceViaManagementPort(Int(managementPort))
-                    if nodeJSStarted { return }
+                    if nodeJSStarted { return true }
                 }
             }
 
@@ -346,7 +346,7 @@ class AppState: ObservableObject {
             }
         }
 
-        nodeJSStarted = false
+        return false
     }
 
     private func reloadSourceViaManagementPort(_ port: Int) async {
