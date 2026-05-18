@@ -92,7 +92,6 @@ final class SystemPlayerSessionController: ObservableObject {
 struct PlayerView: View {
     let urlString: String
     var startPosition: Double = 0
-    var httpHeaders: [String: String] = [:]
     var onProgressChanged: ((Double, Double?) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     var onToggleFullScreen: (() -> Void)? = nil
@@ -117,14 +116,20 @@ struct PlayerView: View {
         return PlayerEngine.fromStoredValue(rawValue)
     }
 
+    private var effectiveEngine: PlayerEngine {
+        if !httpHeaders.isEmpty, PlayerEngine.isVLCAvailable {
+            return .vlc
+        }
+        return selectedEngine
+    }
+
     var body: some View {
         Group {
-            switch selectedEngine {
+            switch effectiveEngine {
             case .system:
                 AVPlayerContentView(
                     urlString: urlString,
                     startPosition: startPosition,
-                    httpHeaders: httpHeaders,
                     onProgressChanged: onProgressChanged,
                     onPlaybackEnded: onPlaybackEnded,
                     onToggleFullScreen: onToggleFullScreen,
@@ -171,7 +176,6 @@ struct AVPlayerContentView: View {
     private static let supportedPlaybackRates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0]
     let urlString: String
     var startPosition: Double = 0
-    var httpHeaders: [String: String] = [:]
     var onProgressChanged: ((Double, Double?) -> Void)? = nil
     var onPlaybackEnded: (() -> Void)? = nil
     var onToggleFullScreen: (() -> Void)? = nil
@@ -438,15 +442,7 @@ struct AVPlayerContentView: View {
 
         cleanupPlayer()
 
-        let playerItem: AVPlayerItem
-        if httpHeaders.isEmpty {
-            playerItem = AVPlayerItem(url: url)
-        } else {
-            let asset = AVURLAsset(url: url, options: [
-                "AVURLAssetHTTPHeaderFieldsKey": httpHeaders
-            ])
-            playerItem = AVPlayerItem(asset: asset)
-        }
+        let playerItem = AVPlayerItem(url: url)
         let newPlayer = AVPlayer(playerItem: playerItem)
         if #available(iOS 17.0, *) {
             newPlayer.defaultRate = preferredRate
