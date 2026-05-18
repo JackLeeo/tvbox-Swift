@@ -107,7 +107,7 @@ struct HomeView: View {
                         .foregroundColor(AppTheme.textPrimary)
                         .lineLimit(1)
                     Image(systemName: "chevron.down")
-                        .font(.system(size: AppTheme.fontCaption2, weight: .semibold))
+                        .font(.system(size: AppTheme.fontCaption, weight: .semibold))
                         .foregroundColor(AppTheme.textTertiary)
                 }
             }
