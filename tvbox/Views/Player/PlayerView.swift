@@ -122,6 +122,9 @@ struct PlayerView: View {
     }
 
     private var effectiveEngine: PlayerEngine {
+        if fallbackToVLC, PlayerEngine.isVLCAvailable {
+            return .vlc
+        }
         return selectedEngine
     }
 

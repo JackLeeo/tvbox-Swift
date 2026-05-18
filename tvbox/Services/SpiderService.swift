@@ -4,7 +4,7 @@ enum SpiderError: LocalizedError {
     case spiderNotSet
     case nodeNotReady
     case invalidResponse
-    case httpError(Int)
+    case httpError(Int, String)
     case timeout
     case connectionRefused
     case decodingError(String)
@@ -14,7 +14,11 @@ enum SpiderError: LocalizedError {
         case .spiderNotSet: return "Spider未设置"
         case .nodeNotReady: return "Node.js未就绪"
         case .invalidResponse: return "无效的响应"
-        case .httpError(let code): return "HTTP错误: \(code)"
+        case .httpError(let code, let detail):
+            if detail.isEmpty {
+                return "HTTP错误: \(code)"
+            }
+            return "HTTP错误: \(code) - \(detail)"
         case .timeout: return "请求超时，请检查网络"
         case .connectionRefused: return "无法连接到本地服务，请稍后重试"
         case .decodingError(let msg): return "解码错误: \(msg)"
@@ -124,7 +128,9 @@ class SpiderService {
                 }
 
                 guard (200...299).contains(httpResponse.statusCode) else {
-                    throw SpiderError.httpError(httpResponse.statusCode)
+                    let responseBody = data.flatMap { String(data: $0, encoding: .utf8) }
+                    let detail = responseBody ?? ""
+                    throw SpiderError.httpError(httpResponse.statusCode, detail)
                 }
 
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -187,7 +193,8 @@ class SpiderService {
             throw SpiderError.invalidResponse
         }
         guard (200...299).contains(httpResponse.statusCode) else {
-            throw SpiderError.httpError(httpResponse.statusCode)
+            let responseBody = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+            throw SpiderError.httpError(httpResponse.statusCode, responseBody)
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             throw SpiderError.decodingError("config响应不是有效的JSON对象")
@@ -291,7 +298,9 @@ class SpiderService {
             }
 
             guard (200...299).contains(httpResponse.statusCode) else {
-                completion(false, "HTTP错误: \(httpResponse.statusCode)")
+                let responseBody = data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
+                let detail = responseBody.isEmpty ? "" : " - \(responseBody)"
+                completion(false, "HTTP错误: \(httpResponse.statusCode)\(detail)")
                 return
             }
 
