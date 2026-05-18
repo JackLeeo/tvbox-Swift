@@ -213,10 +213,12 @@ class SpiderService {
 
     func getCategoryContent(id: String, page: Int, filters: [String: Any] = [:]) async throws -> [String: Any] {
         let path = try buildSpiderPath(action: "category")
-        var body: [String: Any] = ["id": id, "page": page]
-        if !filters.isEmpty {
-            body["filters"] = filters
-        }
+        let body: [String: Any] = [
+            "id": id,
+            "page": page,
+            "filter": !filters.isEmpty,
+            "filters": filters,
+        ]
         return try await postJSON(path: path, port: spiderPort, body: body)
     }
 
