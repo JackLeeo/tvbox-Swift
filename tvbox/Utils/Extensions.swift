@@ -94,35 +94,35 @@ extension Double {
 struct AppTheme {
     static let primaryGradient = LinearGradient(
         colors: [
-            Color(hex: "1a1a2e"),
-            Color(hex: "16213e"),
-            Color(hex: "0f3460")
+            Color(hex: "0F0F0F"),
+            Color(hex: "141414"),
+            Color(hex: "0F0F0F")
         ],
         startPoint: .topLeading,
         endPoint: .bottomTrailing
     )
     
     static let accentGradient = LinearGradient(
-        colors: [.orange, .red],
+        colors: [Color(hex: "5CB67B"), Color(hex: "7DCEA0")],
         startPoint: .leading,
         endPoint: .trailing
     )
     
-    static let accentColor = Color.orange
+    static let accentColor = Color(hex: "5CB67B")
     
-    static let backgroundPrimary = Color(hex: "0f0f1a")
-    static let backgroundSecondary = Color(hex: "1a1a2e")
+    static let backgroundPrimary = Color(hex: "0F0F0F")
+    static let backgroundSecondary = Color(hex: "1A1A1A")
     static let backgroundTertiary = Color.white.opacity(0.06)
     static let backgroundElevated = Color.white.opacity(0.08)
     
-    static let textPrimary = Color.white.opacity(0.95)
-    static let textSecondary = Color.white.opacity(0.6)
-    static let textTertiary = Color.white.opacity(0.4)
-    static let textDisabled = Color.white.opacity(0.25)
+    static let textPrimary = Color.white.opacity(0.92)
+    static let textSecondary = Color.white.opacity(0.55)
+    static let textTertiary = Color.white.opacity(0.35)
+    static let textDisabled = Color.white.opacity(0.2)
     
     static let borderLight = Color.white.opacity(0.08)
-    static let borderMedium = Color.white.opacity(0.15)
-    static let borderActive = Color.orange.opacity(0.5)
+    static let borderMedium = Color.white.opacity(0.14)
+    static let borderActive = Color(hex: "5CB67B").opacity(0.5)
     
     static let spacingXS: CGFloat = 4
     static let spacingSM: CGFloat = 8
@@ -132,14 +132,14 @@ struct AppTheme {
     static let spacingXXL: CGFloat = 24
     
     static let radiusSM: CGFloat = 8
-    static let radiusMD: CGFloat = 12
-    static let radiusLG: CGFloat = 16
+    static let radiusMD: CGFloat = 10
+    static let radiusLG: CGFloat = 14
     static let radiusXL: CGFloat = 20
     static let radiusFull: CGFloat = 999
     
-    static let cardRadius: CGFloat = 12
-    static let cardSpacing: CGFloat = 8
-    static let cardPadding: CGFloat = 10
+    static let cardRadius: CGFloat = 10
+    static let cardSpacing: CGFloat = 6
+    static let cardPadding: CGFloat = 8
     
     static let fontCaption: CGFloat = 11
     static let fontFootnote: CGFloat = 12
@@ -153,8 +153,8 @@ struct AppTheme {
     static let animationNormal: Double = 0.25
     static let animationSlow: Double = 0.35
     
-    static let glassBackgroud = Color.white.opacity(0.1)
-    static let glassRadius: CGFloat = 20
+    static let glassBackgroud = Color.white.opacity(0.08)
+    static let glassRadius: CGFloat = 14
 }
 
 extension Color {
@@ -197,9 +197,8 @@ struct GlassBackground: ViewModifier {
             .clipShape(RoundedRectangle(cornerRadius: cornerRadius))
             .overlay(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(Color.white.opacity(0.15), lineWidth: 0.5)
+                    .stroke(Color.white.opacity(0.1), lineWidth: 0.5)
             )
-            .shadow(color: Color.black.opacity(0.3), radius: 10, x: 0, y: 5)
     }
 }
 
@@ -233,16 +232,12 @@ struct SelectableChip: View {
         Button(action: action) {
             Text(title)
                 .font(.system(size: AppTheme.fontSubhead, weight: isSelected ? .semibold : .regular))
-                .foregroundColor(isSelected ? .white : AppTheme.textSecondary)
-                .padding(.horizontal, 14)
-                .padding(.vertical, 7)
+                .foregroundColor(isSelected ? AppTheme.accentColor : AppTheme.textSecondary)
+                .padding(.horizontal, 12)
+                .padding(.vertical, 6)
                 .background(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusMD)
-                        .fill(isSelected ? Color.orange.opacity(0.2) : AppTheme.backgroundTertiary)
-                )
-                .overlay(
-                    RoundedRectangle(cornerRadius: AppTheme.radiusMD)
-                        .stroke(isSelected ? AppTheme.borderActive : Color.clear, lineWidth: 1)
+                    Capsule()
+                        .fill(isSelected ? AppTheme.accentColor.opacity(0.15) : AppTheme.backgroundTertiary)
                 )
         }
         .buttonStyle(.plain)
@@ -270,11 +265,7 @@ struct AppCard<Content: View>: View {
             .padding(AppTheme.cardPadding)
             .background(
                 RoundedRectangle(cornerRadius: cornerRadius)
-                    .fill(AppTheme.backgroundElevated)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: cornerRadius)
-                    .stroke(AppTheme.borderLight, lineWidth: 0.5)
+                    .fill(AppTheme.backgroundSecondary)
             )
     }
 }
@@ -669,9 +660,8 @@ struct SelectionModal<Item: Identifiable & Equatable>: View {
                 // 顶部图标 & 标题
                 VStack(spacing: 16) {
                     ZStack {
-                        // 动态光晕背景
                         Circle()
-                            .fill(LinearGradient(colors: [.orange, .red], startPoint: .topLeading, endPoint: .bottomTrailing))
+                            .fill(LinearGradient(colors: [AppTheme.accentColor, Color(hex: "7DCEA0")], startPoint: .topLeading, endPoint: .bottomTrailing))
                             .frame(width: 56, height: 56)
                             .blur(radius: 20)
                             .opacity(0.4)
@@ -717,9 +707,8 @@ struct SelectionModal<Item: Identifiable & Equatable>: View {
                                     
                                     if item == selectedItem {
                                         Image(systemName: "checkmark.circle.fill")
-                                            .foregroundColor(.orange)
+                                            .foregroundColor(AppTheme.accentColor)
                                             .font(.system(size: 18))
-                                            .shadow(color: Color.orange.opacity(0.4), radius: 4)
                                     } else {
                                         Circle()
                                             .strokeBorder(Color.white.opacity(0.15), lineWidth: 1.5)
@@ -788,19 +777,19 @@ struct SelectionModal<Item: Identifiable & Equatable>: View {
     
     private func selectionBackground(item: Item) -> Color {
         if item == selectedItem {
-            return Color.orange.opacity(0.2)
+            return AppTheme.accentColor.opacity(0.15)
         } else if item.id == hoverItemId {
-            return Color.white.opacity(0.1)
+            return Color.white.opacity(0.08)
         } else {
-            return Color.white.opacity(0.04)
+            return Color.white.opacity(0.03)
         }
     }
     
     private func selectionStroke(item: Item) -> Color {
         if item == selectedItem {
-            return Color.orange.opacity(0.6)
+            return AppTheme.accentColor.opacity(0.4)
         } else if item.id == hoverItemId {
-            return Color.white.opacity(0.2)
+            return Color.white.opacity(0.15)
         } else {
             return Color.clear
         }

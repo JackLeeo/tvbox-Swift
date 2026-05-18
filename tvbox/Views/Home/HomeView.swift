@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var categoryDragTranslation: CGFloat = 0
     @State private var safariUrl: URL?
     @State private var isReconnecting = false
+    var onSearchTap: (() -> Void)? = nil
 
     #if os(iOS)
     private let columns = [
@@ -23,6 +24,8 @@ struct HomeView: View {
             VStack(spacing: 0) {
                 headerBar
 
+                searchBar
+
                 if !viewModel.sorts.isEmpty {
                     categoryTabBar
                 }
@@ -34,6 +37,7 @@ struct HomeView: View {
                 contentArea
             }
             .background { AppBackground() }
+            .padding(.bottom, 80)
         }
         .task {
             await viewModel.loadSorts()
@@ -81,7 +85,7 @@ struct HomeView: View {
     }
 
     private var headerBar: some View {
-        HStack(spacing: AppTheme.spacingLG) {
+        HStack(spacing: AppTheme.spacingMD) {
             Menu {
                 ForEach(ApiConfig.shared.sourceBeanList) { source in
                     Button {
@@ -97,23 +101,15 @@ struct HomeView: View {
                     }
                 }
             } label: {
-                HStack(spacing: AppTheme.spacingSM) {
-                    Image(systemName: "sparkles")
-                        .foregroundColor(AppTheme.accentColor)
+                HStack(spacing: 4) {
                     Text(ApiConfig.shared.homeSourceBean?.name ?? "TVBox")
                         .font(.system(size: AppTheme.fontHeadline, weight: .bold))
                         .foregroundColor(AppTheme.textPrimary)
                         .lineLimit(1)
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: AppTheme.fontCaption, weight: .bold))
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: AppTheme.fontCaption2, weight: .semibold))
                         .foregroundColor(AppTheme.textTertiary)
-                        .padding(.leading, AppTheme.spacingXS)
                 }
-                .padding(.horizontal, AppTheme.spacingLG)
-                .padding(.vertical, AppTheme.spacingSM)
-                .background(AppTheme.backgroundElevated)
-                .clipShape(Capsule())
-                .overlay(Capsule().stroke(AppTheme.borderLight, lineWidth: 0.5))
             }
             .menuStyle(.borderlessButton)
             .fixedSize()
@@ -127,59 +123,76 @@ struct HomeView: View {
         .padding(.bottom, AppTheme.spacingSM)
     }
 
+    private var searchBar: some View {
+        Button {
+            onSearchTap?()
+        } label: {
+            HStack(spacing: 8) {
+                Image(systemName: "magnifyingglass")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppTheme.textTertiary)
+                Text("搜索影片、演员、导演...")
+                    .font(.system(size: AppTheme.fontSubhead))
+                    .foregroundColor(AppTheme.textTertiary)
+                Spacer()
+            }
+            .padding(.horizontal, 14)
+            .padding(.vertical, 9)
+            .background(
+                Capsule()
+                    .fill(AppTheme.backgroundTertiary)
+            )
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal, AppTheme.spacingLG)
+        .padding(.vertical, AppTheme.spacingXS)
+    }
+
     private var categoryTabBar: some View {
         ScrollViewReader { proxy in
-            HStack(spacing: AppTheme.spacingSM) {
-                categoryMoveButton(
-                    systemName: "chevron.left",
-                    enabled: canMoveCategory(by: -1)
-                ) {
-                    moveCategoryTabs(by: -3, proxy: proxy)
-                }
-
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AppTheme.spacingMD) {
-                        ForEach(viewModel.sorts) { sort in
-                            SelectableChip(
-                                title: sort.name,
-                                isSelected: viewModel.selectedSort?.id == sort.id
-                            ) {
-                                withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
-                                    viewModel.selectSort(sort)
-                                }
-                                categoryScrollAnchorId = sort.id
-                                scrollCategoryBar(to: sort.id, proxy: proxy)
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: AppTheme.spacingSM) {
+                    ForEach(viewModel.sorts) { sort in
+                        let isSelected = viewModel.selectedSort?.id == sort.id
+                        Button {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                                viewModel.selectSort(sort)
                             }
-                            .id(sort.id)
+                            categoryScrollAnchorId = sort.id
+                            scrollCategoryBar(to: sort.id, proxy: proxy)
+                        } label: {
+                            Text(sort.name)
+                                .font(.system(size: AppTheme.fontSubhead, weight: isSelected ? .semibold : .regular))
+                                .foregroundColor(isSelected ? AppTheme.accentColor : AppTheme.textSecondary)
+                                .padding(.horizontal, 14)
+                                .padding(.vertical, 6)
+                                .background(
+                                    Capsule()
+                                        .fill(isSelected ? AppTheme.accentColor.opacity(0.12) : AppTheme.backgroundTertiary)
+                                )
                         }
+                        .buttonStyle(.plain)
+                        .id(sort.id)
                     }
-                    .padding(.horizontal, AppTheme.spacingSM)
                 }
-                .simultaneousGesture(categoryDragGesture(proxy: proxy))
-                .onAppear {
-                    syncCategoryScrollAnchorIfNeeded()
-                    scrollCategoryBar(to: categoryScrollAnchorId, proxy: proxy, animated: false)
-                }
-                .onChange(of: viewModel.sorts.map(\.id)) { newValue in
-                    syncCategoryScrollAnchorIfNeeded()
-                    scrollCategoryBar(to: categoryScrollAnchorId, proxy: proxy, animated: false)
-                }
-                .onChange(of: viewModel.selectedSort?.id) { newId in
-                    guard let newId else { return }
-                    categoryScrollAnchorId = newId
-                    scrollCategoryBar(to: newId, proxy: proxy)
-                }
-
-                categoryMoveButton(
-                    systemName: "chevron.right",
-                    enabled: canMoveCategory(by: 1)
-                ) {
-                    moveCategoryTabs(by: 3, proxy: proxy)
-                }
+                .padding(.horizontal, AppTheme.spacingLG)
             }
-            .padding(.horizontal, AppTheme.spacingLG)
+            .simultaneousGesture(categoryDragGesture(proxy: proxy))
+            .onAppear {
+                syncCategoryScrollAnchorIfNeeded()
+                scrollCategoryBar(to: categoryScrollAnchorId, proxy: proxy, animated: false)
+            }
+            .onChange(of: viewModel.sorts.map(\.id)) { newValue in
+                syncCategoryScrollAnchorIfNeeded()
+                scrollCategoryBar(to: categoryScrollAnchorId, proxy: proxy, animated: false)
+            }
+            .onChange(of: viewModel.selectedSort?.id) { newId in
+                guard let newId else { return }
+                categoryScrollAnchorId = newId
+                scrollCategoryBar(to: newId, proxy: proxy)
+            }
         }
-        .padding(.vertical, AppTheme.spacingSM)
+        .padding(.vertical, AppTheme.spacingXS)
     }
 
     private func categoryMoveButton(systemName: String, enabled: Bool, action: @escaping () -> Void) -> some View {

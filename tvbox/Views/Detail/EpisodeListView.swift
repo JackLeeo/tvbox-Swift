@@ -55,21 +55,17 @@ struct EpisodeListView: View {
                             .lineLimit(1)
                             .minimumScaleFactor(0.85)
                             .frame(maxWidth: .infinity)
-                            .frame(height: 44)
+                            .frame(height: 40)
                             .background(
                                 ZStack {
                                     if actualIndex == selectedIndex {
                                         AppTheme.accentGradient
                                     } else {
-                                        AppTheme.backgroundElevated
+                                        AppTheme.backgroundTertiary
                                     }
                                 }
                             )
-                            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusSM + AppTheme.spacingXS))
-                            .overlay(
-                                RoundedRectangle(cornerRadius: AppTheme.radiusSM + AppTheme.spacingXS)
-                                    .stroke(actualIndex == selectedIndex ? Color.clear : AppTheme.borderLight, lineWidth: 0.5)
-                            )
+                            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusSM))
                     }
                     .buttonStyle(.plain)
                 }

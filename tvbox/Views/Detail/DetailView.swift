@@ -18,6 +18,7 @@ struct DetailView: View {
     @State private var lastPersistedProgress: Double = 0
     @State private var isCollected = false
     @State private var isFullScreenTransitioning = false
+    @State private var isDescriptionExpanded = false
     
     var body: some View {
         ScrollView {
@@ -47,33 +48,33 @@ struct DetailView: View {
                 }
                 
                 videoInfoSection
-                    .padding(.horizontal, AppTheme.spacingXL)
+                    .padding(.horizontal, AppTheme.spacingLG)
                     .padding(.top, AppTheme.spacingLG)
                 
                 if viewModel.flags.count > 1 {
                     flagSelector
-                        .padding(.horizontal, AppTheme.spacingXL)
-                        .padding(.top, AppTheme.spacingLG)
+                        .padding(.horizontal, AppTheme.spacingLG)
+                        .padding(.top, AppTheme.spacingMD)
                 }
                 
                 if viewModel.hasQualityChoices {
                     qualitySelector
-                        .padding(.horizontal, AppTheme.spacingXL)
-                        .padding(.top, AppTheme.spacingLG)
+                        .padding(.horizontal, AppTheme.spacingLG)
+                        .padding(.top, AppTheme.spacingMD)
                 }
                 
                 if !viewModel.currentEpisodes.isEmpty {
                     episodeSection
-                        .padding(.top, AppTheme.spacingLG)
+                        .padding(.top, AppTheme.spacingMD)
                 }
                 
                 if let info = viewModel.vodInfo, !info.des.isEmpty {
                     descriptionSection(info.des)
-                        .padding(.horizontal, AppTheme.spacingXL)
-                        .padding(.top, AppTheme.spacingLG)
+                        .padding(.horizontal, AppTheme.spacingLG)
+                        .padding(.top, AppTheme.spacingMD)
                 }
             }
-            .padding(.bottom, AppTheme.spacingXXL + AppTheme.spacingLG)
+            .padding(.bottom, 80)
         }
         .background(AppBackground())
         .navigationTitle(video.name)
@@ -176,56 +177,73 @@ struct DetailView: View {
     @ViewBuilder
     private var videoInfoSection: some View {
         AppCard(cornerRadius: AppTheme.radiusLG) {
-            HStack(alignment: .top, spacing: AppTheme.spacingXL) {
-                videoPoster
+            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+                Text(viewModel.vodInfo?.name ?? video.name)
+                    .font(.system(size: AppTheme.fontTitle2, weight: .bold))
+                    .foregroundColor(AppTheme.textPrimary)
                 
-                videoDetails
+                if let info = viewModel.vodInfo {
+                    metadataFlow(info)
+                }
                 
-                Spacer()
+                HStack(spacing: AppTheme.spacingMD) {
+                    playButton
+                    collectButton
+                }
             }
         }
     }
 
     @ViewBuilder
-    private var videoPoster: some View {
-        CachedAsyncImage(url: URL.posterURL(from: video.pic)) { image in
-            image.resizable().aspectRatio(2/3, contentMode: .fill)
-        } placeholder: {
-            ZStack {
-                AppTheme.backgroundTertiary
-                Image(systemName: "film.fill").foregroundColor(AppTheme.textTertiary)
-            }
-            .aspectRatio(2/3, contentMode: .fill)
-        }
-        .frame(width: 130)
-        .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusMD))
-        .shadow(color: .black.opacity(0.5), radius: 10, x: 0, y: 5)
-    }
-
-    @ViewBuilder
-    private var videoDetails: some View {
+    private func metadataFlow(_ info: VodInfo) -> some View {
         VStack(alignment: .leading, spacing: AppTheme.spacingSM) {
-            Text(viewModel.vodInfo?.name ?? video.name)
-                .font(.system(size: AppTheme.fontTitle2, weight: .bold))
-                .foregroundColor(AppTheme.textPrimary)
-            
-            if let info = viewModel.vodInfo {
-                VStack(alignment: .leading, spacing: AppTheme.spacingXS + AppTheme.spacingSM) {
-                    infoRow("年份", info.year)
-                    infoRow("地区", info.area)
-                    infoRow("类型", info.typeName)
-                    infoRow("导演", info.director)
-                    infoRow("演员", info.actor)
+            HStack(spacing: AppTheme.spacingSM) {
+                if !info.year.isEmpty {
+                    metadataPill(info.year)
+                }
+                if !info.typeName.isEmpty {
+                    metadataPill(info.typeName)
+                }
+                if !info.area.isEmpty {
+                    metadataPill(info.area)
                 }
             }
             
-            Spacer(minLength: AppTheme.spacingSM)
+            if !info.director.isEmpty {
+                HStack(spacing: AppTheme.spacingXS) {
+                    Text("导演")
+                        .font(.system(size: AppTheme.fontCaption))
+                        .foregroundColor(AppTheme.textTertiary)
+                    Text(info.director)
+                        .font(.system(size: AppTheme.fontCaption))
+                        .foregroundColor(AppTheme.textSecondary)
+                        .lineLimit(1)
+                }
+            }
             
-            HStack(spacing: AppTheme.spacingSM) {
-                playButton
-                collectButton
+            if !info.actor.isEmpty {
+                HStack(spacing: AppTheme.spacingXS) {
+                    Text("演员")
+                        .font(.system(size: AppTheme.fontCaption))
+                        .foregroundColor(AppTheme.textTertiary)
+                    Text(info.actor)
+                        .font(.system(size: AppTheme.fontCaption))
+                        .foregroundColor(AppTheme.textSecondary)
+                        .lineLimit(2)
+                }
             }
         }
+    }
+
+    @ViewBuilder
+    private func metadataPill(_ text: String) -> some View {
+        Text(text)
+            .font(.system(size: AppTheme.fontFootnote, weight: .medium))
+            .foregroundColor(AppTheme.textSecondary)
+            .padding(.horizontal, AppTheme.spacingSM)
+            .padding(.vertical, AppTheme.spacingXS)
+            .background(AppTheme.backgroundTertiary)
+            .clipShape(Capsule())
     }
 
     @ViewBuilder
@@ -237,15 +255,14 @@ struct DetailView: View {
             } label: {
                 HStack(spacing: AppTheme.spacingSM) {
                     Image(systemName: "play.fill")
-                    Text("立即播放")
+                    Text("播放")
                 }
                 .font(.system(size: AppTheme.fontHeadline, weight: .bold))
                 .foregroundColor(.white)
-                .padding(.horizontal, AppTheme.spacingXL + AppTheme.spacingSM)
-                .padding(.vertical, AppTheme.spacingLG - AppTheme.spacingSM)
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, AppTheme.spacingMD)
                 .background(AppTheme.accentGradient)
-                .clipShape(Capsule())
-                .shadow(color: AppTheme.accentColor.opacity(0.4), radius: 10, x: 0, y: 5)
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusMD))
             }
             .buttonStyle(.plain)
         }
@@ -255,26 +272,26 @@ struct DetailView: View {
         Button {
             toggleCollect()
         } label: {
-            HStack(spacing: AppTheme.spacingSM) {
+            HStack(spacing: AppTheme.spacingXS) {
                 Image(systemName: isCollected ? "heart.fill" : "heart")
                 Text(isCollected ? "已收藏" : "收藏")
             }
             .font(.system(size: AppTheme.fontSubhead, weight: .semibold))
             .foregroundColor(isCollected ? .white : AppTheme.textSecondary)
-            .padding(.horizontal, AppTheme.spacingLG)
+            .frame(maxWidth: .infinity)
             .padding(.vertical, AppTheme.spacingMD)
             .background(
                 Group {
                     if isCollected {
                         AppTheme.accentGradient
                     } else {
-                        AppTheme.backgroundElevated
+                        AppTheme.backgroundTertiary
                     }
                 }
             )
-            .clipShape(Capsule())
+            .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusMD))
             .overlay(
-                Capsule()
+                RoundedRectangle(cornerRadius: AppTheme.radiusMD)
                     .stroke(isCollected ? Color.clear : AppTheme.borderMedium, lineWidth: 1)
             )
         }
@@ -282,25 +299,9 @@ struct DetailView: View {
     }
     
     @ViewBuilder
-    private func infoRow(_ label: String, _ value: String) -> some View {
-        if !value.isEmpty {
-            HStack(alignment: .top, spacing: AppTheme.spacingXS) {
-                Text(label)
-                    .font(.system(size: AppTheme.fontCaption))
-                    .foregroundColor(AppTheme.textTertiary)
-                    .frame(width: 36, alignment: .leading)
-                Text(value)
-                    .font(.system(size: AppTheme.fontCaption))
-                    .foregroundColor(AppTheme.textSecondary)
-                    .lineLimit(2)
-            }
-        }
-    }
-    
-    @ViewBuilder
     private var flagSelector: some View {
         AppCard(cornerRadius: AppTheme.radiusLG) {
-            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+            VStack(alignment: .leading, spacing: AppTheme.spacingSM) {
                 AppSectionHeader(title: "播放线路", icon: "antenna.radiowaves.left")
                 
                 flagScrollView
@@ -311,9 +312,9 @@ struct DetailView: View {
     @ViewBuilder
     private var flagScrollView: some View {
         ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: AppTheme.spacingSM + AppTheme.spacingXS) {
+            HStack(spacing: AppTheme.spacingSM) {
                 ForEach(viewModel.flags, id: \.self) { flag in
-                    SelectableChip(
+                    pillChip(
                         title: flag,
                         isSelected: viewModel.selectedFlag == flag,
                         action: {
@@ -333,13 +334,13 @@ struct DetailView: View {
     @ViewBuilder
     private var qualitySelector: some View {
         AppCard(cornerRadius: AppTheme.radiusLG) {
-            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+            VStack(alignment: .leading, spacing: AppTheme.spacingSM) {
                 AppSectionHeader(title: "视频清晰度", icon: "sparkles")
                 
                 ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: AppTheme.spacingSM + AppTheme.spacingXS) {
+                    HStack(spacing: AppTheme.spacingSM) {
                         ForEach(viewModel.qualityOptions) { option in
-                            SelectableChip(
+                            pillChip(
                                 title: option.name,
                                 isSelected: viewModel.selectedQualityId == option.id,
                                 action: {
@@ -356,6 +357,22 @@ struct DetailView: View {
                 }
             }
         }
+    }
+
+    @ViewBuilder
+    private func pillChip(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: AppTheme.fontFootnote, weight: isSelected ? .semibold : .regular))
+                .foregroundColor(isSelected ? AppTheme.accentColor : AppTheme.textSecondary)
+                .padding(.horizontal, AppTheme.spacingLG)
+                .padding(.vertical, AppTheme.spacingSM)
+                .background(
+                    Capsule()
+                        .fill(isSelected ? AppTheme.accentColor.opacity(0.12) : AppTheme.backgroundTertiary)
+                )
+        }
+        .buttonStyle(.plain)
     }
     
     private var episodeSection: some View {
@@ -378,14 +395,25 @@ struct DetailView: View {
     
     private func descriptionSection(_ des: String) -> some View {
         AppCard(cornerRadius: AppTheme.radiusLG) {
-            VStack(alignment: .leading, spacing: AppTheme.spacingMD) {
+            VStack(alignment: .leading, spacing: AppTheme.spacingSM) {
                 AppSectionHeader(title: "影片简介", icon: "doc.text")
                 
                 Text(des)
                     .font(.system(size: AppTheme.fontBody))
                     .foregroundColor(AppTheme.textSecondary)
                     .lineSpacing(AppTheme.spacingXS)
-                    .lineLimit(nil)
+                    .lineLimit(isDescriptionExpanded ? nil : 3)
+                
+                Button {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isDescriptionExpanded.toggle()
+                    }
+                } label: {
+                    Text(isDescriptionExpanded ? "收起" : "展开")
+                        .font(.system(size: AppTheme.fontFootnote, weight: .medium))
+                        .foregroundColor(AppTheme.accentColor)
+                }
+                .buttonStyle(.plain)
             }
         }
     }

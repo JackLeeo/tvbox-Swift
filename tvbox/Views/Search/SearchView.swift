@@ -44,7 +44,7 @@ struct SearchView: View {
             HStack(spacing: AppTheme.spacingSM + AppTheme.spacingXS) {
                 Image(systemName: "magnifyingglass")
                     .font(.system(size: AppTheme.fontHeadline, weight: .semibold))
-                    .foregroundColor(AppTheme.textPrimary)
+                    .foregroundColor(AppTheme.textSecondary)
 
                 TextField("搜索影片...", text: $viewModel.keyword)
                     .textFieldStyle(.plain)
@@ -78,12 +78,8 @@ struct SearchView: View {
             }
             .padding(.horizontal, AppTheme.spacingLG)
             .padding(.vertical, AppTheme.spacingMD)
-            .background(AppTheme.backgroundElevated)
+            .background(AppTheme.backgroundSecondary)
             .cornerRadius(AppTheme.radiusLG)
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.radiusLG)
-                    .stroke(AppTheme.borderActive, lineWidth: 1)
-            )
 
             Button {
                 Task { await viewModel.search() }
@@ -127,7 +123,7 @@ struct SearchView: View {
                 VStack(alignment: .leading, spacing: AppTheme.spacingXS) {
                     Text(site.name)
                         .font(.system(size: AppTheme.fontSubhead))
-                        .foregroundColor(isSelected ? AppTheme.textPrimary : AppTheme.textSecondary)
+                        .foregroundColor(isSelected ? AppTheme.accentColor : AppTheme.textSecondary)
                         .lineLimit(1)
 
                     HStack(spacing: AppTheme.spacingXS) {
@@ -150,12 +146,8 @@ struct SearchView: View {
             }
             .padding(.horizontal, AppTheme.spacingMD)
             .padding(.vertical, AppTheme.spacingSM + AppTheme.spacingXS)
-            .background(isSelected ? AppTheme.accentColor.opacity(0.2) : Color.clear)
+            .background(isSelected ? AppTheme.accentColor.opacity(0.1) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusSM))
-            .overlay(
-                RoundedRectangle(cornerRadius: AppTheme.radiusSM)
-                    .stroke(isSelected ? AppTheme.borderActive : Color.clear, lineWidth: 1)
-            )
         }
         .buttonStyle(.plain)
         .padding(.horizontal, AppTheme.spacingSM)

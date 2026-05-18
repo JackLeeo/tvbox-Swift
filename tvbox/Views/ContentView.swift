@@ -59,7 +59,7 @@ struct ContentView: View {
             VStack {
                 HStack {
                     Circle()
-                        .fill(AppTheme.accentColor.opacity(0.15))
+                        .fill(AppTheme.accentColor.opacity(0.1))
                         .frame(width: 300, height: 300)
                         .blur(radius: 80)
                         .offset(x: -100, y: -100)
@@ -69,7 +69,7 @@ struct ContentView: View {
                 HStack {
                     Spacer()
                     Circle()
-                        .fill(Color.red.opacity(0.15))
+                        .fill(AppTheme.accentColor.opacity(0.08))
                         .frame(width: 300, height: 300)
                         .blur(radius: 80)
                         .offset(x: 100, y: 100)
@@ -83,12 +83,11 @@ struct ContentView: View {
                         .fill(AppTheme.accentGradient)
                         .frame(width: 100, height: 100)
                         .blur(radius: 20)
-                        .opacity(0.5)
+                        .opacity(0.4)
 
                     Image(systemName: "play.tv.fill")
                         .font(.system(size: 80))
                         .foregroundStyle(AppTheme.accentGradient)
-                        .shadow(color: .red.opacity(0.3), radius: 15, x: 0, y: 10)
                 }
 
                 Text("TVBox")
@@ -136,38 +135,24 @@ struct ContentView: View {
     
     private var mainTabView: some View {
         #if os(iOS)
-        TabView(selection: $selectedTab) {
-            HomeView()
-                .tabItem {
-                    Label("首页", systemImage: "house.fill")
-                }
-                .tag(0)
+        ZStack(alignment: .bottom) {
+            TabView(selection: $selectedTab) {
+                HomeView(onSearchTap: { selectedTab = 2 })
+                    .tag(0)
+                LiveView()
+                    .tag(1)
+                SearchView(viewModel: searchVM)
+                    .tag(2)
+                FavoritesView()
+                    .tag(3)
+                SettingsView()
+                    .tag(4)
+            }
+            .tint(AppTheme.accentColor)
+            .toolbar(.hidden, for: .tabBar)
             
-            LiveView()
-                .tabItem {
-                    Label("直播", systemImage: "tv.fill")
-                }
-                .tag(1)
-            
-            SearchView(viewModel: searchVM)
-                .tabItem {
-                    Label("搜索", systemImage: "magnifyingglass")
-                }
-                .tag(2)
-            
-            FavoritesView()
-                .tabItem {
-                    Label("收藏", systemImage: "heart.fill")
-                }
-                .tag(3)
-            
-            SettingsView()
-                .tabItem {
-                    Label("设置", systemImage: "gearshape.fill")
-                }
-                .tag(4)
+            floatingNavBar
         }
-        .tint(AppTheme.accentColor)
         #else
         NavigationSplitView(columnVisibility: $appState.splitViewVisibility) {
             List(selection: $selectedTab) {
@@ -188,7 +173,7 @@ struct ContentView: View {
             .listStyle(.sidebar)
         } detail: {
             switch selectedTab {
-            case 0: HomeView()
+            case 0: HomeView(onSearchTap: { selectedTab = 2 })
             case 1: LiveView()
             case 2: SearchView(viewModel: searchVM)
             case 3: FavoritesView()
@@ -200,6 +185,52 @@ struct ContentView: View {
         #endif
     }
     
+    private var floatingNavBar: some View {
+        HStack(spacing: 0) {
+            navBarItem(icon: "house", selectedIcon: "house.fill", title: "首页", tag: 0)
+            navBarItem(icon: "tv", selectedIcon: "tv.fill", title: "直播", tag: 1)
+            navBarItem(icon: "magnifyingglass", selectedIcon: "magnifyingglass", title: "搜索", tag: 2)
+            navBarItem(icon: "heart", selectedIcon: "heart.fill", title: "收藏", tag: 3)
+            navBarItem(icon: "gearshape", selectedIcon: "gearshape.fill", title: "设置", tag: 4)
+        }
+        .padding(.horizontal, 8)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(Color(hex: "1C1C1E"))
+        )
+        .overlay(
+            Capsule()
+                .stroke(Color.white.opacity(0.08), lineWidth: 0.5)
+        )
+        .padding(.horizontal, 32)
+        .padding(.bottom, 4)
+    }
+    
+    private func navBarItem(icon: String, selectedIcon: String, title: String, tag: Int) -> some View {
+        Button {
+            withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) {
+                selectedTab = tag
+            }
+        } label: {
+            let isSelected = selectedTab == tag
+            VStack(spacing: 3) {
+                Image(systemName: isSelected ? selectedIcon : icon)
+                    .font(.system(size: 18, weight: isSelected ? .semibold : .regular))
+                Text(title)
+                    .font(.system(size: 10, weight: .medium))
+            }
+            .foregroundColor(isSelected ? AppTheme.accentColor : Color.white.opacity(0.35))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(isSelected ? AppTheme.accentColor.opacity(0.12) : Color.clear)
+            )
+        }
+        .buttonStyle(.plain)
+    }
+    
     private var setupView: some View {
         ZStack {
             AppTheme.primaryGradient
@@ -208,7 +239,7 @@ struct ContentView: View {
             VStack {
                 HStack {
                     Circle()
-                        .fill(AppTheme.accentColor.opacity(0.15))
+                        .fill(AppTheme.accentColor.opacity(0.1))
                         .frame(width: 300, height: 300)
                         .blur(radius: 80)
                         .offset(x: -100, y: -100)
@@ -218,7 +249,7 @@ struct ContentView: View {
                 HStack {
                     Spacer()
                     Circle()
-                        .fill(Color.red.opacity(0.15))
+                        .fill(AppTheme.accentColor.opacity(0.08))
                         .frame(width: 300, height: 300)
                         .blur(radius: 80)
                         .offset(x: 100, y: 100)
@@ -234,12 +265,11 @@ struct ContentView: View {
                                 .fill(AppTheme.accentGradient)
                                 .frame(width: 100, height: 100)
                                 .blur(radius: 20)
-                                .opacity(0.5)
+                                .opacity(0.4)
                             
                             Image(systemName: "play.tv.fill")
                                 .font(.system(size: 80))
                                 .foregroundStyle(AppTheme.accentGradient)
-                                .shadow(color: .red.opacity(0.3), radius: 15, x: 0, y: 10)
                         }
                         
                         VStack(spacing: AppTheme.spacingSM) {
@@ -340,7 +370,6 @@ struct ContentView: View {
                             .background(AppTheme.accentGradient)
                             .foregroundColor(AppTheme.textPrimary)
                             .clipShape(Capsule())
-                            .shadow(color: .red.opacity(0.4), radius: AppTheme.spacingMD, x: 0, y: 6)
                         }
                         .buttonStyle(.plain)
                         .disabled(

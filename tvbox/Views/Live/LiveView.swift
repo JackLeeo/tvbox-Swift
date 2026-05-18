@@ -297,7 +297,7 @@ struct LiveView: View {
         HStack(spacing: 15) {
             VStack(alignment: .leading, spacing: 6) {
                 HStack(spacing: 10) {
-                    Circle().fill(Color.orange).frame(width: 8, height: 8)
+                    Circle().fill(AppTheme.accentColor).frame(width: 8, height: 8)
                     Text(channel.channelName)
                         .font(.system(size: 20, weight: .bold))
                         .foregroundColor(.white)
@@ -403,7 +403,7 @@ struct LiveView: View {
                     } label: {
                         Text(group.groupName)
                             .font(.system(size: 14, weight: viewModel.selectedGroupIndex == index ? .bold : .medium))
-                            .foregroundColor(viewModel.selectedGroupIndex == index ? .orange : .white.opacity(0.8))
+                            .foregroundColor(viewModel.selectedGroupIndex == index ? AppTheme.accentColor : .white.opacity(0.8))
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.horizontal, 16)
                             .padding(.vertical, 14)
@@ -434,7 +434,7 @@ struct LiveView: View {
                         HStack {
                             Text(channel.channelName)
                                 .font(.system(size: 14, weight: viewModel.currentChannel?.channelName == channel.channelName ? .bold : .medium))
-                                .foregroundColor(viewModel.currentChannel?.channelName == channel.channelName ? .orange : .white.opacity(0.8))
+                                .foregroundColor(viewModel.currentChannel?.channelName == channel.channelName ? AppTheme.accentColor : .white.opacity(0.8))
                             Spacer()
                             if channel.sourceNum > 1 {
                                 Text("\(channel.sourceNum)")
@@ -449,7 +449,7 @@ struct LiveView: View {
                         .padding(.vertical, 12)
                         .background(
                             viewModel.currentChannel?.channelName == channel.channelName
-                                ? Color.orange.opacity(0.15)
+                                ? AppTheme.accentColor.opacity(0.12)
                                 : Color.clear
                         )
                     }
