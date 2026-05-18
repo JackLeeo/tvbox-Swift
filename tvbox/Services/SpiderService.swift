@@ -5,6 +5,7 @@ enum SpiderError: LocalizedError {
     case nodeNotReady
     case invalidResponse
     case httpError(Int, String)
+    case upstreamError(Int)
     case timeout
     case connectionRefused
     case decodingError(String)
@@ -19,6 +20,13 @@ enum SpiderError: LocalizedError {
                 return "HTTP错误: \(code)"
             }
             return "HTTP错误: \(code) - \(detail)"
+        case .upstreamError(let code):
+            switch code {
+            case 403: return "源站拒绝访问(403)，该资源可能需要登录或已失效"
+            case 404: return "源站资源不存在(404)"
+            case 429: return "源站请求过于频繁(429)，请稍后重试"
+            default: return "源站返回错误(\(code))"
+            }
         case .timeout: return "请求超时，请检查网络"
         case .connectionRefused: return "无法连接到本地服务，请稍后重试"
         case .decodingError(let msg): return "解码错误: \(msg)"
@@ -129,6 +137,9 @@ class SpiderService {
 
                 guard (200...299).contains(httpResponse.statusCode) else {
                     let detail = String(data: data, encoding: .utf8) ?? ""
+                    if let upstreamCode = extractUpstreamStatusCode(detail) {
+                        throw SpiderError.upstreamError(upstreamCode)
+                    }
                     let error = SpiderError.httpError(httpResponse.statusCode, detail)
                     if isRetryableHTTPError(httpResponse.statusCode, detail: detail), attempt < totalAttempts - 1 {
                         lastError = error
@@ -178,6 +189,15 @@ class SpiderService {
         return false
     }
 
+    private func extractUpstreamStatusCode(_ detail: String) -> Int? {
+        guard let range = detail.range(of: "status code \\d{3}", options: .regularExpression) else {
+            return nil
+        }
+        let matched = String(detail[range])
+        let digits = matched.components(separatedBy: CharacterSet.decimalDigits.inverted).joined()
+        return Int(digits)
+    }
+
     private static func isRetryableNetworkError(_ nsError: NSError) -> Bool {
         guard nsError.domain == NSURLErrorDomain else { return false }
         switch nsError.code {
@@ -208,6 +228,9 @@ class SpiderService {
         }
         guard (200...299).contains(httpResponse.statusCode) else {
             let responseBody = String(data: data, encoding: .utf8) ?? ""
+            if let upstreamCode = extractUpstreamStatusCode(responseBody) {
+                throw SpiderError.upstreamError(upstreamCode)
+            }
             throw SpiderError.httpError(httpResponse.statusCode, responseBody)
         }
         guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
