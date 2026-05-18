@@ -31,7 +31,7 @@ class SpiderService {
 
     private var session: URLSession
     private let maxRetries = 3
-    private let timeoutInterval: TimeInterval = 30
+    private let timeoutInterval: TimeInterval = 60
 
     private var currentKey: String?
     private var currentType: Int?
@@ -39,8 +39,8 @@ class SpiderService {
 
     private init() {
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 30
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 60
         self.session = URLSession(configuration: config)
     }
 
@@ -55,8 +55,8 @@ class SpiderService {
     func invalidateSession() {
         session.invalidateAndCancel()
         let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 30
-        config.timeoutIntervalForResource = 30
+        config.timeoutIntervalForRequest = 60
+        config.timeoutIntervalForResource = 60
         session = URLSession(configuration: config)
     }
 
@@ -129,7 +129,14 @@ class SpiderService {
 
                 guard (200...299).contains(httpResponse.statusCode) else {
                     let detail = String(data: data, encoding: .utf8) ?? ""
-                    throw SpiderError.httpError(httpResponse.statusCode, detail)
+                    let error = SpiderError.httpError(httpResponse.statusCode, detail)
+                    if isRetryableHTTPError(httpResponse.statusCode, detail: detail), attempt < totalAttempts - 1 {
+                        lastError = error
+                        let delay = TimeInterval(attempt + 1)
+                        try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+                        continue
+                    }
+                    throw error
                 }
 
                 guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
@@ -161,6 +168,14 @@ class SpiderService {
         }
 
         throw lastError ?? SpiderError.timeout
+    }
+
+    private func isRetryableHTTPError(_ statusCode: Int, detail: String) -> Bool {
+        guard statusCode >= 500 else { return false }
+        if detail.contains("ECONNABORTED") || detail.contains("timeout") || detail.contains("ETIMEDOUT") {
+            return true
+        }
+        return false
     }
 
     private static func isRetryableNetworkError(_ nsError: NSError) -> Bool {

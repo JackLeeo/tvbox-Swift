@@ -3,6 +3,7 @@ import https from 'https';
 import http from 'http';
 
 const req = _axios.create({
+    timeout: 30000,
     httpsAgent: new https.Agent({ keepAlive: true, rejectUnauthorized: false }),
     httpAgent: new http.Agent({ keepAlive: true }),
 });
