@@ -126,9 +126,6 @@ class AppState: ObservableObject {
     private var cancellables = Set<AnyCancellable>()
 
     init() {
-        if UserDefaults.standard.bool(forKey: "app_restart_pending") {
-            UserDefaults.standard.set(false, forKey: "app_restart_pending")
-        }
         setupNetworkRestoredAutoRetry()
         ApiConfig.shared.objectWillChange
             .receive(on: DispatchQueue.main)
@@ -296,24 +293,32 @@ class AppState: ObservableObject {
             loadingPhase = .completed
             NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
         } else {
-            restartApp()
+            await forceRestartNodeJS()
         }
     }
 
-    private func restartApp() {
-        loadingPhase = .failed("服务重连失败，即将重启应用...")
-        UserDefaults.standard.set(true, forKey: "app_restart_pending")
-        UserDefaults.standard.synchronize()
+    private func forceRestartNodeJS() async {
+        loadingPhase = .reconnecting
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-            exit(0)
+        NodeJSManager.shared().forceResetRunningState()
+        nodeJSStarted = false
+
+        try? await Task.sleep(nanoseconds: 500_000_000)
+
+        await ensureNodeJSAndLoadSource()
+
+        if nodeJSStarted {
+            loadingPhase = .completed
+            NotificationCenter.default.post(name: .spiderServiceDidReconnect, object: nil)
+        } else {
+            loadingPhase = .failed("服务重连失败，请下拉刷新重试")
         }
     }
 
     private func recoverSpiderService() async {
-        try? await Task.sleep(nanoseconds: 1_500_000_000)
+        try? await Task.sleep(nanoseconds: 2_000_000_000)
 
-        for attempt in 0..<3 {
+        for attempt in 0..<4 {
             if !NodeJSManager.shared().isRunning {
                 nodeJSStarted = false
                 await ensureNodeJSAndLoadSource()
@@ -336,7 +341,7 @@ class AppState: ObservableObject {
                 }
             }
 
-            if attempt < 2 {
+            if attempt < 3 {
                 try? await Task.sleep(nanoseconds: 2_000_000_000)
             }
         }

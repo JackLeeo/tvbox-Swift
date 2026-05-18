@@ -14,6 +14,7 @@ NS_ASSUME_NONNULL_BEGIN
 
 - (void)startNodeJS:(void (^)(BOOL success))completion;
 - (void)stopNodeJS;
+- (void)forceResetRunningState;
 - (void)waitForNodeReady:(void (^)(BOOL ready))completion NS_SWIFT_NAME(waitForNodeReady(_:));
 - (void)waitForSpiderPort:(void (^)(BOOL ready))completion NS_SWIFT_NAME(waitForSpiderPort(_:));
 

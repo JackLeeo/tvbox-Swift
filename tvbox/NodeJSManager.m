@@ -312,6 +312,18 @@ static const int kMaxStartupWaitSeconds = 30;
     NSLog(@"[NodeJSManager] Node.js stopped");
 }
 
+- (void)forceResetRunningState {
+    self.isRunning = NO;
+    self.nodeReady = NO;
+    [self.webServer stop];
+    self.webServer = nil;
+    self.nativeServerPort = 0;
+    self.spiderPort = 0;
+    self.managementPort = 0;
+
+    NSLog(@"[NodeJSManager] Force reset running state for recovery");
+}
+
 #pragma mark - Wait for Ready (Public)
 
 - (void)waitForNodeReady:(void (^)(BOOL ready))completion {
