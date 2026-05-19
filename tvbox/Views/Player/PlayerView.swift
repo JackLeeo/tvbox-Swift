@@ -9,12 +9,14 @@ import UIKit
 
 struct PlatformVideoPlayer: View {
     let player: AVPlayer
+    var videoFitType: VideoFitType = .contain
+    var pipManager: PlayerPiPManager? = nil
 
     var body: some View {
         #if os(macOS)
-        MacOSPlayerView(player: player)
+        MacOSPlayerView(player: player, videoGravity: videoFitType.avVideoGravity)
         #else
-        IOSPlayerView(player: player)
+        IOSPlayerView(player: player, videoGravity: videoFitType.avVideoGravity, pipManager: pipManager)
         #endif
     }
 }
@@ -22,12 +24,13 @@ struct PlatformVideoPlayer: View {
 #if os(macOS)
 private struct MacOSPlayerView: NSViewRepresentable {
     let player: AVPlayer
+    var videoGravity: AVLayerVideoGravity = .resizeAspect
 
     func makeNSView(context: Context) -> AVPlayerView {
         let view = AVPlayerView()
         view.controlsStyle = .none
         view.showsFullScreenToggleButton = false
-        view.videoGravity = .resizeAspect
+        view.videoGravity = videoGravity
         view.player = player
         return view
     }
@@ -36,6 +39,7 @@ private struct MacOSPlayerView: NSViewRepresentable {
         if nsView.player !== player {
             nsView.player = player
         }
+        nsView.videoGravity = videoGravity
     }
 
     static func dismantleNSView(_ nsView: AVPlayerView, coordinator: ()) {
@@ -43,25 +47,69 @@ private struct MacOSPlayerView: NSViewRepresentable {
     }
 }
 #else
+
+private final class PlayerLayerView: UIView {
+    override class var layerClass: AnyClass { AVPlayerLayer.self }
+    var playerLayer: AVPlayerLayer { layer as! AVPlayerLayer }
+}
+
+private final class PlayerHostingViewController: UIViewController {
+    var player: AVPlayer? {
+        didSet { playerView.playerLayer.player = player }
+    }
+    var videoGravity: AVLayerVideoGravity = .resizeAspect {
+        didSet { playerView.playerLayer.videoGravity = videoGravity }
+    }
+    weak var pipManager: PlayerPiPManager?
+
+    private let playerView = PlayerLayerView()
+
+    override func viewDidLoad() {
+        super.viewDidLoad()
+        view.addSubview(playerView)
+        playerView.translatesAutoresizingMaskIntoConstraints = false
+        playerView.backgroundColor = .black
+        NSLayoutConstraint.activate([
+            playerView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+            playerView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+            playerView.topAnchor.constraint(equalTo: view.topAnchor),
+            playerView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        ])
+        playerView.playerLayer.videoGravity = videoGravity
+        playerView.playerLayer.player = player
+    }
+
+    override func viewDidLayoutSubviews() {
+        super.viewDidLayoutSubviews()
+        playerView.playerLayer.frame = playerView.bounds
+    }
+
+    override func viewDidAppear(_ animated: Bool) {
+        super.viewDidAppear(animated)
+        pipManager?.setup(with: playerView.playerLayer)
+    }
+}
+
 private struct IOSPlayerView: UIViewControllerRepresentable {
     let player: AVPlayer
+    var videoGravity: AVLayerVideoGravity = .resizeAspect
+    var pipManager: PlayerPiPManager?
 
-    func makeUIViewController(context: Context) -> AVPlayerViewController {
-        let controller = AVPlayerViewController()
-        controller.player = player
-        controller.showsPlaybackControls = false
-        controller.videoGravity = .resizeAspect
-        controller.view.backgroundColor = .black
-        return controller
+    func makeUIViewController(context: Context) -> PlayerHostingViewController {
+        let vc = PlayerHostingViewController()
+        vc.player = player
+        vc.videoGravity = videoGravity
+        vc.pipManager = pipManager
+        return vc
     }
 
-    func updateUIViewController(_ uiViewController: AVPlayerViewController, context: Context) {
-        if uiViewController.player !== player {
-            uiViewController.player = player
-        }
+    func updateUIViewController(_ uiViewController: PlayerHostingViewController, context: Context) {
+        uiViewController.player = player
+        uiViewController.videoGravity = videoGravity
+        uiViewController.pipManager = pipManager
     }
 
-    static func dismantleUIViewController(_ uiViewController: AVPlayerViewController, coordinator: ()) {
+    static func dismantleUIViewController(_ uiViewController: PlayerHostingViewController, coordinator: ()) {
         uiViewController.player = nil
     }
 }
@@ -97,6 +145,8 @@ struct PlayerView: View {
     var onToggleFullScreen: (() -> Void)? = nil
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
+    var canPlayPrevious: Bool = false
+    var onPlayPrevious: (() -> Void)? = nil
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
     var isFullScreenMode: Bool = false
@@ -142,6 +192,8 @@ struct PlayerView: View {
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
+                    canPlayPrevious: canPlayPrevious,
+                    onPlayPrevious: onPlayPrevious,
                     sharedController: systemController,
                     isFullScreenMode: isFullScreenMode,
                     videoTitle: videoTitle,
@@ -161,6 +213,8 @@ struct PlayerView: View {
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
+                    canPlayPrevious: canPlayPrevious,
+                    onPlayPrevious: onPlayPrevious,
                     sharedController: vlcController,
                     isFullScreenMode: isFullScreenMode,
                     videoTitle: videoTitle,
@@ -201,6 +255,11 @@ struct AVPlayerContentView: View {
     var onToggleFullScreen: (() -> Void)? = nil
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
+    var canPlayPrevious: Bool = false
+    var onPlayPrevious: (() -> Void)? = nil
+    var onSetVideoFit: (VideoFitType) -> Void = { _ in }
+    var onTogglePiP: () -> Void = {}
+    var onCast: () -> Void = {}
     var sharedController: SystemPlayerSessionController? = nil
     var isFullScreenMode: Bool = false
     var videoTitle: String = ""
@@ -232,15 +291,16 @@ struct AVPlayerContentView: View {
     @State private var skipIntroSeconds: Int = 0
     @State private var skipOutroSeconds: Int = 0
     @State private var showSettingsSheet: Bool = false
-
-    private var currentResolution: String { "" }
-    private var currentBitrate: String { "" }
+    @State private var videoFitType: VideoFitType = .contain
+    @StateObject private var networkMonitor = PlayerNetworkMonitor()
+    @StateObject private var pipManager = PlayerPiPManager()
 
     var body: some View {
         ZStack {
             Group {
                 if let player = player {
-                    PlatformVideoPlayer(player: player)
+                    PlatformVideoPlayer(player: player, videoFitType: videoFitType, pipManager: pipManager)
+                        .onAppear { networkMonitor.attach(to: player) }
                 } else {
                     ZStack {
                         Color.black
@@ -324,8 +384,8 @@ struct AVPlayerContentView: View {
                 seekStep: seekStep,
                 videoTitle: videoTitle,
                 currentEpisodeName: currentEpisodeName,
-                currentResolution: currentResolution,
-                currentBitrate: currentBitrate,
+                currentResolution: networkMonitor.resolutionText,
+                currentBitrate: networkMonitor.bitrateText,
                 showEpisodeButton: showEpisodeButton,
                 showPlayerSwitchButton: PlayerEngine.isVLCAvailable,
                 skipIntroSeconds: skipIntroSeconds,
@@ -335,6 +395,12 @@ struct AVPlayerContentView: View {
                 onSeekBackward: { seek(by: -seekStep) },
                 onSeekForward: { seek(by: seekStep) },
                 onPlayNext: { onPlayNext?() },
+                canPlayPrevious: canPlayPrevious,
+                onPlayPrevious: { onPlayPrevious?() },
+                videoFitType: videoFitType,
+                onSetVideoFit: { videoFitType = $0 },
+                onTogglePiP: { pipManager.togglePiP() },
+                onCast: {},
                 onToggleMute: {
                     wakeUpControls()
                     let newVolume = volume > 0 ? 0.0 : 1.0
@@ -414,8 +480,10 @@ struct AVPlayerContentView: View {
                 skipIntroSeconds: skipIntroSeconds,
                 skipOutroSeconds: skipOutroSeconds,
                 playbackRate: rate,
-                currentResolution: currentResolution,
-                currentBitrate: currentBitrate,
+                currentResolution: networkMonitor.resolutionText,
+                currentBitrate: networkMonitor.bitrateText,
+                videoFitType: videoFitType,
+                onSetVideoFit: { videoFitType = $0 },
                 onSwitchPlayer: { onSwitchPlayer?() },
                 onSetPlaybackRate: { r in setPlaybackRate(r) },
                 onSetSkipIntro: { skipIntroSeconds = $0 },
@@ -435,6 +503,8 @@ struct AVPlayerContentView: View {
             wakeUpControls()
         }
         .onDisappear {
+            pipManager.teardown()
+            networkMonitor.detach()
             cleanupPlayer(keepSharedPlayer: sharedController != nil)
             controlsTimer?.invalidate()
         }

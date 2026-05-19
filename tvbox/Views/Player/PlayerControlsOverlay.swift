@@ -1,9 +1,176 @@
 import SwiftUI
 import Combine
+import AVFoundation
 
 #if os(iOS)
 import UIKit
+import AVKit
 #endif
+
+enum VideoFitType: Int, CaseIterable {
+    case fill = 0
+    case contain = 1
+    case cover = 2
+    case fitWidth = 3
+    case fitHeight = 4
+    case none = 5
+    case ratio4x3 = 6
+    case ratio16x9 = 7
+
+    var desc: String {
+        switch self {
+        case .fill: return "拉伸"
+        case .contain: return "自动"
+        case .cover: return "裁剪"
+        case .fitWidth: return "等宽"
+        case .fitHeight: return "等高"
+        case .none: return "原始"
+        case .ratio4x3: return "4:3"
+        case .ratio16x9: return "16:9"
+        }
+    }
+
+    var contentMode: ContentMode {
+        switch self {
+        case .fill, .cover: return .fill
+        default: return .fit
+        }
+    }
+
+    var avVideoGravity: AVLayerVideoGravity {
+        switch self {
+        case .fill: return .resize
+        case .contain: return .resizeAspect
+        case .cover: return .resizeAspectFill
+        case .fitWidth: return .resizeAspect
+        case .fitHeight: return .resizeAspect
+        case .none: return .resizeAspect
+        case .ratio4x3: return .resizeAspect
+        case .ratio16x9: return .resizeAspect
+        }
+    }
+
+    #if os(iOS)
+    var uiContentMode: UIView.ContentMode {
+        switch self {
+        case .fill: return .scaleToFill
+        case .contain: return .scaleAspectFit
+        case .cover: return .scaleAspectFill
+        case .fitWidth: return .scaleAspectFit
+        case .fitHeight: return .scaleAspectFit
+        case .none: return .center
+        case .ratio4x3: return .scaleAspectFit
+        case .ratio16x9: return .scaleAspectFit
+        }
+    }
+    #endif
+
+    var aspectRatio: CGFloat? {
+        switch self {
+        case .ratio4x3: return 4.0 / 3.0
+        case .ratio16x9: return 16.0 / 9.0
+        default: return nil
+        }
+    }
+}
+
+@MainActor
+final class PlayerNetworkMonitor: ObservableObject {
+    @Published var bitrateText: String = ""
+    @Published var resolutionText: String = ""
+
+    private var player: AVPlayer?
+    private var accessLogTimer: Timer?
+    private var trackObserver: NSKeyValueObservation?
+
+    func attach(to player: AVPlayer) {
+        self.player = player
+        startMonitoring()
+        observeTracks()
+    }
+
+    func detach() {
+        stopMonitoring()
+        trackObserver?.invalidate()
+        trackObserver = nil
+        player = nil
+    }
+
+    private func observeTracks() {
+        guard let player = player else { return }
+        trackObserver = player.currentItem?.observe(\.tracks, options: [.new]) { [weak self] item, _ in
+            Task { @MainActor in
+                self?.updateResolution(from: item)
+            }
+        }
+        updateResolution(from: player.currentItem)
+    }
+
+    private func updateResolution(from item: AVPlayerItem?) {
+        guard let item = item else { return }
+        var width: Int = 0
+        var height: Int = 0
+        for track in item.tracks {
+            if let size = track.assetTrack?.naturalSize, size.width > 0, size.height > 0 {
+                width = Int(size.width)
+                height = Int(size.height)
+                break
+            }
+        }
+        if width > 0, height > 0 {
+            resolutionText = "\(width)×\(height)"
+        }
+    }
+
+    private func startMonitoring() {
+        accessLogTimer?.invalidate()
+        accessLogTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateBitrate()
+            }
+        }
+    }
+
+    private func stopMonitoring() {
+        accessLogTimer?.invalidate()
+        accessLogTimer = nil
+    }
+
+    private func updateBitrate() {
+        guard let item = player?.currentItem,
+              let log = item.accessLog(),
+              let event = log.events.last else {
+            bitrateText = ""
+            return
+        }
+        let bitrate = event.indicatedBitrate
+        if bitrate > 0 {
+            let mbps = bitrate / 1_000_000.0
+            if mbps >= 1.0 {
+                bitrateText = String(format: "%.1fMbps", mbps)
+            } else {
+                let kbps = bitrate / 1_000.0
+                bitrateText = String(format: "%.0fKbps", kbps)
+            }
+        } else {
+            let observedBitrate = event.observedBitrate
+            if observedBitrate > 0 {
+                let mbps = observedBitrate / 1_000_000.0
+                if mbps >= 1.0 {
+                    bitrateText = String(format: "%.1fMbps", mbps)
+                } else {
+                    let kbps = observedBitrate / 1_000.0
+                    bitrateText = String(format: "%.0fKbps", kbps)
+                }
+            } else {
+                bitrateText = ""
+            }
+        }
+        if resolutionText.isEmpty {
+            updateResolution(from: item)
+        }
+    }
+}
 
 struct PlayerControlsOverlay: View {
     let isPlaying: Bool
@@ -17,6 +184,7 @@ struct PlayerControlsOverlay: View {
     let isFullScreen: Bool
     let isLocked: Bool
     let canPlayNext: Bool
+    let canPlayPrevious: Bool
     let showControls: Bool
     let volumeIconName: String
     let seekStep: Double
@@ -29,11 +197,13 @@ struct PlayerControlsOverlay: View {
     let skipIntroSeconds: Int
     let skipOutroSeconds: Int
     let currentPlaybackEngine: PlayerEngine
+    let videoFitType: VideoFitType
 
     let onTogglePlayPause: () -> Void
     let onSeekBackward: () -> Void
     let onSeekForward: () -> Void
     let onPlayNext: () -> Void
+    let onPlayPrevious: () -> Void
     let onToggleMute: () -> Void
     let onToggleFullScreen: () -> Void
     let onProgressDragChanged: (Double) -> Void
@@ -47,6 +217,9 @@ struct PlayerControlsOverlay: View {
     let onSkipOutro: () -> Void
     let onShowSettings: () -> Void
     let onBack: () -> Void
+    let onSetVideoFit: (VideoFitType) -> Void
+    let onTogglePiP: () -> Void
+    let onCast: () -> Void
 
     private static let supportedPlaybackRates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
 
@@ -226,6 +399,11 @@ struct PlayerControlsOverlay: View {
             }
             #endif
 
+            #if os(iOS)
+            AirPlayPickerButton()
+                .frame(width: 36, height: 36)
+            #endif
+
             Button {
                 onWakeUpControls()
                 onShowSettings()
@@ -391,6 +569,8 @@ struct PlayerControlsOverlay: View {
             HStack(spacing: 14) {
                 playbackRateMenu
 
+                videoFitMenu
+
                 if showPlayerSwitchButton {
                     playerSwitchMenu
                 }
@@ -399,6 +579,14 @@ struct PlayerControlsOverlay: View {
             Spacer()
 
             HStack(spacing: 28) {
+                if canPlayPrevious {
+                    controlButton(
+                        icon: "backward.end.fill",
+                        size: 20,
+                        action: { onWakeUpControls(); onPlayPrevious() }
+                    )
+                }
+
                 controlButton(
                     icon: seekBackwardIcon,
                     size: 20,
@@ -422,7 +610,6 @@ struct PlayerControlsOverlay: View {
                     controlButton(
                         icon: "forward.end.fill",
                         size: 20,
-                        opacity: canPlayNext ? 1 : 0.4,
                         action: { onWakeUpControls(); onPlayNext() }
                     )
                 }
@@ -452,6 +639,16 @@ struct PlayerControlsOverlay: View {
                         action: { onWakeUpControls(); onToggleLock() }
                     )
                 }
+
+                #if os(iOS)
+                if currentPlaybackEngine == .system {
+                    controlButton(
+                        icon: "pip.enter",
+                        size: 16,
+                        action: { onWakeUpControls(); onTogglePiP() }
+                    )
+                }
+                #endif
 
                 controlButton(
                     icon: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
@@ -507,6 +704,34 @@ struct PlayerControlsOverlay: View {
             .padding(.vertical, 6)
             .background(Color.white.opacity(0.15))
             .clipShape(Capsule())
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var videoFitMenu: some View {
+        Menu {
+            ForEach(VideoFitType.allCases, id: \.self) { fit in
+                Button {
+                    onWakeUpControls()
+                    onSetVideoFit(fit)
+                } label: {
+                    HStack {
+                        Text(fit.desc)
+                        if fit == videoFitType {
+                            Spacer()
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            Text(videoFitType.desc)
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(.white)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .background(Color.white.opacity(0.15))
+                .clipShape(Capsule())
         }
         .buttonStyle(.plain)
     }
@@ -616,11 +841,13 @@ struct PlayerSettingsSheet: View {
     let playbackRate: Float
     let currentResolution: String
     let currentBitrate: String
+    let videoFitType: VideoFitType
 
     let onSwitchPlayer: () -> Void
     let onSetPlaybackRate: (Float) -> Void
     let onSetSkipIntro: (Int) -> Void
     let onSetSkipOutro: (Int) -> Void
+    let onSetVideoFit: (VideoFitType) -> Void
     let onShowPlayerInfo: () -> Void
 
     @Environment(\.dismiss) private var dismiss
@@ -664,6 +891,28 @@ struct PlayerSettingsSheet: View {
                                         .padding(.horizontal, 12)
                                         .padding(.vertical, 8)
                                         .background(abs(r - playbackRate) < 0.01 ? Color.accentColor : Color(.systemGray5))
+                                        .clipShape(Capsule())
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.vertical, 4)
+                    }
+                }
+
+                Section(header: Text("画面比例")) {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 8) {
+                            ForEach(VideoFitType.allCases, id: \.self) { fit in
+                                Button {
+                                    onSetVideoFit(fit)
+                                } label: {
+                                    Text(fit.desc)
+                                        .font(.system(size: 13, weight: fit == videoFitType ? .bold : .regular))
+                                        .foregroundColor(fit == videoFitType ? .white : .primary)
+                                        .padding(.horizontal, 12)
+                                        .padding(.vertical, 8)
+                                        .background(fit == videoFitType ? Color.accentColor : Color(.systemGray5))
                                         .clipShape(Capsule())
                                 }
                                 .buttonStyle(.plain)
@@ -739,3 +988,92 @@ struct PlayerSettingsSheet: View {
         }
     }
 }
+
+#if os(iOS)
+struct AirPlayPickerButton: UIViewRepresentable {
+    func makeUIView(context: Context) -> AVRoutePickerView {
+        let picker = AVRoutePickerView()
+        picker.tintColor = .white
+        picker.activeTintColor = .white
+        picker.isRoutePickerButtonBordered = false
+        return picker
+    }
+
+    func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
+}
+#endif
+
+@MainActor
+final class PlayerPiPManager: NSObject, ObservableObject {
+    @Published var isPiPSupported = false
+    @Published var isPiPActive = false
+
+    #if os(iOS)
+    private var pipController: AVPictureInPictureController?
+    private var pipPossibleObservation: NSKeyValueObservation?
+    #endif
+
+    #if os(iOS)
+    func setup(with playerLayer: AVPlayerLayer) {
+        guard AVPictureInPictureController.isPictureInPictureSupported() else { return }
+        if let existing = pipController, existing.playerLayer === playerLayer { return }
+
+        pipController = AVPictureInPictureController(playerLayer: playerLayer)
+        pipController?.delegate = self
+
+        pipPossibleObservation = pipController?.observe(\.isPictureInPicturePossible, options: [.new]) { [weak self] controller, _ in
+            Task { @MainActor in
+                self?.isPiPSupported = controller.isPictureInPicturePossible
+            }
+        }
+    }
+    #endif
+
+    func teardown() {
+        #if os(iOS)
+        pipPossibleObservation?.invalidate()
+        pipPossibleObservation = nil
+        pipController?.delegate = nil
+        pipController = nil
+        #endif
+        isPiPSupported = false
+        isPiPActive = false
+    }
+
+    func togglePiP() {
+        #if os(iOS)
+        guard let pipController else { return }
+        if pipController.isPictureInPictureActive {
+            pipController.stopPictureInPicture()
+        } else {
+            pipController.startPictureInPicture()
+        }
+        #endif
+    }
+}
+
+#if os(iOS)
+extension PlayerPiPManager: AVPictureInPictureControllerDelegate {
+    nonisolated func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        Task { @MainActor in
+            isPiPActive = true
+        }
+    }
+
+    nonisolated func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
+        Task { @MainActor in
+            isPiPActive = false
+        }
+    }
+
+    nonisolated func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, failedToStartPictureInPictureWithError error: Error) {
+        Task { @MainActor in
+            isPiPActive = false
+        }
+    }
+
+    nonisolated func pictureInPictureController(_ pictureInPictureController: AVPictureInPictureController, restoreUserInterfaceForPictureInPictureWithCompletionHandler completionHandler: @escaping (Bool) -> Void) {
+        completionHandler(true)
+    }
+}
+#endif

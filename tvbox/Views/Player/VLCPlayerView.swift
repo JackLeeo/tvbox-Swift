@@ -856,6 +856,11 @@ struct VLCVodPlayerView: View {
     var onToggleFullScreen: (() -> Void)? = nil
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
+    var canPlayPrevious: Bool = false
+    var onPlayPrevious: (() -> Void)? = nil
+    var onSetVideoFit: (VideoFitType) -> Void = { _ in }
+    var onTogglePiP: () -> Void = {}
+    var onCast: () -> Void = {}
     var sharedController: VLCPlayerController? = nil
     var isFullScreenMode: Bool = false
     var videoTitle: String = ""
@@ -877,6 +882,9 @@ struct VLCVodPlayerView: View {
     @State private var skipIntroSeconds: Int = 0
     @State private var skipOutroSeconds: Int = 0
     @State private var showSettingsSheet: Bool = false
+    @State private var videoFitType: VideoFitType = .contain
+    @State private var vlcBitrateText: String = ""
+    @State private var vlcBitrateTimer: Timer?
 
     private var controller: VLCPlayerController {
         sharedController ?? ownedController
@@ -890,12 +898,12 @@ struct VLCVodPlayerView: View {
     }
 
     private var currentBitrate: String {
-        return ""
+        return vlcBitrateText
     }
 
     var body: some View {
         ZStack {
-            VLCDrawableView(controller: controller, isFullScreenMode: isFullScreenMode)
+            VLCDrawableView(controller: controller, isFullScreenMode: isFullScreenMode, videoFitType: videoFitType)
                 .background(Color.black)
 
             if controller.isPreparing {
@@ -967,6 +975,7 @@ struct VLCVodPlayerView: View {
                 isFullScreen: isFullScreenMode,
                 isLocked: isLocked,
                 canPlayNext: canPlayNext,
+                canPlayPrevious: canPlayPrevious,
                 showControls: showControls,
                 volumeIconName: volumeIconName,
                 seekStep: seekStep,
@@ -983,6 +992,7 @@ struct VLCVodPlayerView: View {
                 onSeekBackward: { controller.seek(by: -seekStep) },
                 onSeekForward: { controller.seek(by: seekStep) },
                 onPlayNext: { onPlayNext?() },
+                onPlayPrevious: { onPlayPrevious?() },
                 onToggleMute: { controller.toggleMute() },
                 onToggleFullScreen: { onToggleFullScreen?() },
                 onProgressDragChanged: { newValue in
@@ -1027,6 +1037,10 @@ struct VLCVodPlayerView: View {
                 onShowSettings: {
                     showSettingsSheet = true
                 },
+                videoFitType: videoFitType,
+                onSetVideoFit: { videoFitType = $0 },
+                onTogglePiP: {},
+                onCast: {},
                 onBack: { onBack?() }
             )
         }
@@ -1062,6 +1076,7 @@ struct VLCVodPlayerView: View {
         .onAppear {
             setupGestureCallbacks()
             startPlayback()
+            startVLCBitrateMonitor()
             wakeUpControls()
         }
         .onChange(of: urlString) { _ in
@@ -1077,6 +1092,7 @@ struct VLCVodPlayerView: View {
         .onDisappear {
             startPlaybackTask?.cancel()
             startPlaybackTask = nil
+            stopVLCBitrateMonitor()
             if sharedController == nil {
                 controller.stop()
             }
@@ -1105,6 +1121,8 @@ struct VLCVodPlayerView: View {
                 onSetSkipOutro: { seconds in
                     skipOutroSeconds = seconds
                 },
+                videoFitType: videoFitType,
+                onSetVideoFit: { videoFitType = $0 },
                 onShowPlayerInfo: {}
             )
         }
@@ -1258,6 +1276,40 @@ struct VLCVodPlayerView: View {
 
     private var volumeStep: Int { 10 }
 
+    private func startVLCBitrateMonitor() {
+        vlcBitrateTimer?.invalidate()
+        var lastBytes: Int64 = 0
+        var lastTime: Date = Date()
+        vlcBitrateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
+            Task { @MainActor in
+                let stats = controller.mediaPlayer.statistics
+                let currentBytes = stats.videoDecodedVideoBytes + stats.videoDecodedTextBytes
+                let now = Date()
+                let interval = now.timeIntervalSince(lastTime)
+                if interval > 0 {
+                    let bytesPerSec = Double(currentBytes - lastBytes) / interval
+                    if bytesPerSec > 0 {
+                        let mbps = bytesPerSec * 8 / 1_000_000.0
+                        if mbps >= 1.0 {
+                            vlcBitrateText = String(format: "%.1fMbps", mbps)
+                        } else {
+                            let kbps = bytesPerSec * 8 / 1_000.0
+                            vlcBitrateText = String(format: "%.0fKbps", kbps)
+                        }
+                    }
+                }
+                lastBytes = currentBytes
+                lastTime = now
+            }
+        }
+    }
+
+    private func stopVLCBitrateMonitor() {
+        vlcBitrateTimer?.invalidate()
+        vlcBitrateTimer = nil
+        vlcBitrateText = ""
+    }
+
     private var progressUpperBound: Double {
         max(controller.durationSeconds, max(controller.currentTimeSeconds, 1))
     }
@@ -1378,12 +1430,13 @@ struct VLCLivePlayerView: View {
 private struct VLCDrawableView: View {
     let controller: VLCPlayerController
     var isFullScreenMode: Bool = false
+    var videoFitType: VideoFitType = .contain
 
     var body: some View {
         #if os(macOS)
         VLCMacDrawableView(controller: controller)
         #else
-        VLCIOSDrawableView(controller: controller, isFullScreenMode: isFullScreenMode)
+        VLCIOSDrawableView(controller: controller, isFullScreenMode: isFullScreenMode, videoFitType: videoFitType)
         #endif
     }
 }
@@ -1592,6 +1645,7 @@ private final class MacKeyCaptureNSView: NSView {
 private struct VLCIOSDrawableView: UIViewRepresentable {
     let controller: VLCPlayerController
     var isFullScreenMode: Bool = false
+    var videoFitType: VideoFitType = .contain
 
     final class Coordinator {
         let controller: VLCPlayerController
@@ -1608,6 +1662,7 @@ private struct VLCIOSDrawableView: UIViewRepresentable {
     func makeUIView(context: Context) -> VLCOutputUIView {
         let view = VLCOutputUIView(frame: .zero)
         view.backgroundColor = .black
+        view.contentMode = videoFitType.uiContentMode
         view.onLifecycle = { container in
             context.coordinator.controller.attachDrawable(to: container)
         }
@@ -1619,6 +1674,7 @@ private struct VLCIOSDrawableView: UIViewRepresentable {
     }
 
     func updateUIView(_ uiView: VLCOutputUIView, context: Context) {
+        uiView.contentMode = videoFitType.uiContentMode
         uiView.onLifecycle = { container in
             context.coordinator.controller.attachDrawable(to: container)
         }

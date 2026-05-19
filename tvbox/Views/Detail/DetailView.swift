@@ -34,6 +34,8 @@ struct DetailView: View {
                         },
                         canPlayNext: canPlayNextEpisode,
                         onPlayNext: playNextEpisodeIfNeeded,
+                        canPlayPrevious: canPlayPreviousEpisode,
+                        onPlayPrevious: { playPreviousEpisode() },
                         systemController: sharedSystemController,
                         vlcController: sharedVLCController,
                         httpHeaders: viewModel.playHeaders,
@@ -119,6 +121,8 @@ struct DetailView: View {
                     onPlaybackEnded: playNextEpisodeIfNeeded,
                     canPlayNext: canPlayNextEpisode,
                     onPlayNext: playNextEpisodeIfNeeded,
+                    canPlayPrevious: canPlayPreviousEpisode,
+                    onPlayPrevious: { playPreviousEpisode() },
                     systemController: sharedSystemController,
                     vlcController: sharedVLCController,
                     httpHeaders: viewModel.playHeaders,
@@ -156,6 +160,8 @@ struct DetailView: View {
                 onPlaybackEnded: playNextEpisodeIfNeeded,
                 canPlayNext: canPlayNextEpisode,
                 onPlayNext: playNextEpisodeIfNeeded,
+                canPlayPrevious: canPlayPreviousEpisode,
+                onPlayPrevious: { playPreviousEpisode() },
                 systemController: sharedSystemController,
                 vlcController: sharedVLCController,
                 httpHeaders: viewModel.playHeaders,
@@ -440,6 +446,10 @@ struct DetailView: View {
     private var canPlayNextEpisode: Bool {
         viewModel.selectedEpisodeIndex + 1 < viewModel.currentEpisodes.count
     }
+
+    private var canPlayPreviousEpisode: Bool {
+        viewModel.selectedEpisodeIndex > 0
+    }
     
     private func saveHistoryForCurrentEpisode(progressOverride: Double? = nil) {
         let episodeName = viewModel.vodInfo?.currentEpisode?.name.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -514,6 +524,17 @@ struct DetailView: View {
         var moved = false
         withAnimation {
             moved = viewModel.playNext()
+        }
+        
+        if moved {
+            saveHistoryForCurrentEpisode()
+        }
+    }
+    
+    private func playPreviousEpisode() {
+        var moved = false
+        withAnimation {
+            moved = viewModel.playPrevious()
         }
         
         if moved {
@@ -628,6 +649,8 @@ struct FullScreenPlayerView: View {
     var onPlaybackEnded: (() -> Void)? = nil
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
+    var canPlayPrevious: Bool = false
+    var onPlayPrevious: (() -> Void)? = nil
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
     var httpHeaders: [String: String] = [:]
@@ -652,6 +675,8 @@ struct FullScreenPlayerView: View {
                 },
                 canPlayNext: canPlayNext,
                 onPlayNext: onPlayNext,
+                canPlayPrevious: canPlayPrevious,
+                onPlayPrevious: onPlayPrevious,
                 systemController: systemController,
                 vlcController: vlcController,
                 isFullScreenMode: true,
