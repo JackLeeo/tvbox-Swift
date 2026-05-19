@@ -36,7 +36,13 @@ struct DetailView: View {
                         onPlayNext: playNextEpisodeIfNeeded,
                         systemController: sharedSystemController,
                         vlcController: sharedVLCController,
-                        httpHeaders: viewModel.playHeaders
+                        httpHeaders: viewModel.playHeaders,
+                        videoTitle: viewModel.vodInfo?.name ?? video.name,
+                        currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
+                        showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
+                        onShowEpisodes: { scrollToEpisodes() },
+                        onSwitchPlayer: { switchPlayerEngine() },
+                        onBack: { showFullScreen = false }
                     )
                     .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
                     .aspectRatio(16/9, contentMode: .fit)
@@ -116,7 +122,12 @@ struct DetailView: View {
                     systemController: sharedSystemController,
                     vlcController: sharedVLCController,
                     httpHeaders: viewModel.playHeaders,
-                    onCloseRequested: closeMacFullScreenOverlay
+                    onCloseRequested: closeMacFullScreenOverlay,
+                    videoTitle: viewModel.vodInfo?.name ?? video.name,
+                    currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
+                    showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
+                    onShowEpisodes: { scrollToEpisodes() },
+                    onSwitchPlayer: { switchPlayerEngine() }
                 )
                 .ignoresSafeArea()
                 .transition(.opacity)
@@ -150,7 +161,12 @@ struct DetailView: View {
                 httpHeaders: viewModel.playHeaders,
                 onCloseRequested: {
                     showFullScreen = false
-                }
+                },
+                videoTitle: viewModel.vodInfo?.name ?? video.name,
+                currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
+                showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
+                onShowEpisodes: { scrollToEpisodes() },
+                onSwitchPlayer: { switchPlayerEngine() }
             )
             .onAppear {
                 if #available(iOS 16.0, *) {
@@ -564,6 +580,32 @@ struct DetailView: View {
     }
     #endif
 
+    private func scrollToEpisodes() {
+        if showFullScreen {
+            #if os(iOS)
+            showFullScreen = false
+            #else
+            showFullScreen = false
+            appState.exitPlayerFullScreen()
+            #endif
+        }
+    }
+
+    private func switchPlayerEngine() {
+        let current = UserDefaults.standard.integer(forKey: HawkConfig.PLAY_TYPE_VOD)
+        let newEngine: PlayerEngine
+        if PlayerEngine.fromStoredValue(current) == .vlc {
+            newEngine = .system
+        } else {
+            if PlayerEngine.isVLCAvailable {
+                newEngine = .vlc
+            } else {
+                return
+            }
+        }
+        UserDefaults.standard.set(newEngine.rawValue, forKey: HawkConfig.PLAY_TYPE_VOD)
+    }
+
     #if os(iOS)
     private func rotateToPortrait() {
         AppDelegate.orientationLock = .portrait
@@ -590,6 +632,11 @@ struct FullScreenPlayerView: View {
     var vlcController: VLCPlayerController? = nil
     var httpHeaders: [String: String] = [:]
     var onCloseRequested: (() -> Void)? = nil
+    var videoTitle: String = ""
+    var currentEpisodeName: String = ""
+    var showEpisodeButton: Bool = false
+    var onShowEpisodes: (() -> Void)? = nil
+    var onSwitchPlayer: (() -> Void)? = nil
 
     var body: some View {
         ZStack {
@@ -608,7 +655,13 @@ struct FullScreenPlayerView: View {
                 systemController: systemController,
                 vlcController: vlcController,
                 isFullScreenMode: true,
-                httpHeaders: httpHeaders
+                httpHeaders: httpHeaders,
+                videoTitle: videoTitle,
+                currentEpisodeName: currentEpisodeName,
+                showEpisodeButton: showEpisodeButton,
+                onShowEpisodes: onShowEpisodes,
+                onSwitchPlayer: onSwitchPlayer,
+                onBack: { onCloseRequested?() }
             )
         }
         #if os(iOS)

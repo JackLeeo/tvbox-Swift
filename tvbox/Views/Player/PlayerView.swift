@@ -100,6 +100,12 @@ struct PlayerView: View {
     var systemController: SystemPlayerSessionController? = nil
     var vlcController: VLCPlayerController? = nil
     var isFullScreenMode: Bool = false
+    var videoTitle: String = ""
+    var currentEpisodeName: String = ""
+    var showEpisodeButton: Bool = false
+    var onShowEpisodes: (() -> Void)? = nil
+    var onSwitchPlayer: (() -> Void)? = nil
+    var onBack: (() -> Void)? = nil
     var httpHeaders: [String: String] = [:]
     @AppStorage(HawkConfig.PLAY_TYPE_VOD) private var vodPlayTypeRaw = -1
     @AppStorage(HawkConfig.PLAY_TYPE) private var legacyPlayTypeRaw = PlayerEngine.system.rawValue
@@ -137,7 +143,13 @@ struct PlayerView: View {
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
                     sharedController: systemController,
-                    isFullScreenMode: isFullScreenMode
+                    isFullScreenMode: isFullScreenMode,
+                    videoTitle: videoTitle,
+                    currentEpisodeName: currentEpisodeName,
+                    showEpisodeButton: showEpisodeButton,
+                    onShowEpisodes: onShowEpisodes,
+                    onSwitchPlayer: onSwitchPlayer,
+                    onBack: onBack
                 )
             case .vlc:
                 VLCVodPlayerView(
@@ -150,7 +162,13 @@ struct PlayerView: View {
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
                     sharedController: vlcController,
-                    isFullScreenMode: isFullScreenMode
+                    isFullScreenMode: isFullScreenMode,
+                    videoTitle: videoTitle,
+                    currentEpisodeName: currentEpisodeName,
+                    showEpisodeButton: showEpisodeButton,
+                    onShowEpisodes: onShowEpisodes,
+                    onSwitchPlayer: onSwitchPlayer,
+                    onBack: onBack
                 )
             }
         }
@@ -185,6 +203,12 @@ struct AVPlayerContentView: View {
     var onPlayNext: (() -> Void)? = nil
     var sharedController: SystemPlayerSessionController? = nil
     var isFullScreenMode: Bool = false
+    var videoTitle: String = ""
+    var currentEpisodeName: String = ""
+    var showEpisodeButton: Bool = false
+    var onShowEpisodes: (() -> Void)? = nil
+    var onSwitchPlayer: (() -> Void)? = nil
+    var onBack: (() -> Void)? = nil
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
@@ -205,6 +229,12 @@ struct AVPlayerContentView: View {
     @State private var isLocked = false
     @State private var savedPlaybackRateBeforeLongPress: Float = 1.0
     @State private var sliderTempPosition: Double = 0
+    @State private var skipIntroSeconds: Int = 0
+    @State private var skipOutroSeconds: Int = 0
+    @State private var showSettingsSheet: Bool = false
+
+    private var currentResolution: String { "" }
+    private var currentBitrate: String { "" }
 
     var body: some View {
         ZStack {
@@ -292,6 +322,15 @@ struct AVPlayerContentView: View {
                 showControls: showControls,
                 volumeIconName: volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill",
                 seekStep: seekStep,
+                videoTitle: videoTitle,
+                currentEpisodeName: currentEpisodeName,
+                currentResolution: currentResolution,
+                currentBitrate: currentBitrate,
+                showEpisodeButton: showEpisodeButton,
+                showPlayerSwitchButton: PlayerEngine.isVLCAvailable,
+                skipIntroSeconds: skipIntroSeconds,
+                skipOutroSeconds: skipOutroSeconds,
+                currentPlaybackEngine: .system,
                 onTogglePlayPause: { wakeUpControls(); togglePlayPause() },
                 onSeekBackward: { seek(by: -seekStep) },
                 onSeekForward: { seek(by: seekStep) },
@@ -329,7 +368,23 @@ struct AVPlayerContentView: View {
                         wakeUpControls()
                     }
                 },
-                onWakeUpControls: { wakeUpControls() }
+                onWakeUpControls: { wakeUpControls() },
+                onShowEpisodes: { onShowEpisodes?() },
+                onSwitchPlayer: { onSwitchPlayer?() },
+                onSkipIntro: {
+                    if skipIntroSeconds > 0 {
+                        seek(to: Double(skipIntroSeconds))
+                    }
+                },
+                onSkipOutro: {
+                    if skipOutroSeconds > 0, duration > 0 {
+                        seek(to: duration - Double(skipOutroSeconds))
+                    }
+                },
+                onShowSettings: {
+                    showSettingsSheet = true
+                },
+                onBack: { onBack?() }
             )
         }
         .overlay {
@@ -353,6 +408,21 @@ struct AVPlayerContentView: View {
             }
         }
         #endif
+        .sheet(isPresented: $showSettingsSheet) {
+            PlayerSettingsSheet(
+                currentPlaybackEngine: .system,
+                skipIntroSeconds: skipIntroSeconds,
+                skipOutroSeconds: skipOutroSeconds,
+                playbackRate: rate,
+                currentResolution: currentResolution,
+                currentBitrate: currentBitrate,
+                onSwitchPlayer: { onSwitchPlayer?() },
+                onSetPlaybackRate: { r in setPlaybackRate(r) },
+                onSetSkipIntro: { skipIntroSeconds = $0 },
+                onSetSkipOutro: { skipOutroSeconds = $0 },
+                onShowPlayerInfo: {}
+            )
+        }
         .onAppear {
             setupGestureCallbacks()
             syncRateFromSettings()

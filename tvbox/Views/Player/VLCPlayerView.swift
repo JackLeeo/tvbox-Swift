@@ -57,6 +57,14 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
     var hasValidDuration: Bool {
         durationSeconds > 0
     }
+
+    var videoWidth: Int {
+        Int(mediaPlayer.videoSize.width)
+    }
+
+    var videoHeight: Int {
+        Int(mediaPlayer.videoSize.height)
+    }
     
     private var progressTimer: Timer?
     private var pendingSeekSeconds: Double?
@@ -850,6 +858,12 @@ struct VLCVodPlayerView: View {
     var onPlayNext: (() -> Void)? = nil
     var sharedController: VLCPlayerController? = nil
     var isFullScreenMode: Bool = false
+    var videoTitle: String = ""
+    var currentEpisodeName: String = ""
+    var showEpisodeButton: Bool = false
+    var onShowEpisodes: (() -> Void)? = nil
+    var onSwitchPlayer: (() -> Void)? = nil
+    var onBack: (() -> Void)? = nil
     @StateObject private var ownedController = VLCPlayerController()
     @StateObject private var gestureDelegate = PlayerGestureDelegate()
     @State private var isDraggingProgress = false
@@ -860,9 +874,23 @@ struct VLCVodPlayerView: View {
     @State private var isLocked = false
     @State private var savedPlaybackRateBeforeLongPress: Float = 1.0
     @State private var sliderTempPosition: Double = 0
+    @State private var skipIntroSeconds: Int = 0
+    @State private var skipOutroSeconds: Int = 0
+    @State private var showSettingsSheet: Bool = false
 
     private var controller: VLCPlayerController {
         sharedController ?? ownedController
+    }
+
+    private var currentResolution: String {
+        let w = controller.videoWidth
+        let h = controller.videoHeight
+        if w > 0 && h > 0 { return "\(w)x\(h)" }
+        return ""
+    }
+
+    private var currentBitrate: String {
+        return ""
     }
 
     var body: some View {
@@ -942,6 +970,15 @@ struct VLCVodPlayerView: View {
                 showControls: showControls,
                 volumeIconName: volumeIconName,
                 seekStep: seekStep,
+                videoTitle: videoTitle,
+                currentEpisodeName: currentEpisodeName,
+                currentResolution: currentResolution,
+                currentBitrate: currentBitrate,
+                showEpisodeButton: showEpisodeButton,
+                showPlayerSwitchButton: PlayerEngine.isVLCAvailable,
+                skipIntroSeconds: skipIntroSeconds,
+                skipOutroSeconds: skipOutroSeconds,
+                currentPlaybackEngine: .vlc,
                 onTogglePlayPause: { wakeUpControls(); togglePlayback() },
                 onSeekBackward: { controller.seek(by: -seekStep) },
                 onSeekForward: { controller.seek(by: seekStep) },
@@ -974,7 +1011,23 @@ struct VLCVodPlayerView: View {
                         wakeUpControls()
                     }
                 },
-                onWakeUpControls: { wakeUpControls() }
+                onWakeUpControls: { wakeUpControls() },
+                onShowEpisodes: { onShowEpisodes?() },
+                onSwitchPlayer: { onSwitchPlayer?() },
+                onSkipIntro: {
+                    if skipIntroSeconds > 0 {
+                        controller.seek(to: Double(skipIntroSeconds))
+                    }
+                },
+                onSkipOutro: {
+                    if skipOutroSeconds > 0, controller.hasValidDuration {
+                        controller.seek(to: controller.durationSeconds - Double(skipOutroSeconds))
+                    }
+                },
+                onShowSettings: {
+                    showSettingsSheet = true
+                },
+                onBack: { onBack?() }
             )
         }
         .overlay {
@@ -1033,6 +1086,27 @@ struct VLCVodPlayerView: View {
             }
             #endif
             controlsTimer?.invalidate()
+        }
+        .sheet(isPresented: $showSettingsSheet) {
+            PlayerSettingsSheet(
+                currentPlaybackEngine: .vlc,
+                skipIntroSeconds: skipIntroSeconds,
+                skipOutroSeconds: skipOutroSeconds,
+                playbackRate: controller.playbackRate,
+                currentResolution: currentResolution,
+                currentBitrate: currentBitrate,
+                onSwitchPlayer: { onSwitchPlayer?() },
+                onSetPlaybackRate: { rate in
+                    controller.setPlaybackRate(rate)
+                },
+                onSetSkipIntro: { seconds in
+                    skipIntroSeconds = seconds
+                },
+                onSetSkipOutro: { seconds in
+                    skipOutroSeconds = seconds
+                },
+                onShowPlayerInfo: {}
+            )
         }
     }
 
