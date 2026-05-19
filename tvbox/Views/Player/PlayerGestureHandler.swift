@@ -109,13 +109,13 @@ final class PlayerGestureDelegate: ObservableObject {
         initialVolume = 0.5
     }
 
-    func handlePanUpdate(translation: CGSize) {
+    func handlePanUpdate(translation: CGPoint) {
         if longPressActive { return }
         if isLocked { return }
 
         if gestureType == .none {
-            let dx = abs(translation.width)
-            let dy = abs(translation.height)
+            let dx = abs(translation.x)
+            let dy = abs(translation.y)
             if dx < 8 && dy < 8 { return }
 
             if dx > dy * 1.5 {
@@ -137,13 +137,13 @@ final class PlayerGestureDelegate: ObservableObject {
 
         switch gestureType {
         case .horizontal:
-            let totalDelta = translation.width
+            let totalDelta = translation.x
             let delta = totalDelta - lastHorizontalTranslation
             lastHorizontalTranslation = totalDelta
             onHorizontalSeek?(delta)
         case .leftVertical:
             let level = UIScreen.main.bounds.height * 3
-            let newBrightness = (initialBrightness - translation.height / level).clamped(to: 0...1)
+            let newBrightness = (initialBrightness - translation.y / level).clamped(to: 0...1)
             brightnessValue = Double(newBrightness)
             showBrightnessIndicator = true
             brightnessTimer?.invalidate()
@@ -156,7 +156,7 @@ final class PlayerGestureDelegate: ObservableObject {
             onBrightnessChange?(newBrightness)
         case .rightVertical:
             let level = UIScreen.main.bounds.height * 0.5
-            let delta = -translation.height / level
+            let delta = -translation.y / level
             let newVolume = (volumeValue + delta).clamped(to: 0...1)
             volumeValue = newVolume
             showVolumeIndicator = true
