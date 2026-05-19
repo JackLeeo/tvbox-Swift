@@ -241,18 +241,6 @@ struct PlayerControlsOverlay: View {
         hasValidDuration ? duration.durationString : "--:--"
     }
 
-    private var seekBackwardIcon: String {
-        let step = Int(seekStep)
-        let validSteps = [5, 10, 15, 30, 60, 90, 120]
-        return validSteps.contains(step) ? "gobackward.\(step)" : "gobackward.10"
-    }
-
-    private var seekForwardIcon: String {
-        let step = Int(seekStep)
-        let validSteps = [5, 10, 15, 30, 60, 90, 120]
-        return validSteps.contains(step) ? "goforward.\(step)" : "goforward.10"
-    }
-
     private var displayTitle: String {
         if currentEpisodeName.isEmpty {
             return videoTitle
@@ -263,7 +251,7 @@ struct PlayerControlsOverlay: View {
     var body: some View {
         VStack(spacing: 0) {
             if showControls && !isLocked {
-                topBar
+                headerBar
                     .transition(.move(edge: .top).combined(with: .opacity))
             }
 
@@ -275,7 +263,7 @@ struct PlayerControlsOverlay: View {
             }
 
             if showControls && !isLocked {
-                bottomBar
+                bottomSection
                     .transition(.move(edge: .bottom).combined(with: .opacity))
             }
         }
@@ -332,119 +320,78 @@ struct PlayerControlsOverlay: View {
         }
     }
 
-    private var topBar: some View {
-        HStack(spacing: 8) {
-            if isFullScreen {
-                Button {
-                    onBack()
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(.white)
-                }
-                .buttonStyle(.plain)
-                .frame(width: 36, height: 36)
-            }
+    // MARK: - Header Bar (PiliPlus style)
 
-            if isFullScreen && !displayTitle.isEmpty {
+    private var headerBar: some View {
+        HStack(spacing: 0) {
+            comBtn(
+                icon: Image(systemName: "chevron.left"),
+                size: 15,
+                width: 40,
+                height: 34,
+                action: onBack
+            )
+
+            if !displayTitle.isEmpty {
                 Text(displayTitle)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 16))
                     .foregroundColor(.white)
                     .lineLimit(1)
                     .truncationMode(.tail)
-                    .layoutPriority(1)
+                    .padding(.trailing, 10)
             }
 
             Spacer()
 
-            if !currentResolution.isEmpty {
-                Text(currentResolution)
-                    .font(.system(size: 11, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.7))
-                    .padding(.horizontal, 6)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-
-            if !currentBitrate.isEmpty {
-                HStack(spacing: 3) {
-                    Image(systemName: "network")
-                        .font(.system(size: 10))
-                    Text(currentBitrate)
-                        .font(.system(size: 11, weight: .medium, design: .monospaced))
-                }
-                .foregroundColor(.white.opacity(0.7))
-                .padding(.horizontal, 6)
-                .padding(.vertical, 3)
-                .background(Color.white.opacity(0.15))
-                .clipShape(RoundedRectangle(cornerRadius: 4))
-            }
-
             if isFullScreen && !currentClockTime.isEmpty {
-                Text(currentClockTime)
-                    .font(.system(size: 13, weight: .medium, design: .monospaced))
-                    .foregroundColor(.white.opacity(0.8))
-            }
-
-            #if os(iOS)
-            if isFullScreen && batteryLevel >= 0 {
-                HStack(spacing: 3) {
-                    batteryIcon
-                        .font(.system(size: 12))
+                if batteryLevel >= 0 {
                     Text("\(batteryLevel)%")
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
+                        .font(.system(size: 13))
+                        .foregroundColor(.white)
+                        .padding(.trailing, 10)
                 }
-                .foregroundColor(.white.opacity(0.8))
+                Text(currentClockTime)
+                    .font(.system(size: 13))
+                    .foregroundColor(.white)
             }
-            #endif
 
             #if os(iOS)
             AirPlayPickerButton()
-                .frame(width: 36, height: 36)
+                .frame(width: 40, height: 34)
             #endif
 
-            Button {
-                onWakeUpControls()
-                onShowSettings()
-            } label: {
-                Image(systemName: "ellipsis")
-                    .font(.system(size: 16))
-                    .foregroundColor(.white)
+            #if os(iOS)
+            if currentPlaybackEngine == .system {
+                comBtn(
+                    icon: Image(systemName: "pip.enter"),
+                    size: 19,
+                    width: 40,
+                    height: 34,
+                    action: { onWakeUpControls(); onTogglePiP() }
+                )
             }
-            .buttonStyle(.plain)
-            .frame(width: 36, height: 36)
+            #endif
+
+            comBtn(
+                icon: Image(systemName: "ellipsis"),
+                size: 19,
+                width: 40,
+                height: 34,
+                action: { onWakeUpControls(); onShowSettings() }
+            )
         }
-        .padding(.horizontal, 12)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
+        .padding(.top, 11)
+        .padding(.horizontal, 4)
         .background(
             LinearGradient(
-                colors: [.black.opacity(0.6), .clear],
+                colors: [.black.opacity(0.7), .clear],
                 startPoint: .top,
                 endPoint: .bottom
             )
         )
     }
 
-    #if os(iOS)
-    private var batteryIcon: Image {
-        let level = batteryLevel
-        let iconName: String
-        if level <= 0 {
-            iconName = "battery.0"
-        } else if level < 25 {
-            iconName = "battery.25"
-        } else if level < 50 {
-            iconName = "battery.50"
-        } else if level < 75 {
-            iconName = "battery.75"
-        } else {
-            iconName = "battery.100"
-        }
-        return Image(systemName: iconName)
-    }
-    #endif
+    // MARK: - Lock Button
 
     private var lockButton: some View {
         HStack {
@@ -464,29 +411,30 @@ struct PlayerControlsOverlay: View {
         .padding(.leading, 20)
     }
 
-    private var bottomBar: some View {
+    // MARK: - Bottom Section (PiliPlus style: progress bar + control bar)
+
+    private var bottomSection: some View {
         VStack(spacing: 0) {
             progressBarArea
-                .padding(.horizontal, 16)
+                .padding(.horizontal, 20)
 
-            controlButtonsArea
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 4)
+            controlBar
+                .padding(.horizontal, 10)
+                .padding(.bottom, 12)
         }
-        .padding(.top, 12)
-        .padding(.bottom, 8)
+        .overlay(alignment: .topLeading) {
+            skipButtons
+        }
         .background(
             LinearGradient(
-                colors: [.clear, .black.opacity(0.85)],
+                colors: [.clear, .black.opacity(0.7)],
                 startPoint: .top,
                 endPoint: .bottom
             )
         )
-        .overlay(alignment: .topLeading) {
-            skipButtons
-        }
     }
+
+    // MARK: - Skip Buttons
 
     private var skipButtons: some View {
         HStack(spacing: 12) {
@@ -538,143 +486,115 @@ struct PlayerControlsOverlay: View {
         .animation(.easeInOut(duration: 0.2), value: showSkipOutro)
     }
 
+    // MARK: - Progress Bar (PiliPlus style: thin bar, no time labels)
+
     private var progressBarArea: some View {
-        HStack(spacing: 12) {
-            Text(displayCurrentTime)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.9))
-                .frame(width: 50, alignment: .leading)
-
-            PlayerProgressBar(
-                value: Binding(
-                    get: { isDraggingProgress ? draggingSeconds : currentTime },
-                    set: { onProgressDragChanged($0) }
-                ),
-                in: 0...progressUpperBound,
-                onEditingChanged: { editing in
-                    onProgressDragEnded(editing)
-                }
-            )
-            .tint(.white)
-
-            Text(displayDuration)
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
-                .foregroundColor(.white.opacity(0.7))
-                .frame(width: 50, alignment: .trailing)
-        }
+        PlayerProgressBar(
+            value: Binding(
+                get: { isDraggingProgress ? draggingSeconds : currentTime },
+                set: { onProgressDragChanged($0) }
+            ),
+            in: 0...progressUpperBound,
+            onEditingChanged: { editing in
+                onProgressDragEnded(editing)
+            }
+        )
+        .tint(.white)
+        .padding(.horizontal, 10)
+        .frame(height: 20)
     }
 
-    private var controlButtonsArea: some View {
+    // MARK: - Control Bar (PiliPlus style: left segment + right segment)
+
+    private var controlBar: some View {
         HStack(spacing: 0) {
-            HStack(spacing: 14) {
-                playbackRateMenu
+            HStack(spacing: 0) {
+                playPauseBtn
 
-                videoFitMenu
+                videoTimeView
 
-                if showPlayerSwitchButton {
-                    playerSwitchMenu
-                }
-            }
-
-            Spacer()
-
-            HStack(spacing: 28) {
                 if canPlayPrevious {
-                    controlButton(
-                        icon: "backward.end.fill",
-                        size: 20,
+                    comBtn(
+                        icon: Image(systemName: "backward.end.fill"),
+                        size: 22,
+                        width: 35,
+                        height: 30,
                         action: { onWakeUpControls(); onPlayPrevious() }
                     )
                 }
 
-                controlButton(
-                    icon: seekBackwardIcon,
-                    size: 20,
-                    action: { onWakeUpControls(); onSeekBackward() }
-                )
-
-                controlButton(
-                    icon: isPlaying ? "pause.fill" : "play.fill",
-                    size: 28,
-                    weight: .medium,
-                    action: onTogglePlayPause
-                )
-
-                controlButton(
-                    icon: seekForwardIcon,
-                    size: 20,
-                    action: { onWakeUpControls(); onSeekForward() }
-                )
-
                 if canPlayNext {
-                    controlButton(
-                        icon: "forward.end.fill",
-                        size: 20,
+                    comBtn(
+                        icon: Image(systemName: "forward.end.fill"),
+                        size: 22,
+                        width: 35,
+                        height: 30,
                         action: { onWakeUpControls(); onPlayNext() }
                     )
                 }
             }
 
-            Spacer()
+            Spacer(minLength: 8)
 
-            HStack(spacing: 14) {
+            HStack(spacing: 0) {
                 if showEpisodeButton {
-                    controlButton(
-                        icon: "list.bullet",
-                        size: 16,
+                    comBtn(
+                        icon: Image(systemName: "list.bullet"),
+                        size: 22,
+                        width: 35,
+                        height: 30,
                         action: { onWakeUpControls(); onShowEpisodes() }
                     )
                 }
 
-                controlButton(
-                    icon: volumeIconName,
-                    size: 16,
-                    action: { onWakeUpControls(); onToggleMute() }
-                )
+                videoFitMenu
 
-                if isFullScreen {
-                    controlButton(
-                        icon: isLocked ? "lock.fill" : "lock.open.fill",
-                        size: 16,
-                        action: { onWakeUpControls(); onToggleLock() }
-                    )
+                playbackRateMenu
+
+                if showPlayerSwitchButton {
+                    playerSwitchMenu
                 }
 
-                #if os(iOS)
-                if currentPlaybackEngine == .system {
-                    controlButton(
-                        icon: "pip.enter",
-                        size: 16,
-                        action: { onWakeUpControls(); onTogglePiP() }
-                    )
-                }
-                #endif
-
-                controlButton(
-                    icon: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right",
-                    size: 17,
-                    weight: .semibold,
+                comBtn(
+                    icon: Image(systemName: isFullScreen ? "arrow.down.right.and.arrow.up.left" : "arrow.up.left.and.arrow.down.right"),
+                    size: 24,
+                    width: 42,
+                    height: 30,
                     action: { onWakeUpControls(); onToggleFullScreen() }
                 )
             }
         }
     }
 
-    private func controlButton(
-        icon: String,
-        size: CGFloat,
-        weight: Font.Weight = .regular,
-        opacity: Double = 1.0,
-        action: @escaping () -> Void
-    ) -> some View {
-        Button(action: action) {
-            Image(systemName: icon)
-                .font(.system(size: size, weight: weight))
+    // MARK: - Play/Pause Button (PiliPlus style: 42x34, AnimatedIcon)
+
+    private var playPauseBtn: some View {
+        Button(action: onTogglePlayPause) {
+            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
+                .font(.system(size: 20))
                 .foregroundColor(.white)
-                .opacity(opacity)
+                .frame(width: 42, height: 34)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
+
+    // MARK: - Video Time (PiliPlus style: monospace, position white + duration gray)
+
+    private var videoTimeView: some View {
+        VStack(alignment: .trailing, spacing: 0) {
+            Text(displayCurrentTime)
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .foregroundColor(.white)
+
+            Text(displayDuration)
+                .font(.system(size: 10, weight: .regular, design: .monospaced))
+                .foregroundColor(Color(red: 0.82, green: 0.82, blue: 0.82))
+        }
+        .padding(.horizontal, 4)
+    }
+
+    // MARK: - Playback Rate Menu (PiliPlus style: text label "1.0X")
 
     private var playbackRateMenu: some View {
         Menu {
@@ -684,7 +604,7 @@ struct PlayerControlsOverlay: View {
                     onSetPlaybackRate(r)
                 } label: {
                     HStack {
-                        Text("\(String(format: "%.1f", r))x")
+                        Text("\(String(format: "%.1f", r))X")
                         if abs(r - playbackRate) < 0.01 {
                             Spacer()
                             Image(systemName: "checkmark")
@@ -693,20 +613,17 @@ struct PlayerControlsOverlay: View {
                 }
             }
         } label: {
-            HStack(spacing: 4) {
-                Text("\(String(format: "%.1f", playbackRate))x")
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            .font(.system(size: 12, weight: .bold, design: .monospaced))
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.15))
-            .clipShape(Capsule())
+            Text("\(String(format: "%.1f", playbackRate))X")
+                .font(.system(size: 13))
+                .foregroundColor(.white)
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
     }
+
+    // MARK: - Video Fit Menu (PiliPlus style: text label "自动"/"16:9")
 
     private var videoFitMenu: some View {
         Menu {
@@ -726,15 +643,16 @@ struct PlayerControlsOverlay: View {
             }
         } label: {
             Text(videoFitType.desc)
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 13))
                 .foregroundColor(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.15))
-                .clipShape(Capsule())
+                .padding(.horizontal, 8)
+                .frame(height: 30)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.plain)
+        .menuStyle(.borderlessButton)
     }
+
+    // MARK: - Player Switch Menu
 
     private var playerSwitchMenu: some View {
         Menu {
@@ -750,16 +668,35 @@ struct PlayerControlsOverlay: View {
             }
         } label: {
             Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 12, weight: .bold))
+                .font(.system(size: 16))
                 .foregroundColor(.white)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 6)
-                .background(Color.white.opacity(0.15))
-                .clipShape(Capsule())
+                .frame(width: 35, height: 30)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+    }
+
+    // MARK: - Common Button (PiliPlus ComBtn style)
+
+    private func comBtn(
+        icon: Image,
+        size: CGFloat,
+        width: CGFloat = 34,
+        height: CGFloat = 34,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            icon
+                .font(.system(size: size))
+                .foregroundColor(.white)
+                .frame(width: width, height: height)
+                .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
     }
 }
+
+// MARK: - Progress Bar (PiliPlus style: 3.5px track, 7px thumb)
 
 struct PlayerProgressBar: View {
     @Binding var value: Double
@@ -781,11 +718,11 @@ struct PlayerProgressBar: View {
             let upperBound = range.upperBound - range.lowerBound
             let progress = upperBound > 0 ? (dragValue - range.lowerBound) / upperBound : 0
             let thumbRadius: CGFloat = 7
-            let trackHeight: CGFloat = 3
+            let trackHeight: CGFloat = 3.5
 
             ZStack(alignment: .leading) {
                 Rectangle()
-                    .fill(Color.white.opacity(0.3))
+                    .fill(Color.white.opacity(0.2))
                     .frame(height: trackHeight)
                     .clipShape(Capsule())
 
@@ -797,7 +734,7 @@ struct PlayerProgressBar: View {
                 Circle()
                     .fill(Color.white)
                     .frame(width: thumbRadius * 2, height: thumbRadius * 2)
-                    .shadow(color: .black.opacity(0.3), radius: 2, x: 0, y: 1)
+                    .shadow(color: .white.opacity(0.3), radius: thumbRadius, x: 0, y: 0)
                     .position(
                         x: max(thumbRadius, min(totalWidth - thumbRadius, CGFloat(progress) * totalWidth)),
                         y: geometry.size.height / 2
@@ -833,6 +770,8 @@ struct PlayerProgressBar: View {
         }
     }
 }
+
+// MARK: - Settings Sheet
 
 struct PlayerSettingsSheet: View {
     let currentPlaybackEngine: PlayerEngine
@@ -989,6 +928,8 @@ struct PlayerSettingsSheet: View {
     }
 }
 
+// MARK: - AirPlay Picker
+
 #if os(iOS)
 struct AirPlayPickerButton: UIViewRepresentable {
     func makeUIView(context: Context) -> AVRoutePickerView {
@@ -1001,6 +942,8 @@ struct AirPlayPickerButton: UIViewRepresentable {
     func updateUIView(_ uiView: AVRoutePickerView, context: Context) {}
 }
 #endif
+
+// MARK: - PiP Manager
 
 @MainActor
 final class PlayerPiPManager: NSObject, ObservableObject {
