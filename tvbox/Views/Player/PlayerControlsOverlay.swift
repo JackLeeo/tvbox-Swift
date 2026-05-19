@@ -995,7 +995,6 @@ struct AirPlayPickerButton: UIViewRepresentable {
         let picker = AVRoutePickerView()
         picker.tintColor = .white
         picker.activeTintColor = .white
-        picker.isRoutePickerButtonBordered = false
         return picker
     }
 

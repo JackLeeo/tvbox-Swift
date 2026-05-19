@@ -109,7 +109,7 @@ final class PlayerGestureDelegate: ObservableObject {
         initialVolume = 0.5
     }
 
-    func handlePanUpdate(translation: CGSize, location: CGPoint) {
+    func handlePanUpdate(translation: CGSize) {
         if longPressActive { return }
         if isLocked { return }
 
@@ -285,7 +285,7 @@ final class PlayerGestureUIView: UIView {
         case .began:
             gestureDelegate?.handlePanStart(at: location, viewWidth: bounds.width)
         case .changed:
-            gestureDelegate?.handlePanUpdate(translation: translation, location: location)
+            gestureDelegate?.handlePanUpdate(translation: translation)
         case .ended, .cancelled:
             gestureDelegate?.handlePanEnd()
         default:

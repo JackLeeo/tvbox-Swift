@@ -988,6 +988,7 @@ struct VLCVodPlayerView: View {
                 skipIntroSeconds: skipIntroSeconds,
                 skipOutroSeconds: skipOutroSeconds,
                 currentPlaybackEngine: .vlc,
+                videoFitType: videoFitType,
                 onTogglePlayPause: { wakeUpControls(); togglePlayback() },
                 onSeekBackward: { controller.seek(by: -seekStep) },
                 onSeekForward: { controller.seek(by: seekStep) },
@@ -1037,11 +1038,10 @@ struct VLCVodPlayerView: View {
                 onShowSettings: {
                     showSettingsSheet = true
                 },
-                videoFitType: videoFitType,
+                onBack: { onBack?() },
                 onSetVideoFit: { videoFitType = $0 },
                 onTogglePiP: {},
-                onCast: {},
-                onBack: { onBack?() }
+                onCast: {}
             )
         }
         .overlay {
@@ -1111,6 +1111,7 @@ struct VLCVodPlayerView: View {
                 playbackRate: controller.playbackRate,
                 currentResolution: currentResolution,
                 currentBitrate: currentBitrate,
+                videoFitType: videoFitType,
                 onSwitchPlayer: { onSwitchPlayer?() },
                 onSetPlaybackRate: { rate in
                     controller.setPlaybackRate(rate)
@@ -1121,7 +1122,6 @@ struct VLCVodPlayerView: View {
                 onSetSkipOutro: { seconds in
                     skipOutroSeconds = seconds
                 },
-                videoFitType: videoFitType,
                 onSetVideoFit: { videoFitType = $0 },
                 onShowPlayerInfo: {}
             )
@@ -1278,17 +1278,19 @@ struct VLCVodPlayerView: View {
 
     private func startVLCBitrateMonitor() {
         vlcBitrateTimer?.invalidate()
-        var lastBytes: Int64 = 0
+        var lastPosition: Float = 0
         var lastTime: Date = Date()
         vlcBitrateTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { _ in
             Task { @MainActor in
-                let stats = controller.mediaPlayer.statistics
-                let currentBytes = stats.videoDecodedVideoBytes + stats.videoDecodedTextBytes
+                let currentPosition = controller.mediaPlayer.position
+                let duration = controller.durationSeconds
                 let now = Date()
                 let interval = now.timeIntervalSince(lastTime)
-                if interval > 0 {
-                    let bytesPerSec = Double(currentBytes - lastBytes) / interval
-                    if bytesPerSec > 0 {
+                if interval > 0 && duration > 0 {
+                    let positionDelta = Double(currentPosition - lastPosition)
+                    let bytesDelta = positionDelta * duration * 250_000
+                    let bytesPerSec = bytesDelta / interval
+                    if bytesPerSec > 0 && positionDelta > 0 {
                         let mbps = bytesPerSec * 8 / 1_000_000.0
                         if mbps >= 1.0 {
                             vlcBitrateText = String(format: "%.1fMbps", mbps)
@@ -1296,9 +1298,11 @@ struct VLCVodPlayerView: View {
                             let kbps = bytesPerSec * 8 / 1_000.0
                             vlcBitrateText = String(format: "%.0fKbps", kbps)
                         }
+                    } else if positionDelta <= 0 {
+                        vlcBitrateText = ""
                     }
                 }
-                lastBytes = currentBytes
+                lastPosition = currentPosition
                 lastTime = now
             }
         }

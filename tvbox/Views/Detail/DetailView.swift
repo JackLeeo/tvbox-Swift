@@ -38,13 +38,13 @@ struct DetailView: View {
                         onPlayPrevious: { playPreviousEpisode() },
                         systemController: sharedSystemController,
                         vlcController: sharedVLCController,
-                        httpHeaders: viewModel.playHeaders,
                         videoTitle: viewModel.vodInfo?.name ?? video.name,
                         currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
                         showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
                         onShowEpisodes: { scrollToEpisodes() },
                         onSwitchPlayer: { switchPlayerEngine() },
-                        onBack: { showFullScreen = false }
+                        onBack: { showFullScreen = false },
+                        httpHeaders: viewModel.playHeaders
                     )
                     .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
                     .aspectRatio(16/9, contentMode: .fit)
@@ -680,13 +680,13 @@ struct FullScreenPlayerView: View {
                 systemController: systemController,
                 vlcController: vlcController,
                 isFullScreenMode: true,
-                httpHeaders: httpHeaders,
                 videoTitle: videoTitle,
                 currentEpisodeName: currentEpisodeName,
                 showEpisodeButton: showEpisodeButton,
                 onShowEpisodes: onShowEpisodes,
                 onSwitchPlayer: onSwitchPlayer,
-                onBack: { onCloseRequested?() }
+                onBack: { onCloseRequested?() },
+                httpHeaders: httpHeaders
             )
         }
         #if os(iOS)

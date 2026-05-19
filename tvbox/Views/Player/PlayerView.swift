@@ -379,6 +379,7 @@ struct AVPlayerContentView: View {
                 isFullScreen: isFullScreenMode,
                 isLocked: isLocked,
                 canPlayNext: canPlayNext,
+                canPlayPrevious: canPlayPrevious,
                 showControls: showControls,
                 volumeIconName: volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill",
                 seekStep: seekStep,
@@ -391,16 +392,12 @@ struct AVPlayerContentView: View {
                 skipIntroSeconds: skipIntroSeconds,
                 skipOutroSeconds: skipOutroSeconds,
                 currentPlaybackEngine: .system,
+                videoFitType: videoFitType,
                 onTogglePlayPause: { wakeUpControls(); togglePlayPause() },
                 onSeekBackward: { seek(by: -seekStep) },
                 onSeekForward: { seek(by: seekStep) },
                 onPlayNext: { onPlayNext?() },
-                canPlayPrevious: canPlayPrevious,
                 onPlayPrevious: { onPlayPrevious?() },
-                videoFitType: videoFitType,
-                onSetVideoFit: { videoFitType = $0 },
-                onTogglePiP: { pipManager.togglePiP() },
-                onCast: {},
                 onToggleMute: {
                     wakeUpControls()
                     let newVolume = volume > 0 ? 0.0 : 1.0
@@ -450,7 +447,10 @@ struct AVPlayerContentView: View {
                 onShowSettings: {
                     showSettingsSheet = true
                 },
-                onBack: { onBack?() }
+                onBack: { onBack?() },
+                onSetVideoFit: { videoFitType = $0 },
+                onTogglePiP: { pipManager.togglePiP() },
+                onCast: {}
             )
         }
         .overlay {
@@ -483,11 +483,11 @@ struct AVPlayerContentView: View {
                 currentResolution: networkMonitor.resolutionText,
                 currentBitrate: networkMonitor.bitrateText,
                 videoFitType: videoFitType,
-                onSetVideoFit: { videoFitType = $0 },
                 onSwitchPlayer: { onSwitchPlayer?() },
                 onSetPlaybackRate: { r in setPlaybackRate(r) },
                 onSetSkipIntro: { skipIntroSeconds = $0 },
                 onSetSkipOutro: { skipOutroSeconds = $0 },
+                onSetVideoFit: { videoFitType = $0 },
                 onShowPlayerInfo: {}
             )
         }
