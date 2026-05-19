@@ -111,18 +111,10 @@ final class PlayerNetworkMonitor: ObservableObject {
         var width: Int = 0
         var height: Int = 0
         for track in item.tracks {
-            if let assetTrack = track.assetTrack {
-                let size: CGSize
-                if #available(iOS 16, *) {
-                    size = (try? assetTrack.load(.naturalSize)) ?? .zero
-                } else {
-                    size = assetTrack.naturalSize
-                }
-                if size.width > 0, size.height > 0 {
-                    width = Int(size.width)
-                    height = Int(size.height)
-                    break
-                }
+            if let size = track.assetTrack?.naturalSize, size.width > 0, size.height > 0 {
+                width = Int(size.width)
+                height = Int(size.height)
+                break
             }
         }
         if width > 0, height > 0 {

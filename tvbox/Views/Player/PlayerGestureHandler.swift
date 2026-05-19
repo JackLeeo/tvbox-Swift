@@ -169,9 +169,9 @@ final class PlayerGestureDelegate: ObservableObject {
             onVolumeChange?(newVolume)
         case .centerVertical:
             let threshold: CGFloat = 50
-            if translation.height > threshold {
+            if translation.y > threshold {
                 onFullScreenGesture?(false)
-            } else if translation.height < -threshold {
+            } else if translation.y < -threshold {
                 onFullScreenGesture?(true)
             }
         default:
