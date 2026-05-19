@@ -119,38 +119,36 @@ struct SearchView: View {
         return Button {
             viewModel.selectSite(site.key)
         } label: {
-            HStack(spacing: AppTheme.spacingSM) {
-                VStack(alignment: .leading, spacing: AppTheme.spacingXS) {
-                    Text(site.name)
-                        .font(.system(size: AppTheme.fontSubhead))
-                        .foregroundColor(isSelected ? AppTheme.accentColor : AppTheme.textSecondary)
-                        .lineLimit(1)
+            VStack(alignment: .leading, spacing: AppTheme.spacingXS) {
+                Text(site.name)
+                    .font(.system(size: AppTheme.fontSubhead))
+                    .foregroundColor(isSelected ? AppTheme.accentColor : AppTheme.textSecondary)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.7)
 
-                    HStack(spacing: AppTheme.spacingXS) {
-                        if isSearching {
-                            ProgressView()
-                                .scaleEffect(0.6)
-                                .tint(AppTheme.textTertiary)
-                            Text("搜索中...")
-                                .font(.system(size: AppTheme.fontCaption))
-                                .foregroundColor(AppTheme.textTertiary)
-                        } else {
-                            Text("\(count) 条结果")
-                                .font(.system(size: AppTheme.fontCaption))
-                                .foregroundColor(AppTheme.textTertiary)
-                        }
+                HStack(spacing: AppTheme.spacingXS) {
+                    if isSearching {
+                        ProgressView()
+                            .scaleEffect(0.6)
+                            .tint(AppTheme.textTertiary)
+                        Text("搜索中...")
+                            .font(.system(size: AppTheme.fontCaption))
+                            .foregroundColor(AppTheme.textTertiary)
+                    } else {
+                        Text("\(count) 条结果")
+                            .font(.system(size: AppTheme.fontCaption))
+                            .foregroundColor(AppTheme.textTertiary)
                     }
                 }
-
-                Spacer()
             }
-            .padding(.horizontal, AppTheme.spacingMD)
+            .padding(.horizontal, AppTheme.spacingSM)
             .padding(.vertical, AppTheme.spacingSM + AppTheme.spacingXS)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(isSelected ? AppTheme.accentColor.opacity(0.1) : Color.clear)
             .clipShape(RoundedRectangle(cornerRadius: AppTheme.radiusSM))
         }
         .buttonStyle(.plain)
-        .padding(.horizontal, AppTheme.spacingSM)
+        .padding(.horizontal, AppTheme.spacingXS)
     }
 
     private var resultsPanel: some View {
