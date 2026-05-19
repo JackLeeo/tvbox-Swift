@@ -319,17 +319,17 @@ struct VolumeBrightnessIndicator: View {
     }
 
     var body: some View {
-        VStack(spacing: 6) {
+        HStack(spacing: 2) {
             Image(systemName: iconName)
-                .font(.system(size: 20))
+                .font(.system(size: type == .volume ? 20 : 18))
             Text("\(Int(value * 100))%")
-                .font(.system(size: 12, weight: .medium, design: .monospaced))
+                .font(.system(size: 13))
         }
         .foregroundColor(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color.black.opacity(0.6))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        .padding(.horizontal, 8)
+        .padding(.vertical, 5)
+        .background(Color(red: 0, green: 0, blue: 0).opacity(0.53))
+        .clipShape(Capsule())
         .opacity(isVisible ? 1 : 0)
         .animation(.easeInOut(duration: 0.15), value: isVisible)
     }
@@ -340,19 +340,14 @@ struct LongPressSpeedIndicator: View {
     let isVisible: Bool
 
     var body: some View {
-        HStack(spacing: 6) {
-            Image(systemName: "gauge.with.dots.needle.67percent")
-                .font(.system(size: 16))
-            Text("\(String(format: "%.1f", speed))x 倍速中")
-                .font(.system(size: 13, weight: .medium))
-        }
-        .foregroundColor(.white)
-        .padding(.horizontal, 14)
-        .padding(.vertical, 8)
-        .background(Color.black.opacity(0.6))
-        .clipShape(Capsule())
-        .opacity(isVisible ? 1 : 0)
-        .animation(.easeInOut(duration: 0.15), value: isVisible)
+        Text("\(String(format: "%.1f", speed))x 倍速中")
+            .font(.system(size: 13))
+            .foregroundColor(.white)
+            .padding(6)
+            .background(Color(red: 0, green: 0, blue: 0).opacity(0.53))
+            .clipShape(RoundedRectangle(cornerRadius: 16))
+            .opacity(isVisible ? 1 : 0)
+            .animation(.easeInOut(duration: 0.15), value: isVisible)
     }
 }
 
@@ -379,7 +374,7 @@ struct DoubleTapSeekIndicatorView: View {
             }
         }
         .opacity(isVisible ? 1 : 0)
-        .animation(.easeInOut(duration: 0.2), value: isVisible)
+        .animation(.easeInOut(duration: 0.15), value: isVisible)
         .allowsHitTesting(false)
     }
 

@@ -333,29 +333,26 @@ struct AVPlayerContentView: View {
                 )
             }
 
-            VStack(spacing: 0) {
+            ZStack {
                 VolumeBrightnessIndicator(
                     type: .brightness,
                     value: gestureDelegate.brightnessValue,
                     isVisible: gestureDelegate.showBrightnessIndicator
                 )
 
-                Spacer()
-
-                HStack(spacing: 16) {
-                    VolumeBrightnessIndicator(
-                        type: .volume,
-                        value: gestureDelegate.volumeValue,
-                        isVisible: gestureDelegate.showVolumeIndicator
-                    )
-
-                    LongPressSpeedIndicator(
-                        speed: gestureDelegate.longPressSpeed,
-                        isVisible: gestureDelegate.showLongPressIndicator
-                    )
-                }
-                .padding(.bottom, 80)
+                VolumeBrightnessIndicator(
+                    type: .volume,
+                    value: gestureDelegate.volumeValue,
+                    isVisible: gestureDelegate.showVolumeIndicator
+                )
             }
+            .allowsHitTesting(false)
+
+            LongPressSpeedIndicator(
+                speed: gestureDelegate.longPressSpeed,
+                isVisible: gestureDelegate.showLongPressIndicator
+            )
+            .padding(.top, 80)
             .allowsHitTesting(false)
 
             #if os(macOS)

@@ -249,25 +249,32 @@ struct PlayerControlsOverlay: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            if showControls && !isLocked {
-                headerBar
-                    .transition(.move(edge: .top).combined(with: .opacity))
+        ZStack {
+            VStack(spacing: 0) {
+                if showControls && !isLocked {
+                    headerBar
+                        .transition(.move(edge: .top).combined(with: .opacity))
+                }
+
+                Spacer()
+
+                if isLocked {
+                    lockButton
+                        .transition(.opacity)
+                }
+
+                if showControls && !isLocked {
+                    bottomSection
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
 
-            Spacer()
-
-            if isLocked && showControls {
-                lockButton
-                    .transition(.opacity)
-            }
-
-            if showControls && !isLocked {
-                bottomSection
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+            if !isLocked {
+                skipButtons
             }
         }
         .animation(.easeInOut(duration: 0.25), value: showControls)
+        .animation(.easeInOut(duration: 0.25), value: isLocked)
         .onAppear {
             startClock()
             updateSkipButtons()
@@ -342,6 +349,20 @@ struct PlayerControlsOverlay: View {
             }
 
             Spacer()
+
+            if !currentResolution.isEmpty {
+                Text(currentResolution)
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.trailing, 4)
+            }
+
+            if !currentBitrate.isEmpty {
+                Text(currentBitrate)
+                    .font(.system(size: 11, weight: .regular, design: .monospaced))
+                    .foregroundColor(.white.opacity(0.8))
+                    .padding(.trailing, 4)
+            }
 
             if isFullScreen && !currentClockTime.isEmpty {
                 if batteryLevel >= 0 {
@@ -421,9 +442,6 @@ struct PlayerControlsOverlay: View {
             controlBar
                 .padding(.horizontal, 10)
                 .padding(.bottom, 12)
-        }
-        .overlay(alignment: .topLeading) {
-            skipButtons
         }
         .background(
             LinearGradient(
@@ -552,7 +570,7 @@ struct PlayerControlsOverlay: View {
                 playbackRateMenu
 
                 if showPlayerSwitchButton {
-                    playerSwitchMenu
+                    playerSwitchBtn
                 }
 
                 comBtn(
@@ -654,26 +672,14 @@ struct PlayerControlsOverlay: View {
 
     // MARK: - Player Switch Menu
 
-    private var playerSwitchMenu: some View {
-        Menu {
-            Button {
-                onWakeUpControls()
-                onSwitchPlayer()
-            } label: {
-                HStack {
-                    Text(currentPlaybackEngine == .vlc ? "系统播放器" : "VLC播放器")
-                    Spacer()
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                }
-            }
-        } label: {
-            Image(systemName: "arrow.triangle.2.circlepath")
-                .font(.system(size: 16))
-                .foregroundColor(.white)
-                .frame(width: 35, height: 30)
-                .contentShape(Rectangle())
-        }
-        .menuStyle(.borderlessButton)
+    private var playerSwitchBtn: some View {
+        comBtn(
+            icon: Image(systemName: "arrow.triangle.2.circlepath"),
+            size: 18,
+            width: 35,
+            height: 30,
+            action: { onWakeUpControls(); onSwitchPlayer() }
+        )
     }
 
     // MARK: - Common Button (PiliPlus ComBtn style)
