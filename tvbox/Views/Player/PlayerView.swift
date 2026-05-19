@@ -136,7 +136,8 @@ struct PlayerView: View {
                     onToggleFullScreen: onToggleFullScreen,
                     canPlayNext: canPlayNext,
                     onPlayNext: onPlayNext,
-                    sharedController: systemController
+                    sharedController: systemController,
+                    isFullScreenMode: isFullScreenMode
                 )
             case .vlc:
                 VLCVodPlayerView(
@@ -183,6 +184,7 @@ struct AVPlayerContentView: View {
     var canPlayNext: Bool = false
     var onPlayNext: (() -> Void)? = nil
     var sharedController: SystemPlayerSessionController? = nil
+    var isFullScreenMode: Bool = false
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
@@ -199,6 +201,10 @@ struct AVPlayerContentView: View {
     @State private var isDraggingProgress = false
     @State private var draggingSeconds: Double = 0
     @State private var playerObservers: [NSKeyValueObservation] = []
+    @StateObject private var gestureDelegate = PlayerGestureDelegate()
+    @State private var isLocked = false
+    @State private var savedPlaybackRateBeforeLongPress: Float = 1.0
+    @State private var sliderTempPosition: Double = 0
 
     var body: some View {
         ZStack {
@@ -219,17 +225,112 @@ struct AVPlayerContentView: View {
                     .tint(.white)
             }
 
+            #if os(iOS)
+            PlayerGestureOverlay(delegate: gestureDelegate)
+            #endif
+
+            if !isLocked {
+                DoubleTapSeekIndicatorView(
+                    isForward: false,
+                    seconds: gestureDelegate.seekAccumulatedSeconds,
+                    isVisible: gestureDelegate.showBackwardSeek
+                )
+
+                DoubleTapSeekIndicatorView(
+                    isForward: true,
+                    seconds: gestureDelegate.seekAccumulatedSeconds,
+                    isVisible: gestureDelegate.showForwardSeek
+                )
+            }
+
+            VStack(spacing: 0) {
+                VolumeBrightnessIndicator(
+                    type: .brightness,
+                    value: gestureDelegate.brightnessValue,
+                    isVisible: gestureDelegate.showBrightnessIndicator
+                )
+
+                Spacer()
+
+                HStack(spacing: 16) {
+                    VolumeBrightnessIndicator(
+                        type: .volume,
+                        value: gestureDelegate.volumeValue,
+                        isVisible: gestureDelegate.showVolumeIndicator
+                    )
+
+                    LongPressSpeedIndicator(
+                        speed: gestureDelegate.longPressSpeed,
+                        isVisible: gestureDelegate.showLongPressIndicator
+                    )
+                }
+                .padding(.bottom, 80)
+            }
+            .allowsHitTesting(false)
+
+            #if os(macOS)
             Color.clear
                 .contentShape(Rectangle())
                 .onTapGesture {
                     toggleControls()
                 }
+            #endif
         }
         .overlay {
-            if showControls {
-                controlsOverlay
-                    .transition(.opacity)
-            }
+            PlayerControlsOverlay(
+                isPlaying: isPlaying,
+                isPreparing: isPreparing,
+                currentTime: currentTime,
+                duration: duration,
+                hasValidDuration: duration > 0,
+                isDraggingProgress: isDraggingProgress,
+                draggingSeconds: draggingSeconds,
+                playbackRate: rate,
+                isFullScreen: isFullScreenMode,
+                isLocked: isLocked,
+                canPlayNext: canPlayNext,
+                showControls: showControls,
+                volumeIconName: volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill",
+                seekStep: seekStep,
+                onTogglePlayPause: { wakeUpControls(); togglePlayPause() },
+                onSeekBackward: { seek(by: -seekStep) },
+                onSeekForward: { seek(by: seekStep) },
+                onPlayNext: { onPlayNext?() },
+                onToggleMute: {
+                    wakeUpControls()
+                    let newVolume = volume > 0 ? 0.0 : 1.0
+                    player?.volume = Float(newVolume)
+                },
+                onToggleFullScreen: { wakeUpControls(); onToggleFullScreen?() },
+                onProgressDragChanged: { newValue in
+                    draggingSeconds = newValue
+                    sliderTempPosition = newValue
+                    isDraggingProgress = true
+                    wakeUpControls()
+                },
+                onProgressDragEnded: { editing in
+                    isDraggingProgress = editing
+                    wakeUpControls()
+                    if !editing {
+                        seek(to: draggingSeconds)
+                    }
+                },
+                onSetPlaybackRate: { r in
+                    wakeUpControls()
+                    setPlaybackRate(r)
+                },
+                onToggleLock: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        isLocked.toggle()
+                    }
+                    if isLocked {
+                        hideControls()
+                    } else {
+                        wakeUpControls()
+                    }
+                },
+                onWakeUpControls: { wakeUpControls() }
+            )
         }
         .overlay {
             SystemPlayerKeyboardCaptureView(
@@ -253,6 +354,7 @@ struct AVPlayerContentView: View {
         }
         #endif
         .onAppear {
+            setupGestureCallbacks()
             syncRateFromSettings()
             setupPlayer()
             wakeUpControls()
@@ -268,160 +370,87 @@ struct AVPlayerContentView: View {
         }
     }
 
-    private var controlsOverlay: some View {
-        VStack(spacing: 0) {
-            Spacer()
+    #if os(iOS)
+    private func setupGestureCallbacks() {
+        gestureDelegate.isLive = false
+        gestureDelegate.fastForBackwardDuration = Int(seekStep)
 
-            VStack(spacing: 0) {
-                HStack(spacing: 12) {
-                    Text(currentTime.durationString)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.9))
-                        .frame(width: 50, alignment: .leading)
-
-                    Slider(
-                        value: Binding(
-                            get: { isDraggingProgress ? draggingSeconds : currentTime },
-                            set: {
-                                draggingSeconds = $0
-                                wakeUpControls()
-                            }
-                        ),
-                        in: 0...progressUpperBound,
-                        onEditingChanged: { editing in
-                            isDraggingProgress = editing
-                            wakeUpControls()
-                            if !editing {
-                                seek(to: draggingSeconds)
-                            }
-                        }
-                    )
-                    .tint(.white)
-
-                    Text(duration.durationString)
-                        .font(.system(size: 12, weight: .medium, design: .monospaced))
-                        .foregroundColor(.white.opacity(0.7))
-                        .frame(width: 50, alignment: .trailing)
-                }
-                .padding(.horizontal, 16)
-
-                HStack(spacing: 0) {
-                    HStack(spacing: 16) {
-                        playbackRateMenu
-                    }
-
-                    Spacer()
-
-                    HStack(spacing: 28) {
-                        Button {
-                            wakeUpControls()
-                            seek(by: -seekStep)
-                        } label: {
-                            Image(systemName: "gobackward.\(Int(seekStep))")
-                                .font(.system(size: 20))
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            togglePlayPause()
-                        } label: {
-                            Image(systemName: isPlaying ? "pause.fill" : "play.fill")
-                                .font(.system(size: 28, weight: .medium))
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            wakeUpControls()
-                            seek(by: seekStep)
-                        } label: {
-                            Image(systemName: "goforward.\(Int(seekStep))")
-                                .font(.system(size: 20))
-                        }
-                        .buttonStyle(.plain)
-
-                        if canPlayNext {
-                            Button {
-                                wakeUpControls()
-                                onPlayNext?()
-                            } label: {
-                                Image(systemName: "forward.end.fill")
-                                    .font(.system(size: 20))
-                            }
-                            .buttonStyle(.plain)
-                            .opacity(canPlayNext ? 1 : 0.4)
-                        }
-                    }
-
-                    Spacer()
-
-                    HStack(spacing: 16) {
-                        Button {
-                            wakeUpControls()
-                            let newVolume = volume > 0 ? 0.0 : 1.0
-                            player?.volume = Float(newVolume)
-                        } label: {
-                            Image(systemName: volume > 0 ? "speaker.wave.2.fill" : "speaker.slash.fill")
-                                .font(.system(size: 16))
-                        }
-                        .buttonStyle(.plain)
-
-                        Button {
-                            wakeUpControls()
-                            onToggleFullScreen?()
-                        } label: {
-                            Image(systemName: "arrow.up.left.and.arrow.down.right")
-                                .font(.system(size: 17, weight: .semibold))
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.top, 6)
-                .padding(.bottom, 4)
-            }
-            .padding(.top, 12)
-            .padding(.bottom, 8)
-            .background(
-                LinearGradient(
-                    colors: [.clear, .black.opacity(0.85)],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            )
+        gestureDelegate.onToggleControls = {
+            toggleControls()
         }
-        .animation(.easeInOut(duration: 0.25), value: showControls)
+
+        gestureDelegate.onDoubleTap = { zone in
+            switch zone {
+            case .left:
+                gestureDelegate.showBackwardSeek = true
+                gestureDelegate.seekAccumulatedSeconds = Int(seekStep)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if gestureDelegate.showBackwardSeek {
+                        seek(by: -seekStep)
+                        gestureDelegate.showBackwardSeek = false
+                    }
+                }
+            case .center:
+                togglePlayPause()
+            case .right:
+                gestureDelegate.showForwardSeek = true
+                gestureDelegate.seekAccumulatedSeconds = Int(seekStep)
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
+                    if gestureDelegate.showForwardSeek {
+                        seek(by: seekStep)
+                        gestureDelegate.showForwardSeek = false
+                    }
+                }
+            }
+        }
+
+        gestureDelegate.onLongPressStart = {
+            savedPlaybackRateBeforeLongPress = rate
+            gestureDelegate.longPressSpeed = rate * 2
+            setPlaybackRate(rate * 2)
+            gestureDelegate.showLongPressIndicator = true
+        }
+
+        gestureDelegate.onLongPressEnd = {
+            setPlaybackRate(savedPlaybackRateBeforeLongPress)
+            gestureDelegate.showLongPressIndicator = false
+        }
+
+        gestureDelegate.onHorizontalSeek = { delta in
+            let scale = duration > 0 ? duration * 0.3 : 300
+            let seekDelta = Double(delta) / UIScreen.main.bounds.width * scale
+            sliderTempPosition = max(0, sliderTempPosition + seekDelta)
+            if duration > 0 {
+                sliderTempPosition = min(sliderTempPosition, duration)
+            }
+            draggingSeconds = sliderTempPosition
+            isDraggingProgress = true
+        }
+
+        gestureDelegate.onVolumeChange = { newVolume in
+            player?.volume = Float(newVolume)
+        }
+
+        gestureDelegate.onFullScreenGesture = { enterFullScreen in
+            onToggleFullScreen?()
+        }
+
+        gestureDelegate.onGestureEnd = {
+            if isDraggingProgress {
+                seek(to: draggingSeconds)
+                isDraggingProgress = false
+            }
+        }
     }
+    #else
+    private func setupGestureCallbacks() {}
+    #endif
 
-    private var playbackRateMenu: some View {
-        Menu {
-            ForEach(Self.supportedPlaybackRates, id: \.self) { r in
-                Button {
-                    wakeUpControls()
-                    setPlaybackRate(r)
-                } label: {
-                    HStack {
-                        Text("\(String(format: "%.1f", r))x")
-                        if r == rate {
-                            Spacer()
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 4) {
-                Text("\(String(format: "%.1f", rate))x")
-                Image(systemName: "chevron.up")
-                    .font(.system(size: 8, weight: .bold))
-            }
-            .font(.system(size: 12, weight: .bold, design: .monospaced))
-            .foregroundColor(.white)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(Color.white.opacity(0.15))
-            .clipShape(Capsule())
+    private func hideControls() {
+        withAnimation(.easeOut(duration: 0.3)) {
+            showControls = false
         }
-        .buttonStyle(.plain)
+        controlsTimer?.invalidate()
     }
 
     private func setupPlayer() {
