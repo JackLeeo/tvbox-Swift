@@ -177,9 +177,6 @@ struct PlayerView: View {
     }
 
     private var effectiveEngine: PlayerEngine {
-        if !httpHeaders.isEmpty, PlayerEngine.isVLCAvailable {
-            return .vlc
-        }
         return selectedEngine
     }
 
@@ -207,7 +204,8 @@ struct PlayerView: View {
                     onSelectEpisode: onSelectEpisode,
                     onShowEpisodes: onShowEpisodes,
                     onSwitchPlayer: onSwitchPlayer,
-                    onBack: onBack
+                    onBack: onBack,
+                    httpHeaders: httpHeaders
                 )
             case .vlc:
                 VLCVodPlayerView(
@@ -280,6 +278,7 @@ struct AVPlayerContentView: View {
     var onShowEpisodes: (() -> Void)? = nil
     var onSwitchPlayer: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
+    var httpHeaders: [String: String] = [:]
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
@@ -624,7 +623,15 @@ struct AVPlayerContentView: View {
 
         cleanupPlayer()
 
-        let playerItem = AVPlayerItem(url: url)
+        let playerItem: AVPlayerItem
+        if !httpHeaders.isEmpty {
+            let asset = AVURLAsset(url: url, options: [
+                "AVURLAssetHTTPHeaderFieldsKey": httpHeaders
+            ])
+            playerItem = AVPlayerItem(asset: asset)
+        } else {
+            playerItem = AVPlayerItem(url: url)
+        }
         let newPlayer = AVPlayer(playerItem: playerItem)
         if #available(iOS 17.0, *) {
             newPlayer.defaultRate = preferredRate

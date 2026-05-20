@@ -58,6 +58,8 @@ class DetailViewModel: ObservableObject {
     private var qualityResolveTask: Task<Void, Never>?
     /// 解析令牌，防止异步结果回写到过期状态。
     private var qualityResolveToken = UUID()
+    private var spiderResolveTask: Task<Void, Never>?
+    private var spiderResolveToken = UUID()
     
     /// 加载视频详情
     func loadDetail(video: Movie.Video) async {
@@ -249,9 +251,13 @@ class DetailViewModel: ObservableObject {
     }
     
     private func resolveSpiderPlayUrl(flag: String, id: String) {
-        Task {
+        spiderResolveTask?.cancel()
+        let token = UUID()
+        spiderResolveToken = token
+        spiderResolveTask = Task { @MainActor in
             do {
                 let result = try await SpiderService.shared.getPlayUrl(flag: flag, id: id)
+                guard !Task.isCancelled, token == spiderResolveToken else { return }
                 
                 var resolvedUrl: String?
                 var headers: [String: String] = [:]
@@ -277,6 +283,8 @@ class DetailViewModel: ObservableObject {
                     }
                 }
                 
+                guard token == spiderResolveToken else { return }
+                
                 if let url = resolvedUrl, !url.isEmpty {
                     playUrl = url
                     playHeaders = headers
@@ -285,6 +293,7 @@ class DetailViewModel: ObservableObject {
                     errorMessage = "Spider播放地址解析失败"
                 }
             } catch {
+                guard token == spiderResolveToken else { return }
                 errorMessage = "Spider播放解析错误: \(error.localizedDescription)"
             }
         }
