@@ -198,6 +198,8 @@ struct PlayerControlsOverlay: View {
     let skipOutroSeconds: Int
     let currentPlaybackEngine: PlayerEngine
     let videoFitType: VideoFitType
+    let episodeNames: [String]
+    let selectedEpisodeIndex: Int
 
     let onTogglePlayPause: () -> Void
     let onSeekBackward: () -> Void
@@ -220,6 +222,7 @@ struct PlayerControlsOverlay: View {
     let onSetVideoFit: (VideoFitType) -> Void
     let onTogglePiP: () -> Void
     let onCast: () -> Void
+    let onSelectEpisode: (Int) -> Void
 
     private static let supportedPlaybackRates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
 
@@ -228,6 +231,7 @@ struct PlayerControlsOverlay: View {
     @State private var batteryLevel: Int = -1
     @State private var showSkipIntro: Bool = false
     @State private var showSkipOutro: Bool = false
+    @State private var showEpisodeSheet = false
 
     private var progressUpperBound: Double {
         max(duration, max(currentTime, 1))
@@ -258,7 +262,7 @@ struct PlayerControlsOverlay: View {
 
                 Spacer()
 
-                if isLocked {
+                if showControls || isLocked {
                     lockButton
                         .transition(.opacity)
                 }
@@ -272,8 +276,14 @@ struct PlayerControlsOverlay: View {
             if !isLocked {
                 skipButtons
             }
+
+            if showEpisodeSheet {
+                episodeOverlay
+                    .transition(.opacity)
+            }
         }
         .animation(.easeInOut(duration: 0.25), value: showControls)
+        .animation(.easeInOut(duration: 0.25), value: showEpisodeSheet)
         .animation(.easeInOut(duration: 0.25), value: isLocked)
         .onAppear {
             startClock()
@@ -415,7 +425,7 @@ struct PlayerControlsOverlay: View {
     // MARK: - Lock Button
 
     private var lockButton: some View {
-        HStack {
+        GeometryReader { geo in
             Button {
                 onToggleLock()
             } label: {
@@ -427,9 +437,8 @@ struct PlayerControlsOverlay: View {
                     .clipShape(Circle())
             }
             .buttonStyle(.plain)
-            Spacer()
+            .position(x: 30, y: geo.size.height / 2)
         }
-        .padding(.leading, 20)
     }
 
     // MARK: - Bottom Section (PiliPlus style: progress bar + control bar)
@@ -561,7 +570,7 @@ struct PlayerControlsOverlay: View {
                         size: 22,
                         width: 35,
                         height: 30,
-                        action: { onWakeUpControls(); onShowEpisodes() }
+                        action: { onWakeUpControls(); showEpisodeSheet = true }
                     )
                 }
 
@@ -672,14 +681,104 @@ struct PlayerControlsOverlay: View {
 
     // MARK: - Player Switch Menu
 
+    @State private var showPlayerSwitchAlert = false
+
     private var playerSwitchBtn: some View {
-        comBtn(
-            icon: Image(systemName: "arrow.triangle.2.circlepath"),
-            size: 18,
-            width: 35,
-            height: 30,
-            action: { onWakeUpControls(); onSwitchPlayer() }
-        )
+        Button {
+            onWakeUpControls()
+            showPlayerSwitchAlert = true
+        } label: {
+            Text("播放器")
+                .font(.system(size: 12))
+                .foregroundColor(.white)
+                .lineLimit(1)
+                .fixedSize()
+                .padding(.horizontal, 6)
+                .frame(height: 30)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .confirmationDialog("选择播放器", isPresented: $showPlayerSwitchAlert, titleVisibility: .visible) {
+            Button(currentPlaybackEngine == .vlc ? "VLC ✓" : "VLC") {
+                if currentPlaybackEngine != .vlc {
+                    onSwitchPlayer()
+                }
+            }
+            Button(currentPlaybackEngine == .system ? "系统 ✓" : "系统") {
+                if currentPlaybackEngine != .system {
+                    onSwitchPlayer()
+                }
+            }
+            Button("取消", role: .cancel) {}
+        }
+    }
+
+    // MARK: - Episode Overlay
+
+    private var episodeOverlay: some View {
+        ZStack {
+            Color.black.opacity(0.6)
+                .ignoresSafeArea()
+                .onTapGesture { showEpisodeSheet = false }
+
+            VStack(spacing: 0) {
+                Spacer()
+
+                VStack(spacing: 0) {
+                    HStack {
+                        Text("选集")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(.white)
+                        Spacer()
+                        Button {
+                            showEpisodeSheet = false
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(.white.opacity(0.7))
+                        }
+                        .buttonStyle(.plain)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+
+                    ScrollView {
+                        LazyVGrid(columns: [
+                            GridItem(.adaptive(minimum: 80, maximum: 120), spacing: 8)
+                        ], spacing: 8) {
+                            ForEach(Array(episodeNames.enumerated()), id: \.offset) { index, name in
+                                Button {
+                                    onSelectEpisode(index)
+                                    showEpisodeSheet = false
+                                } label: {
+                                    Text(name)
+                                        .font(.system(size: 13))
+                                        .foregroundColor(index == selectedEpisodeIndex ? .white : .white.opacity(0.7))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 8)
+                                        .frame(minWidth: 80)
+                                        .background(
+                                            index == selectedEpisodeIndex
+                                                ? Color.white.opacity(0.25)
+                                                : Color.white.opacity(0.08)
+                                        )
+                                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                                }
+                                .buttonStyle(.plain)
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.bottom, 16)
+                    }
+                    .frame(maxHeight: 300)
+                }
+                .background(Color(red: 0.12, green: 0.12, blue: 0.12))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .padding(.horizontal, 12)
+                .padding(.bottom, 20)
+            }
+        }
     }
 
     // MARK: - Common Button (PiliPlus ComBtn style)

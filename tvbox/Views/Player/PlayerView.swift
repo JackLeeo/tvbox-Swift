@@ -153,6 +153,9 @@ struct PlayerView: View {
     var videoTitle: String = ""
     var currentEpisodeName: String = ""
     var showEpisodeButton: Bool = false
+    var episodeNames: [String] = []
+    var selectedEpisodeIndex: Int = 0
+    var onSelectEpisode: ((Int) -> Void)? = nil
     var onShowEpisodes: (() -> Void)? = nil
     var onSwitchPlayer: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
@@ -199,7 +202,10 @@ struct PlayerView: View {
                     videoTitle: videoTitle,
                     currentEpisodeName: currentEpisodeName,
                     showEpisodeButton: showEpisodeButton,
+                    episodeNames: episodeNames,
+                    selectedEpisodeIndex: selectedEpisodeIndex,
                     onShowEpisodes: onShowEpisodes,
+                    onSelectEpisode: onSelectEpisode,
                     onSwitchPlayer: onSwitchPlayer,
                     onBack: onBack
                 )
@@ -220,13 +226,15 @@ struct PlayerView: View {
                     videoTitle: videoTitle,
                     currentEpisodeName: currentEpisodeName,
                     showEpisodeButton: showEpisodeButton,
+                    episodeNames: episodeNames,
+                    selectedEpisodeIndex: selectedEpisodeIndex,
                     onShowEpisodes: onShowEpisodes,
+                    onSelectEpisode: onSelectEpisode,
                     onSwitchPlayer: onSwitchPlayer,
                     onBack: onBack
                 )
             }
         }
-        .id(selectedEngine.rawValue)
         .onAppear {
             if selectedEngine != .system {
                 systemController?.stop()
@@ -241,6 +249,7 @@ struct PlayerView: View {
             }
             if newValue != .vlc {
                 vlcController?.stop()
+                vlcController?.mediaPlayer.stop()
             }
         }
     }
@@ -265,6 +274,9 @@ struct AVPlayerContentView: View {
     var videoTitle: String = ""
     var currentEpisodeName: String = ""
     var showEpisodeButton: Bool = false
+    var episodeNames: [String] = []
+    var selectedEpisodeIndex: Int = 0
+    var onSelectEpisode: ((Int) -> Void)? = nil
     var onShowEpisodes: (() -> Void)? = nil
     var onSwitchPlayer: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
@@ -385,6 +397,8 @@ struct AVPlayerContentView: View {
                 currentResolution: networkMonitor.resolutionText,
                 currentBitrate: networkMonitor.bitrateText,
                 showEpisodeButton: showEpisodeButton,
+                episodeNames: episodeNames,
+                selectedEpisodeIndex: selectedEpisodeIndex,
                 showPlayerSwitchButton: PlayerEngine.isVLCAvailable,
                 skipIntroSeconds: skipIntroSeconds,
                 skipOutroSeconds: skipOutroSeconds,
@@ -430,6 +444,7 @@ struct AVPlayerContentView: View {
                 },
                 onWakeUpControls: { wakeUpControls() },
                 onShowEpisodes: { onShowEpisodes?() },
+                onSelectEpisode: { onSelectEpisode?($0) },
                 onSwitchPlayer: { onSwitchPlayer?() },
                 onSkipIntro: {
                     if skipIntroSeconds > 0 {

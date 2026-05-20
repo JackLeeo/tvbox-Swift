@@ -866,6 +866,9 @@ struct VLCVodPlayerView: View {
     var videoTitle: String = ""
     var currentEpisodeName: String = ""
     var showEpisodeButton: Bool = false
+    var episodeNames: [String] = []
+    var selectedEpisodeIndex: Int = 0
+    var onSelectEpisode: ((Int) -> Void)? = nil
     var onShowEpisodes: (() -> Void)? = nil
     var onSwitchPlayer: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
@@ -981,6 +984,8 @@ struct VLCVodPlayerView: View {
                 currentResolution: currentResolution,
                 currentBitrate: currentBitrate,
                 showEpisodeButton: showEpisodeButton,
+                episodeNames: episodeNames,
+                selectedEpisodeIndex: selectedEpisodeIndex,
                 showPlayerSwitchButton: PlayerEngine.isVLCAvailable,
                 skipIntroSeconds: skipIntroSeconds,
                 skipOutroSeconds: skipOutroSeconds,
@@ -1021,6 +1026,7 @@ struct VLCVodPlayerView: View {
                 },
                 onWakeUpControls: { wakeUpControls() },
                 onShowEpisodes: { onShowEpisodes?() },
+                onSelectEpisode: { onSelectEpisode?($0) },
                 onSwitchPlayer: { onSwitchPlayer?() },
                 onSkipIntro: {
                     if skipIntroSeconds > 0 {
@@ -1036,7 +1042,10 @@ struct VLCVodPlayerView: View {
                     showSettingsSheet = true
                 },
                 onBack: { onBack?() },
-                onSetVideoFit: { videoFitType = $0 },
+                onSetVideoFit: {
+                    videoFitType = $0
+                    controller.videoFitType = $0
+                },
                 onTogglePiP: {},
                 onCast: {}
             )
@@ -1119,7 +1128,10 @@ struct VLCVodPlayerView: View {
                 onSetSkipOutro: { seconds in
                     skipOutroSeconds = seconds
                 },
-                onSetVideoFit: { videoFitType = $0 },
+                onSetVideoFit: {
+                    videoFitType = $0
+                    controller.videoFitType = $0
+                },
                 onShowPlayerInfo: {}
             )
         }

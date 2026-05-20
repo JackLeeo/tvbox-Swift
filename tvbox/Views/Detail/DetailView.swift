@@ -41,12 +41,17 @@ struct DetailView: View {
                         videoTitle: viewModel.vodInfo?.name ?? video.name,
                         currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
                         showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
+                        episodeNames: viewModel.currentEpisodes.map { $0.name },
+                        selectedEpisodeIndex: viewModel.selectedEpisodeIndex,
+                        onSelectEpisode: { index in
+                            viewModel.selectEpisode(index: index)
+                            saveHistoryForCurrentEpisode()
+                        },
                         onShowEpisodes: { scrollToEpisodes() },
                         onSwitchPlayer: { switchPlayerEngine() },
                         onBack: { showFullScreen = false },
                         httpHeaders: viewModel.playHeaders
                     )
-                    .id("\(viewModel.selectedFlag)-\(viewModel.selectedEpisodeIndex)-\(url)")
                     .aspectRatio(16/9, contentMode: .fit)
                     .background(Color.black)
                     .overlay {
@@ -130,6 +135,12 @@ struct DetailView: View {
                     videoTitle: viewModel.vodInfo?.name ?? video.name,
                     currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
                     showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
+                    episodeNames: viewModel.currentEpisodes.map { $0.name },
+                    selectedEpisodeIndex: viewModel.selectedEpisodeIndex,
+                    onSelectEpisode: { index in
+                        viewModel.selectEpisode(index: index)
+                        saveHistoryForCurrentEpisode()
+                    },
                     onShowEpisodes: { scrollToEpisodes() },
                     onSwitchPlayer: { switchPlayerEngine() }
                 )
@@ -171,6 +182,12 @@ struct DetailView: View {
                 videoTitle: viewModel.vodInfo?.name ?? video.name,
                 currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
                 showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
+                episodeNames: viewModel.currentEpisodes.map { $0.name },
+                selectedEpisodeIndex: viewModel.selectedEpisodeIndex,
+                onSelectEpisode: { index in
+                    viewModel.selectEpisode(index: index)
+                    saveHistoryForCurrentEpisode()
+                },
                 onShowEpisodes: { scrollToEpisodes() },
                 onSwitchPlayer: { switchPlayerEngine() }
             )
@@ -658,6 +675,9 @@ struct FullScreenPlayerView: View {
     var videoTitle: String = ""
     var currentEpisodeName: String = ""
     var showEpisodeButton: Bool = false
+    var episodeNames: [String] = []
+    var selectedEpisodeIndex: Int = 0
+    var onSelectEpisode: ((Int) -> Void)? = nil
     var onShowEpisodes: (() -> Void)? = nil
     var onSwitchPlayer: (() -> Void)? = nil
 
@@ -683,7 +703,10 @@ struct FullScreenPlayerView: View {
                 videoTitle: videoTitle,
                 currentEpisodeName: currentEpisodeName,
                 showEpisodeButton: showEpisodeButton,
+                episodeNames: episodeNames,
+                selectedEpisodeIndex: selectedEpisodeIndex,
                 onShowEpisodes: onShowEpisodes,
+                onSelectEpisode: onSelectEpisode,
                 onSwitchPlayer: onSwitchPlayer,
                 onBack: { onCloseRequested?() },
                 httpHeaders: httpHeaders
