@@ -630,6 +630,7 @@ struct DetailView: View {
     }
 
     private func switchPlayerEngine() {
+        viewModel.resumeSeconds = viewModel.realtimeProgressSeconds
         let current = UserDefaults.standard.integer(forKey: HawkConfig.PLAY_TYPE_VOD)
         let newEngine: PlayerEngine
         if PlayerEngine.fromStoredValue(current) == .vlc {

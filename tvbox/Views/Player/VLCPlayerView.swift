@@ -78,7 +78,7 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
     private var bufferMode: VLCBufferMode = .defaultMode
     private var bufferingFallbackWorkItem: DispatchWorkItem?
     private var delayedPreparingWorkItem: DispatchWorkItem?
-    private var currentMediaURLString: String?
+    private(set) var currentMediaURLString: String?
     private var currentMediaIsLive = false
     private var currentMediaDecodeMode: VideoDecodeMode = .auto
     private var currentMediaBufferMode: VLCBufferMode = .defaultMode
@@ -1086,6 +1086,12 @@ struct VLCVodPlayerView: View {
             startPlayback()
             wakeUpControls()
         }
+        .onChange(of: selectedEpisodeIndex) { _ in
+            if controller.currentMediaURLString != urlString {
+                startPlayback()
+                wakeUpControls()
+            }
+        }
         .onChange(of: controller.currentTimeSeconds) { newValue in
             if !isDraggingProgress {
                 draggingSeconds = newValue
@@ -1258,7 +1264,6 @@ struct VLCVodPlayerView: View {
         draggingSeconds = targetStartPosition
         startPlaybackTask?.cancel()
         startPlaybackTask = Task { @MainActor in
-            await Task.yield()
             guard !Task.isCancelled else { return }
             controller.play(
                 url: url,

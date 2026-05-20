@@ -513,6 +513,13 @@ struct AVPlayerContentView: View {
             setupPlayer()
             wakeUpControls()
         }
+        .onChange(of: selectedEpisodeIndex) { _ in
+            if sharedController?.mediaURLString != urlString {
+                syncRateFromSettings()
+                setupPlayer()
+                wakeUpControls()
+            }
+        }
         .onDisappear {
             pipManager.teardown()
             networkMonitor.detach()
