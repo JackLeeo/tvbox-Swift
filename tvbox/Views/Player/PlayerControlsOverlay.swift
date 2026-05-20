@@ -214,6 +214,7 @@ struct PlayerControlsOverlay: View {
     let onToggleLock: () -> Void
     let onWakeUpControls: () -> Void
     let onShowEpisodes: () -> Void
+    let onSelectEpisode: (Int) -> Void
     let onSwitchPlayer: () -> Void
     let onSkipIntro: () -> Void
     let onSkipOutro: () -> Void
@@ -222,7 +223,6 @@ struct PlayerControlsOverlay: View {
     let onSetVideoFit: (VideoFitType) -> Void
     let onTogglePiP: () -> Void
     let onCast: () -> Void
-    let onSelectEpisode: (Int) -> Void
 
     private static let supportedPlaybackRates: [Float] = [0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0]
 

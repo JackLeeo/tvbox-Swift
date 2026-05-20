@@ -984,13 +984,13 @@ struct VLCVodPlayerView: View {
                 currentResolution: currentResolution,
                 currentBitrate: currentBitrate,
                 showEpisodeButton: showEpisodeButton,
-                episodeNames: episodeNames,
-                selectedEpisodeIndex: selectedEpisodeIndex,
                 showPlayerSwitchButton: PlayerEngine.isVLCAvailable,
                 skipIntroSeconds: skipIntroSeconds,
                 skipOutroSeconds: skipOutroSeconds,
                 currentPlaybackEngine: .vlc,
                 videoFitType: videoFitType,
+                episodeNames: episodeNames,
+                selectedEpisodeIndex: selectedEpisodeIndex,
                 onTogglePlayPause: { wakeUpControls(); togglePlayback() },
                 onSeekBackward: { controller.seek(by: -seekStep) },
                 onSeekForward: { controller.seek(by: seekStep) },
@@ -1042,10 +1042,7 @@ struct VLCVodPlayerView: View {
                     showSettingsSheet = true
                 },
                 onBack: { onBack?() },
-                onSetVideoFit: {
-                    videoFitType = $0
-                    controller.videoFitType = $0
-                },
+                onSetVideoFit: { videoFitType = $0 },
                 onTogglePiP: {},
                 onCast: {}
             )
@@ -1128,10 +1125,7 @@ struct VLCVodPlayerView: View {
                 onSetSkipOutro: { seconds in
                     skipOutroSeconds = seconds
                 },
-                onSetVideoFit: {
-                    videoFitType = $0
-                    controller.videoFitType = $0
-                },
+                onSetVideoFit: { videoFitType = $0 },
                 onShowPlayerInfo: {}
             )
         }

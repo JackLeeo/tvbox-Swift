@@ -705,8 +705,8 @@ struct FullScreenPlayerView: View {
                 showEpisodeButton: showEpisodeButton,
                 episodeNames: episodeNames,
                 selectedEpisodeIndex: selectedEpisodeIndex,
-                onShowEpisodes: onShowEpisodes,
                 onSelectEpisode: onSelectEpisode,
+                onShowEpisodes: onShowEpisodes,
                 onSwitchPlayer: onSwitchPlayer,
                 onBack: { onCloseRequested?() },
                 httpHeaders: httpHeaders

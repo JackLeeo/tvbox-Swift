@@ -204,8 +204,8 @@ struct PlayerView: View {
                     showEpisodeButton: showEpisodeButton,
                     episodeNames: episodeNames,
                     selectedEpisodeIndex: selectedEpisodeIndex,
-                    onShowEpisodes: onShowEpisodes,
                     onSelectEpisode: onSelectEpisode,
+                    onShowEpisodes: onShowEpisodes,
                     onSwitchPlayer: onSwitchPlayer,
                     onBack: onBack
                 )
@@ -228,8 +228,8 @@ struct PlayerView: View {
                     showEpisodeButton: showEpisodeButton,
                     episodeNames: episodeNames,
                     selectedEpisodeIndex: selectedEpisodeIndex,
-                    onShowEpisodes: onShowEpisodes,
                     onSelectEpisode: onSelectEpisode,
+                    onShowEpisodes: onShowEpisodes,
                     onSwitchPlayer: onSwitchPlayer,
                     onBack: onBack
                 )
@@ -397,13 +397,13 @@ struct AVPlayerContentView: View {
                 currentResolution: networkMonitor.resolutionText,
                 currentBitrate: networkMonitor.bitrateText,
                 showEpisodeButton: showEpisodeButton,
-                episodeNames: episodeNames,
-                selectedEpisodeIndex: selectedEpisodeIndex,
                 showPlayerSwitchButton: PlayerEngine.isVLCAvailable,
                 skipIntroSeconds: skipIntroSeconds,
                 skipOutroSeconds: skipOutroSeconds,
                 currentPlaybackEngine: .system,
                 videoFitType: videoFitType,
+                episodeNames: episodeNames,
+                selectedEpisodeIndex: selectedEpisodeIndex,
                 onTogglePlayPause: { wakeUpControls(); togglePlayPause() },
                 onSeekBackward: { seek(by: -seekStep) },
                 onSeekForward: { seek(by: seekStep) },
