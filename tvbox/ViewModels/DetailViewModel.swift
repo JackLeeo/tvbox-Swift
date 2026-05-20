@@ -137,6 +137,7 @@ class DetailViewModel: ObservableObject {
             } else {
                 playUrl = selectedPlayableURL(fallback: episode.url)
                 playHeaders = [:]
+                isPlaying = true
             }
         }
     }

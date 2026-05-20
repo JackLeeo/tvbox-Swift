@@ -236,14 +236,14 @@ struct PlayerView: View {
             }
         }
         .onAppear {
-            if selectedEngine != .system {
+            if effectiveEngine != .system {
                 systemController?.stop()
             }
-            if selectedEngine != .vlc {
+            if effectiveEngine != .vlc {
                 vlcController?.stop()
             }
         }
-        .onChange(of: selectedEngine) { newValue in
+        .onChange(of: effectiveEngine) { newValue in
             if newValue != .system {
                 systemController?.stop()
             }
