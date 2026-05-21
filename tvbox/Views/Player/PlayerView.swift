@@ -160,6 +160,7 @@ struct PlayerView: View {
     var onSwitchPlayer: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
     var httpHeaders: [String: String] = [:]
+    var playbackSessionId: UUID = UUID()
     @AppStorage(HawkConfig.PLAY_TYPE_VOD) private var vodPlayTypeRaw = -1
     @AppStorage(HawkConfig.PLAY_TYPE) private var legacyPlayTypeRaw = PlayerEngine.system.rawValue
 
@@ -229,7 +230,8 @@ struct PlayerView: View {
                     onSelectEpisode: onSelectEpisode,
                     onShowEpisodes: onShowEpisodes,
                     onSwitchPlayer: onSwitchPlayer,
-                    onBack: onBack
+                    onBack: onBack,
+                    playbackSessionId: playbackSessionId
                 )
             }
         }
@@ -305,13 +307,6 @@ struct AVPlayerContentView: View {
     @State private var videoFitType: VideoFitType = .contain
     @StateObject private var networkMonitor = PlayerNetworkMonitor()
     @StateObject private var pipManager = PlayerPiPManager()
-
-    private var contentIdentity: String {
-        let sortedHeaders = httpHeaders.sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: "&")
-        return "\(urlString)|\(sortedHeaders)"
-    }
 
     var body: some View {
         ZStack {
@@ -515,7 +510,7 @@ struct AVPlayerContentView: View {
             setupPlayer()
             wakeUpControls()
         }
-        .onChange(of: contentIdentity) { _ in
+        .onChange(of: playbackSessionId) { _ in
             syncRateFromSettings()
             setupPlayer(forceReload: true)
             wakeUpControls()

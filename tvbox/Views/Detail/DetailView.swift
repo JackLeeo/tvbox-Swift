@@ -50,7 +50,8 @@ struct DetailView: View {
                         onShowEpisodes: { scrollToEpisodes() },
                         onSwitchPlayer: { switchPlayerEngine() },
                         onBack: { showFullScreen = false },
-                        httpHeaders: viewModel.playHeaders
+                        httpHeaders: viewModel.playHeaders,
+                        playbackSessionId: viewModel.playbackSessionId
                     )
                     .aspectRatio(16/9, contentMode: .fit)
                     .background(Color.black)
@@ -131,6 +132,7 @@ struct DetailView: View {
                     systemController: sharedSystemController,
                     vlcController: sharedVLCController,
                     httpHeaders: viewModel.playHeaders,
+                    playbackSessionId: viewModel.playbackSessionId,
                     onCloseRequested: closeMacFullScreenOverlay,
                     videoTitle: viewModel.vodInfo?.name ?? video.name,
                     currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
@@ -176,6 +178,7 @@ struct DetailView: View {
                 systemController: sharedSystemController,
                 vlcController: sharedVLCController,
                 httpHeaders: viewModel.playHeaders,
+                playbackSessionId: viewModel.playbackSessionId,
                 onCloseRequested: {
                     showFullScreen = false
                 },
@@ -681,6 +684,7 @@ struct FullScreenPlayerView: View {
     var onSelectEpisode: ((Int) -> Void)? = nil
     var onShowEpisodes: (() -> Void)? = nil
     var onSwitchPlayer: (() -> Void)? = nil
+    var playbackSessionId: UUID = UUID()
 
     var body: some View {
         ZStack {
@@ -710,7 +714,8 @@ struct FullScreenPlayerView: View {
                 onShowEpisodes: onShowEpisodes,
                 onSwitchPlayer: onSwitchPlayer,
                 onBack: { onCloseRequested?() },
-                httpHeaders: httpHeaders
+                httpHeaders: httpHeaders,
+                playbackSessionId: playbackSessionId
             )
         }
         #if os(iOS)

@@ -38,7 +38,7 @@ class DetailViewModel: ObservableObject {
     /// 当前实际播放地址（可能是原始地址，也可能是清晰度切换后的子流地址）。
     @Published var playUrl: String?
     @Published var playHeaders: [String: String] = [:]
-    /// 续播起始位置（秒）。
+    @Published var playbackSessionId = UUID()
     @Published var resumeSeconds: Double = 0
     /// 当前可选清晰度列表。
     @Published var qualityOptions: [PlaybackQualityOption] = []
@@ -118,6 +118,7 @@ class DetailViewModel: ObservableObject {
                 resolveSpiderPlayUrl(flag: flag, id: episodeURL)
             } else {
                 playUrl = selectedPlayableURL(fallback: episodeURL)
+                playbackSessionId = UUID()
             }
         }
     }
@@ -139,6 +140,7 @@ class DetailViewModel: ObservableObject {
             } else {
                 playUrl = selectedPlayableURL(fallback: episode.url)
                 playHeaders = [:]
+                playbackSessionId = UUID()
                 isPlaying = true
             }
         }
@@ -171,6 +173,7 @@ class DetailViewModel: ObservableObject {
             resolveSpiderPlayUrl(flag: targetFlag, id: episodeURL)
         } else {
             playUrl = selectedPlayableURL(fallback: episodeURL)
+            playbackSessionId = UUID()
             isPlaying = true
         }
     }
@@ -189,6 +192,7 @@ class DetailViewModel: ObservableObject {
         resumeSeconds = progress
         realtimeProgressSeconds = progress
         playUrl = targetURL
+        playbackSessionId = UUID()
     }
     
     /// 播放器时间回调
@@ -288,6 +292,7 @@ class DetailViewModel: ObservableObject {
                 if let url = resolvedUrl, !url.isEmpty {
                     playUrl = url
                     playHeaders = headers
+                    playbackSessionId = UUID()
                     isPlaying = true
                 } else {
                     errorMessage = "Spider播放地址解析失败"

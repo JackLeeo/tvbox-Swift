@@ -873,6 +873,7 @@ struct VLCVodPlayerView: View {
     var onShowEpisodes: (() -> Void)? = nil
     var onSwitchPlayer: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
+    var playbackSessionId: UUID = UUID()
     @StateObject private var ownedController = VLCPlayerController()
     @StateObject private var gestureDelegate = PlayerGestureDelegate()
     @State private var isDraggingProgress = false
@@ -891,13 +892,6 @@ struct VLCVodPlayerView: View {
 
     private var controller: VLCPlayerController {
         sharedController ?? ownedController
-    }
-
-    private var contentIdentity: String {
-        let sortedHeaders = httpHeaders.sorted { $0.key < $1.key }
-            .map { "\($0.key)=\($0.value)" }
-            .joined(separator: "&")
-        return "\(urlString)|\(sortedHeaders)"
     }
 
     private var currentResolution: String {
@@ -1089,7 +1083,7 @@ struct VLCVodPlayerView: View {
             startVLCBitrateMonitor()
             wakeUpControls()
         }
-        .onChange(of: contentIdentity) { _ in
+        .onChange(of: playbackSessionId) { _ in
             draggingSeconds = max(startPosition, 0)
             startPlayback(forceReload: true)
             wakeUpControls()
