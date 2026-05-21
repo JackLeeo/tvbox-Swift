@@ -93,7 +93,11 @@ class DetailViewModel: ObservableObject {
     func selectFlag(_ flag: String) {
         guard selectedFlag != flag else { return }
         let currentIndex = selectedEpisodeIndex
-        
+
+        isPlaying = false
+        playUrl = nil
+        playHeaders = [:]
+
         selectedFlag = flag
         vodInfo?.playFlag = flag
         resumeSeconds = 0
@@ -126,10 +130,15 @@ class DetailViewModel: ObservableObject {
     /// 选择剧集并播放
     func selectEpisode(index: Int) {
         guard selectedEpisodeIndex != index || !isPlaying else { return }
-        selectedEpisodeIndex = index
-        vodInfo?.playIndex = index
+
+        isPlaying = false
+        playUrl = nil
+        playHeaders = [:]
         resumeSeconds = 0
         realtimeProgressSeconds = 0
+
+        selectedEpisodeIndex = index
+        vodInfo?.playIndex = index
         
         if let episode = vodInfo?.currentEpisode {
             let shouldResetQuality = qualityBaseEpisodeURL != episode.url

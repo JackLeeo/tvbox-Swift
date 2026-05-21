@@ -23,8 +23,9 @@ struct DetailView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 0) {
-                if viewModel.isPlaying, let url = viewModel.playUrl {
-                    PlayerView(
+                if viewModel.isPlaying {
+                    if let url = viewModel.playUrl {
+                        PlayerView(
                         urlString: url,
                         startPosition: viewModel.resumeSeconds,
                         onProgressChanged: handlePlaybackProgress,
@@ -59,6 +60,14 @@ struct DetailView: View {
                         if showFullScreen {
                             Color.black
                         }
+                    }
+                    } else {
+                        Color.black
+                            .aspectRatio(16/9, contentMode: .fit)
+                            .overlay {
+                                ProgressView()
+                                    .tint(.white)
+                            }
                     }
                 }
                 
