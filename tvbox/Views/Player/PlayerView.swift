@@ -206,7 +206,8 @@ struct PlayerView: View {
                     onShowEpisodes: onShowEpisodes,
                     onSwitchPlayer: onSwitchPlayer,
                     onBack: onBack,
-                    httpHeaders: httpHeaders
+                    httpHeaders: httpHeaders,
+                    playbackSessionId: playbackSessionId
                 )
             case .vlc:
                 VLCVodPlayerView(
@@ -281,6 +282,7 @@ struct AVPlayerContentView: View {
     var onSwitchPlayer: (() -> Void)? = nil
     var onBack: (() -> Void)? = nil
     var httpHeaders: [String: String] = [:]
+    var playbackSessionId: UUID = UUID()
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?

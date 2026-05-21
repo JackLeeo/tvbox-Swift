@@ -178,10 +178,10 @@ struct DetailView: View {
                 systemController: sharedSystemController,
                 vlcController: sharedVLCController,
                 httpHeaders: viewModel.playHeaders,
-                playbackSessionId: viewModel.playbackSessionId,
                 onCloseRequested: {
                     showFullScreen = false
                 },
+                playbackSessionId: viewModel.playbackSessionId,
                 videoTitle: viewModel.vodInfo?.name ?? video.name,
                 currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
                 showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
