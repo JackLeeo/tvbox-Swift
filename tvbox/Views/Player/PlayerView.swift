@@ -306,11 +306,11 @@ struct AVPlayerContentView: View {
     @StateObject private var networkMonitor = PlayerNetworkMonitor()
     @StateObject private var pipManager = PlayerPiPManager()
 
-    private var playbackIdentity: String {
+    private var contentIdentity: String {
         let sortedHeaders = httpHeaders.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "&")
-        return "\(urlString)|\(sortedHeaders)|\(selectedEpisodeIndex)"
+        return "\(urlString)|\(sortedHeaders)"
     }
 
     var body: some View {
@@ -515,7 +515,7 @@ struct AVPlayerContentView: View {
             setupPlayer()
             wakeUpControls()
         }
-        .onChange(of: playbackIdentity) { _ in
+        .onChange(of: contentIdentity) { _ in
             syncRateFromSettings()
             setupPlayer(forceReload: true)
             wakeUpControls()

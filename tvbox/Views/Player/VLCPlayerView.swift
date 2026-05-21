@@ -893,11 +893,11 @@ struct VLCVodPlayerView: View {
         sharedController ?? ownedController
     }
 
-    private var playbackIdentity: String {
+    private var contentIdentity: String {
         let sortedHeaders = httpHeaders.sorted { $0.key < $1.key }
             .map { "\($0.key)=\($0.value)" }
             .joined(separator: "&")
-        return "\(urlString)|\(sortedHeaders)|\(selectedEpisodeIndex)"
+        return "\(urlString)|\(sortedHeaders)"
     }
 
     private var currentResolution: String {
@@ -1089,7 +1089,7 @@ struct VLCVodPlayerView: View {
             startVLCBitrateMonitor()
             wakeUpControls()
         }
-        .onChange(of: playbackIdentity) { _ in
+        .onChange(of: contentIdentity) { _ in
             draggingSeconds = max(startPosition, 0)
             startPlayback(forceReload: true)
             wakeUpControls()
