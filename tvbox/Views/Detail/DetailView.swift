@@ -181,7 +181,6 @@ struct DetailView: View {
                 onCloseRequested: {
                     showFullScreen = false
                 },
-                playbackSessionId: viewModel.playbackSessionId,
                 videoTitle: viewModel.vodInfo?.name ?? video.name,
                 currentEpisodeName: viewModel.vodInfo?.currentEpisode?.name ?? "",
                 showEpisodeButton: !viewModel.currentEpisodes.isEmpty,
@@ -192,7 +191,8 @@ struct DetailView: View {
                     saveHistoryForCurrentEpisode()
                 },
                 onShowEpisodes: { scrollToEpisodes() },
-                onSwitchPlayer: { switchPlayerEngine() }
+                onSwitchPlayer: { switchPlayerEngine() },
+                playbackSessionId: viewModel.playbackSessionId
             )
             .onAppear {
                 if #available(iOS 16.0, *) {
