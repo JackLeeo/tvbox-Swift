@@ -108,17 +108,22 @@ final class PlayerNetworkMonitor: ObservableObject {
 
     private func updateResolution(from item: AVPlayerItem?) {
         guard let item = item else { return }
-        var width: Int = 0
-        var height: Int = 0
         for track in item.tracks {
-            if let size = track.assetTrack?.naturalSize, size.width > 0, size.height > 0 {
-                width = Int(size.width)
-                height = Int(size.height)
-                break
+            guard let assetTrack = track.assetTrack else { continue }
+            if #available(iOS 16.0, *) {
+                Task { @MainActor in
+                    guard let size = try? await assetTrack.load(.naturalSize),
+                          size.width > 0, size.height > 0 else { return }
+                    resolutionText = "\(Int(size.width))×\(Int(size.height))"
+                }
+                return
+            } else {
+                let size = assetTrack.naturalSize
+                if size.width > 0, size.height > 0 {
+                    resolutionText = "\(Int(size.width))×\(Int(size.height))"
+                    return
+                }
             }
-        }
-        if width > 0, height > 0 {
-            resolutionText = "\(width)×\(height)"
         }
     }
 

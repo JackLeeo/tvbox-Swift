@@ -306,6 +306,13 @@ struct AVPlayerContentView: View {
     @StateObject private var networkMonitor = PlayerNetworkMonitor()
     @StateObject private var pipManager = PlayerPiPManager()
 
+    private var playbackIdentity: String {
+        let sortedHeaders = httpHeaders.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "&")
+        return "\(urlString)|\(sortedHeaders)|\(selectedEpisodeIndex)"
+    }
+
     var body: some View {
         ZStack {
             Group {
@@ -508,17 +515,10 @@ struct AVPlayerContentView: View {
             setupPlayer()
             wakeUpControls()
         }
-        .onChange(of: urlString) { _ in
+        .onChange(of: playbackIdentity) { _ in
             syncRateFromSettings()
-            setupPlayer()
+            setupPlayer(forceReload: true)
             wakeUpControls()
-        }
-        .onChange(of: selectedEpisodeIndex) { _ in
-            if sharedController?.mediaURLString != urlString {
-                syncRateFromSettings()
-                setupPlayer()
-                wakeUpControls()
-            }
         }
         .onDisappear {
             pipManager.teardown()
@@ -611,13 +611,14 @@ struct AVPlayerContentView: View {
         controlsTimer?.invalidate()
     }
 
-    private func setupPlayer() {
+    private func setupPlayer(forceReload: Bool = false) {
         guard let url = URL(string: urlString) else { return }
         let targetURLString = url.absoluteString
         let preferredRate = normalizedSavedPlaybackRate
         rate = preferredRate
 
-        if let sharedController,
+        if !forceReload,
+           let sharedController,
            sharedController.mediaURLString == targetURLString,
            let sharedPlayer = sharedController.player {
             cleanupPlayer(keepSharedPlayer: true)

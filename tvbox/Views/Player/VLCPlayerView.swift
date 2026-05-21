@@ -129,7 +129,8 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
         onProgressChanged: ((Double, Double?) -> Void)?,
         onPlaybackEnded: (() -> Void)?,
         onPlaybackFailed: (() -> Void)?,
-        httpHeaders: [String: String] = [:]
+        httpHeaders: [String: String] = [:],
+        forceReload: Bool = false
     ) {
         let targetURLString = url.absoluteString
         let isNewMedia = currentMediaURLString != targetURLString || currentMediaIsLive != isLive
@@ -139,8 +140,8 @@ final class VLCPlayerController: NSObject, ObservableObject, VLCMediaPlayerDeleg
         syncDecodeModeFromSettings()
         syncBufferModeFromSettings()
         
-        // 同一路径/同场景（点播或直播）时复用当前实例，避免切全屏触发重新加载
-        if currentMediaURLString == targetURLString,
+        if !forceReload,
+           currentMediaURLString == targetURLString,
            currentMediaIsLive == isLive,
            currentMediaDecodeMode == decodeMode,
            currentMediaBufferMode == bufferMode,
@@ -878,7 +879,6 @@ struct VLCVodPlayerView: View {
     @State private var draggingSeconds: Double = 0
     @State private var showControls = true
     @State private var controlsTimer: Timer?
-    @State private var startPlaybackTask: Task<Void, Never>?
     @State private var isLocked = false
     @State private var savedPlaybackRateBeforeLongPress: Float = 1.0
     @State private var sliderTempPosition: Double = 0
@@ -891,6 +891,13 @@ struct VLCVodPlayerView: View {
 
     private var controller: VLCPlayerController {
         sharedController ?? ownedController
+    }
+
+    private var playbackIdentity: String {
+        let sortedHeaders = httpHeaders.sorted { $0.key < $1.key }
+            .map { "\($0.key)=\($0.value)" }
+            .joined(separator: "&")
+        return "\(urlString)|\(sortedHeaders)|\(selectedEpisodeIndex)"
     }
 
     private var currentResolution: String {
@@ -1082,15 +1089,10 @@ struct VLCVodPlayerView: View {
             startVLCBitrateMonitor()
             wakeUpControls()
         }
-        .onChange(of: urlString) { _ in
-            startPlayback()
+        .onChange(of: playbackIdentity) { _ in
+            draggingSeconds = max(startPosition, 0)
+            startPlayback(forceReload: true)
             wakeUpControls()
-        }
-        .onChange(of: selectedEpisodeIndex) { _ in
-            if controller.currentMediaURLString != urlString {
-                startPlayback()
-                wakeUpControls()
-            }
         }
         .onChange(of: controller.currentTimeSeconds) { newValue in
             if !isDraggingProgress {
@@ -1099,8 +1101,6 @@ struct VLCVodPlayerView: View {
             }
         }
         .onDisappear {
-            startPlaybackTask?.cancel()
-            startPlaybackTask = nil
             stopVLCBitrateMonitor()
             if sharedController == nil {
                 controller.stop()
@@ -1258,23 +1258,20 @@ struct VLCVodPlayerView: View {
         }
     }
 
-    private func startPlayback() {
+    private func startPlayback(forceReload: Bool = false) {
         guard let url = URL(string: urlString) else { return }
         let targetStartPosition = max(startPosition, 0)
         draggingSeconds = targetStartPosition
-        startPlaybackTask?.cancel()
-        startPlaybackTask = Task { @MainActor in
-            guard !Task.isCancelled else { return }
-            controller.play(
-                url: url,
-                startPosition: targetStartPosition,
-                isLive: false,
-                onProgressChanged: onProgressChanged,
-                onPlaybackEnded: onPlaybackEnded,
-                onPlaybackFailed: nil,
-                httpHeaders: httpHeaders
-            )
-        }
+        controller.play(
+            url: url,
+            startPosition: targetStartPosition,
+            isLive: false,
+            onProgressChanged: onProgressChanged,
+            onPlaybackEnded: onPlaybackEnded,
+            onPlaybackFailed: nil,
+            httpHeaders: httpHeaders,
+            forceReload: forceReload
+        )
     }
 
     private var seekStep: Double {
