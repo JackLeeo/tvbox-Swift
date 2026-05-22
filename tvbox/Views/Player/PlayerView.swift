@@ -284,6 +284,7 @@ struct AVPlayerContentView: View {
     var httpHeaders: [String: String] = [:]
     var playbackSessionId: UUID = UUID()
     @AppStorage(HawkConfig.PLAY_SPEED) private var savedPlaybackRate = 1.0
+    @AppStorage(HawkConfig.PLAY_TYPE_VOD) private var vodPlayTypeRaw = -1
     @State private var player: AVPlayer?
     @State private var playbackEndObserver: NSObjectProtocol?
     @State private var timeObserverToken: Any?
@@ -309,6 +310,7 @@ struct AVPlayerContentView: View {
     @State private var videoFitType: VideoFitType = .contain
     @StateObject private var networkMonitor = PlayerNetworkMonitor()
     @StateObject private var pipManager = PlayerPiPManager()
+    @State private var hasFallbackToVLC = false
 
     var body: some View {
         ZStack {
@@ -674,7 +676,20 @@ struct AVPlayerContentView: View {
             }
         ]
 
-        playerObservers = observers
+        if let item = player.currentItem {
+            let itemObserver = item.observe(\.status, options: [.new]) { [self] observedItem, _ in
+                DispatchQueue.main.async {
+                    if observedItem.status == .failed, !hasFallbackToVLC {
+                        hasFallbackToVLC = true
+                        fallbackToVLC()
+                    }
+                }
+            }
+            playerObservers = observers + [itemObserver]
+        } else {
+            playerObservers = observers
+        }
+
         observePlaybackProgress(for: player)
         observePlaybackEnd(for: player)
         isPlaying = player.timeControlStatus == .playing
@@ -884,6 +899,12 @@ struct AVPlayerContentView: View {
         let current = Double(player.volume)
         let target = min(max(current + delta, 0), 1)
         player.volume = Float(target)
+    }
+
+    private func fallbackToVLC() {
+        guard PlayerEngine.isVLCAvailable else { return }
+        UserDefaults.standard.set(PlayerEngine.vlc.rawValue, forKey: HawkConfig.PLAY_TYPE_VOD)
+        vodPlayTypeRaw = PlayerEngine.vlc.rawValue
     }
 }
 
