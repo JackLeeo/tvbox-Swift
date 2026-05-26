@@ -7,6 +7,7 @@ struct HomeView: View {
     @State private var categoryDragTranslation: CGFloat = 0
     @State private var safariUrl: URL?
     @State private var isReconnecting = false
+    @State private var showAbout = false
     var onSearchTap: (() -> Void)? = nil
 
     #if os(iOS)
@@ -50,6 +51,9 @@ struct HomeView: View {
         }
         .sheet(item: $safariUrl) { url in
             SafariWebView(url: url)
+        }
+        .sheet(isPresented: $showAbout) {
+            AboutView()
         }
         .onReceive(NotificationCenter.default.publisher(for: .spiderServiceDidReconnect)) { _ in
             isReconnecting = false
@@ -115,6 +119,15 @@ struct HomeView: View {
             .fixedSize()
 
             Spacer()
+
+            Button {
+                showAbout = true
+            } label: {
+                Image(systemName: "info.circle")
+                    .font(.system(size: 18))
+                    .foregroundColor(AppTheme.textSecondary)
+            }
+            .buttonStyle(.plain)
 
             HomeClockView()
         }

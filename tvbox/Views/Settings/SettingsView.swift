@@ -151,6 +151,10 @@ struct SettingsView: View {
                                 SettingsRow(icon: "wand.and.stars", title: "解析数量", value: "\(apiConfig.parseBeanList.count)", action: nil)
                                 Divider().background(AppTheme.borderLight)
                                 SettingsRow(icon: "tv", title: "直播分组", value: "\(apiConfig.liveChannelGroupList.count)", action: nil)
+                                Divider().background(AppTheme.borderLight)
+                                SettingsRow(icon: "person.circle", title: "关于版本", value: "") {
+                                    showAbout = true
+                                }
                             }
                         }
                     }
@@ -173,6 +177,9 @@ struct SettingsView: View {
             }
             .sheet(isPresented: $showFavoritesSheet) {
                 FavoritesView()
+            }
+            .sheet(isPresented: $showAbout) {
+                AboutView()
             }
         }
         .overlay(pickerOverlay)
