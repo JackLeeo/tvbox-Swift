@@ -131,6 +131,7 @@ class AppState: ObservableObject {
     @Published var isRetryingConfig = false
     @Published var pendingSearchKeyword: String?
     @Published var loadingPhase: LoadingPhase = .idle
+    @Published var showAboutOnLaunch = false
 
     #if os(macOS)
     @Published var splitViewVisibility: NavigationSplitViewVisibility = .all
@@ -185,6 +186,7 @@ class AppState: ObservableObject {
         isConfigLoaded = true
         configLoadError = nil
         currentSourceKey = ApiConfig.shared.homeSourceBean?.key ?? ""
+        showAboutOnLaunch = true
     }
 
     private func ensureNodeJSAndLoadSource() async {

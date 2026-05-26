@@ -62,9 +62,12 @@ struct AboutView: View {
             #endif
             .toolbar {
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("完成") { dismiss() }
+                    Button("完成") {
+                        dismiss()
+                    }
                 }
             }
         }
+        .interactiveDismissDisabled()
     }
 }

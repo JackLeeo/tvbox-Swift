@@ -50,6 +50,9 @@ struct ContentView: View {
                 }
             }
         }
+        .sheet(isPresented: $appState.showAboutOnLaunch) {
+            AboutView()
+        }
     }
 
     private var loadingView: some View {
