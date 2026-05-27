@@ -5,11 +5,9 @@ struct AboutView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: AppTheme.spacingXXL) {
-                Spacer()
-
+            VStack(spacing: AppTheme.spacingXL) {
                 Image(systemName: "play.tv")
-                    .font(.system(size: 64))
+                    .font(.system(size: 48))
                     .foregroundColor(AppTheme.accentColor)
 
                 Text("TVBox Swift")
@@ -49,12 +47,12 @@ struct AboutView: View {
                             }
                         }
                     }
-                    .padding(AppTheme.spacingXL)
+                    .padding(AppTheme.spacingLG)
                 }
                 .padding(.horizontal, AppTheme.spacingXL)
-
-                Spacer()
             }
+            .padding(.top, AppTheme.spacingXL)
+            .padding(.bottom, AppTheme.spacingXXL)
             .background(AppBackground())
             .navigationTitle("关于")
             #if os(iOS)
@@ -68,6 +66,9 @@ struct AboutView: View {
                 }
             }
         }
+        #if os(iOS)
+        .presentationDetents([.medium])
+        #endif
         .interactiveDismissDisabled()
     }
 }
