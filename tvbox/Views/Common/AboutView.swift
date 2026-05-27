@@ -13,7 +13,7 @@ struct AboutView: View {
                     .foregroundColor(AppTheme.accentColor)
 
                 Text("TVBox Swift")
-                    .font(.system(size: AppTheme.fontTitle1, weight: .bold))
+                    .font(.system(size: AppTheme.fontTitle2, weight: .bold))
                     .foregroundColor(AppTheme.textPrimary)
 
                 Text("版本 1.0.0")
